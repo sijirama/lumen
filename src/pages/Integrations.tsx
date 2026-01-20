@@ -27,6 +27,16 @@ function IntegrationsPage() {
         try {
             const data = await invoke<Integration[]>('get_integrations');
             setIntegrations(data);
+
+            // Pre-fill Google credentials if they exist
+            const g = data.find(i => i.name === 'google');
+            if (g?.config) {
+                try {
+                    const cfg = JSON.parse(g.config);
+                    if (cfg.client_id) setGoogleClientId(cfg.client_id);
+                    if (cfg.client_secret) setGoogleClientSecret(cfg.client_secret);
+                } catch (e) { console.error('Failed to parse Google config', e); }
+            }
         } catch (err) {
             setError(`Failed to load integrations: ${err}`);
         }
@@ -36,23 +46,35 @@ function IntegrationsPage() {
         return integrations.find(i => i.name === name);
     }
 
-    async function toggleCalendar() {
-        const current = getIntegration('google_calendar');
-        const newEnabled = !current?.enabled;
+    // Google Auth State
+    const [googleClientId, setGoogleClientId] = useState('');
+    const [googleClientSecret, setGoogleClientSecret] = useState('');
+    const [isAuthenticating, setIsAuthenticating] = useState(false);
 
+    async function handleGoogleAuth() {
+        if (!googleClientId.trim() || !googleClientSecret.trim()) {
+            setError('Please enter both Google Client ID and Client Secret');
+            return;
+        }
+
+        setIsAuthenticating(true);
+        setError(null);
         try {
-            await invoke('update_integration', {
-                integration: {
-                    name: 'google_calendar',
-                    enabled: newEnabled,
-                    config: current?.config || null,
-                    last_sync: null,
-                    status: newEnabled ? 'connected' : 'disconnected'
-                }
+            // 1. Save config first
+            await invoke('save_google_config', {
+                clientId: googleClientId,
+                clientSecret: googleClientSecret
             });
+
+            // 2. Start interactive auth
+            // This will open the browser and block until redirect is caught
+            await invoke('start_google_auth');
+
             await loadIntegrations();
         } catch (err) {
-            setError(`Failed: ${err}`);
+            setError(`Google Authentication failed: ${err}`);
+        } finally {
+            setIsAuthenticating(false);
         }
     }
 
@@ -97,33 +119,95 @@ function IntegrationsPage() {
         }
     }
 
-    const calendar = getIntegration('google_calendar');
+    const google = getIntegration('google');
     const obsidian = getIntegration('obsidian');
     const vaultPath = getVaultPath();
 
     return (
-        <div className="animate-fade-in">
+        <div className="animate-fade-in text-slate-200">
             <h2 style={{ marginBottom: 'var(--spacing-6)' }}>Integrations</h2>
 
             {error && <div className="error-message">{error}</div>}
 
-            {/* Google Calendar */}
-            <div className="integration-card">
-                <div className="integration-icon" style={{ background: '#e8f0fe' }}>📅</div>
+            {/* Google Services */}
+            <div className={`integration-card ${google?.enabled ? 'enabled' : ''}`}>
+                <div className="integration-icon" style={{ background: '#e8f0fe' }}>G</div>
                 <div className="integration-info">
-                    <div className="integration-name">Google Calendar</div>
+                    <div className="integration-name">Google Services</div>
+                    <div className="integration-description" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
+                        Connect to Google Calendar and Gmail
+                    </div>
                     <div className="integration-status">
-                        {calendar?.enabled ? (
+                        {google?.enabled ? (
                             <span style={{ color: 'var(--color-success)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                 <Check size={12} /> Connected
                             </span>
                         ) : 'Not connected'}
                     </div>
                 </div>
-                <button className={`btn btn-sm ${calendar?.enabled ? '' : 'btn-primary'}`} onClick={toggleCalendar}>
-                    {calendar?.enabled ? 'Disconnect' : 'Connect'}
-                </button>
+                <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
+                    {google?.enabled && (
+                        <button className="btn btn-sm" onClick={async () => {
+                            try {
+                                // Extract current config to keep credentials
+                                if (google.config) {
+                                    const cfg = JSON.parse(google.config);
+                                    setGoogleClientId(cfg.client_id || '');
+                                    setGoogleClientSecret(cfg.client_secret || '');
+                                }
+                                await invoke('update_integration', {
+                                    integration: { name: 'google', enabled: false, config: google.config, last_sync: google.last_sync, status: 'disconnected' }
+                                });
+                                await loadIntegrations();
+                            } catch (err) {
+                                setError(`Failed to disconnect: ${err}`);
+                            }
+                        }}>Disconnect</button>
+                    )}
+                </div>
             </div>
+
+            {!google?.enabled && (
+                <div className="integration-config-panel animate-fade-in" style={{ marginBottom: 'var(--spacing-6)' }}>
+                    <div className="config-section">
+                        <div className="config-title">Google API Credentials</div>
+                        <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-4)' }}>
+                            Enter your Google Cloud Project credentials to enable local OAuth.
+                            Lumen handles the handshake entirely on your machine.
+                        </p>
+                        <div className="config-grid">
+                            <div className="config-item">
+                                <label>Client ID</label>
+                                <input
+                                    type="text"
+                                    className="input input-sm"
+                                    placeholder="458...-apps.googleusercontent.com"
+                                    value={googleClientId}
+                                    onChange={(e) => setGoogleClientId(e.target.value)}
+                                />
+                            </div>
+                            <div className="config-item">
+                                <label>Client Secret</label>
+                                <input
+                                    type="password"
+                                    className="input input-sm"
+                                    placeholder="GOCSPX-..."
+                                    value={googleClientSecret}
+                                    onChange={(e) => setGoogleClientSecret(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <button
+                            className="btn btn-sm btn-primary"
+                            style={{ marginTop: 'var(--spacing-4)' }}
+                            onClick={handleGoogleAuth}
+                            disabled={isAuthenticating}
+                        >
+                            {isAuthenticating ? 'Authenticating...' : 'Authorize & Connect'}
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Obsidian */}
             <div className={`integration-card ${obsidian?.enabled ? 'enabled' : ''}`}>
@@ -224,15 +308,6 @@ function IntegrationsPage() {
                 </div>
             )}
 
-            {/* Email - Coming Soon */}
-            <div className="integration-card disabled">
-                <div className="integration-icon" style={{ background: '#fce8e6' }}>📧</div>
-                <div className="integration-info">
-                    <div className="integration-name">Email</div>
-                    <div className="integration-status">Coming soon</div>
-                </div>
-                <button className="btn btn-sm" disabled>Soon</button>
-            </div>
         </div>
     );
 }

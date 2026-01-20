@@ -167,9 +167,17 @@ pub async fn send_chat_message(
             }
             if let Some(call) = part.function_call {
                 has_function_calls = true;
-                if call.name == "get_weather" {
+                if call.name == "get_weather"
+                    || call.name == "get_google_calendar_events"
+                    || call.name == "get_unread_emails"
+                    || call.name == "send_email"
+                    || call.name == "create_calendar_event"
+                    || call.name == "list_google_tasks"
+                    || call.name == "create_google_task"
+                {
                     let result =
-                        crate::gemini::tools::execute_tool_async(&call.name, &call.args).await;
+                        crate::gemini::tools::execute_tool_async(&call.name, &call.args, &database)
+                            .await;
                     function_responses.push(crate::gemini::client::GeminiPart {
                         text: None,
                         function_call: None,
@@ -315,10 +323,10 @@ fn build_chat_context(database: &State<Database>) -> Result<Option<String>, Stri
     }
 
     //INFO: Add calendar events if integration is enabled
-    let calendar_integration = get_integration(&connection, "google_calendar")
-        .map_err(|e| format!("Failed to check calendar integration: {}", e))?;
+    let google_integration = get_integration(&connection, "google")
+        .map_err(|e| format!("Failed to check Google integration: {}", e))?;
 
-    if let Some(integration) = calendar_integration {
+    if let Some(integration) = google_integration {
         if integration.enabled {
             //INFO: Get today's events
             let start_of_day = today.format("%Y-%m-%dT00:00:00").to_string();

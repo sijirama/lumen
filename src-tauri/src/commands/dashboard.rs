@@ -153,24 +153,66 @@ pub async fn refresh_dashboard_briefing(
             }
         }
 
-        // Calendar (Mocked/Cached)
-        let today = Local::now();
-        let start_of_day = today.format("%Y-%m-%dT00:00:00").to_string();
-        let end_of_day = today.format("%Y-%m-%dT23:59:59").to_string();
-        if let Ok(events) = queries::get_calendar_events(&connection, &start_of_day, &end_of_day) {
-            if !events.is_empty() {
-                let mut e_str = String::from("Today's Calendar Events:\n");
-                for e in events {
-                    e_str.push_str(&format!(
-                        "- {} ({} to {})\n",
-                        e.title, e.start_time, e.end_time
-                    ));
+        data.join("\n\n")
+    };
+
+    // 2.5 Fetch Live Google Data (Outside lock to be thread-safe)
+    let mut live_data = Vec::new();
+    if let Ok(has_google) = {
+        let connection = database.connection.lock();
+        queries::has_api_token(&connection, "google")
+    } {
+        if has_google {
+            // Fetch Calendar
+            let start_of_day = Local::now().format("%Y-%m-%dT00:00:00Z").to_string();
+            let end_of_day = Local::now().format("%Y-%m-%dT23:59:59Z").to_string();
+
+            if let Ok(events) = crate::integrations::google_calendar::fetch_google_calendar_events(
+                &database,
+                &start_of_day,
+                &end_of_day,
+            )
+            .await
+            {
+                if !events.is_empty() {
+                    let mut e_str = String::from("Today's Real Calendar Events (from Google):\n");
+                    for e in events {
+                        let start = e
+                            .start
+                            .date_time
+                            .as_deref()
+                            .or(e.start.date.as_deref())
+                            .unwrap_or("unknown");
+                        e_str.push_str(&format!("- {} (starts at {})\n", e.summary, start));
+                    }
+                    live_data.push(e_str);
                 }
-                data.push(e_str);
+            }
+
+            // Fetch Emails
+            if let Ok(emails) =
+                crate::integrations::google_gmail::fetch_recent_emails(&database, 5).await
+            {
+                if !emails.is_empty() {
+                    let mut m_str = String::from("Recent Unread Emails (from Gmail):\n");
+                    for m in emails {
+                        m_str.push_str(&format!(
+                            "- From: {} | Subject: {} | Snippet: {}\n",
+                            m.from.as_deref().unwrap_or("Unknown"),
+                            m.subject.as_deref().unwrap_or("No Subject"),
+                            m.snippet
+                        ));
+                    }
+                    live_data.push(m_str);
+                }
             }
         }
+    }
 
-        data.join("\n\n")
+    let final_raw_data = if live_data.is_empty() {
+        raw_data
+    } else {
+        format!("{}\n\n{}", raw_data, live_data.join("\n\n"))
     };
 
     // 3. Call Gemini
@@ -186,20 +228,22 @@ pub async fn refresh_dashboard_briefing(
 
     let system_instruction = format!("You are Lumen, a witty and proactive desktop agent. Your task is to generate a 'Daily Briefing' for the user, {}.
 
-CRITICAL INSTRUCTIONS:
-- NEVER EVER ask the user for missing information. If data is lacking, DO NOT MENTION IT. 
-- You MUST provide a briefing based ONLY on the available data. 
-- If no daily notes or calendar events are found, FOCUS HEAVILY on the weather and provide a witty, cheerful greeting and sign-off.
-- The briefing should be a narrative, not a status report on missing data.
-- NEVER list the categories you need (e.g., 'Yesterday's Summary', 'Calendar Events').
+    CRITICAL INSTRUCTIONS:
+    - NEVER EVER ask the user for missing information. If data is lacking, DO NOT MENTION IT. 
+    - You MUST provide a briefing based ONLY on the available data. 
+    - If Google Calendar or Gmail data is provided, weave it into the narrative naturally. 
+    - If emails are provided, highlight the most important-sounding ones (don't list them, summarize).
+    - If briefings/summaries exist in the history, ensure your narrative 'evolves' instead of repeating.
+    - If no data is found, FOCUS HEAVILY on the weather and provide a witty greeting.
+    - The briefing should be a narrative, not a status report on missing data.
+- Use Markdown for bolding important parts or names.
 - Be concise (2-3 short paragraphs max).
-- Use Markdown for formatting.
 
 Tone: Premium, witty, and deeply helpful.", greeting_name);
 
     let prompt = format!(
         "RAW DATA CONTEXT:\n{}\n\nHISTORY CONTEXT:\n{}\n\nGenerate the briefing. Remember: be proactive, never ask questions or list missing data.",
-        raw_data, context
+        final_raw_data, context
     );
 
     let response_text = client
@@ -287,21 +331,18 @@ async fn calculate_briefing_hash(database: &State<'_, Database>) -> Result<Strin
             }
         }
 
-        // 2. Calendar Meta
-        if let Ok(Some(integration)) = queries::get_integration(&connection, "google_calendar") {
-            if integration.enabled {
-                let last_sync = integration.last_sync.clone().unwrap_or_default();
-                let start_of_day = today.format("%Y-%m-%dT00:00:00").to_string();
-                let end_of_day = today.format("%Y-%m-%dT23:59:59").to_string();
-                if let Ok(events) =
-                    queries::get_calendar_events(&connection, &start_of_day, &end_of_day)
-                {
+        // 2. Google Meta (Calendar & Gmail)
+        if let Ok(has_google) = queries::has_api_token(&connection, "google") {
+            if has_google {
+                if let Ok(Some(integration)) = queries::get_integration(&connection, "google") {
+                    let last_sync = integration.last_sync.clone().unwrap_or_default();
                     hash_input.push_str(&format!(
-                        "calendar:{}:{}:{}",
-                        events.len(),
+                        "google:{}:{}",
                         last_sync,
                         today.format("%Y-%m-%d")
                     ));
+                } else {
+                    hash_input.push_str(&format!("google:connected:{}", today.format("%Y-%m-%d")));
                 }
             }
         }

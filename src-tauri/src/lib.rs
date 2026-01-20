@@ -5,8 +5,10 @@ pub mod commands;
 pub mod crypto;
 pub mod database;
 pub mod gemini;
+pub mod integrations;
+pub mod oauth;
 
-use commands::{chat, dashboard, settings, setup, window};
+use commands::{auth, chat, dashboard, settings, setup, window};
 use database::{initialize_database, Database};
 use tauri::Manager;
 
@@ -102,6 +104,10 @@ pub fn run() {
             // Dashboard commands
             dashboard::get_dashboard_briefing,
             dashboard::refresh_dashboard_briefing,
+            // Auth commands
+            auth::get_google_auth_status,
+            auth::save_google_config,
+            auth::start_google_auth,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

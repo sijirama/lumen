@@ -123,7 +123,7 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
             },
             GeminiFunctionDeclaration {
                 name: "get_weather".to_string(),
-                description: "Gets the current weather for a location (simulated).".to_string(),
+                description: "Gets the current weather for a location.".to_string(),
                 parameters: Some(json!({
                     "type": "object",
                     "properties": {
@@ -133,6 +133,127 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                         }
                     },
                     "required": ["location"]
+                })),
+            },
+            GeminiFunctionDeclaration {
+                name: "get_google_calendar_events".to_string(),
+                description: "Lists Google Calendar events for a specific time range.".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "time_min": {
+                            "type": "string",
+                            "description": "Start time in RFC3339 format (e.g. '2026-01-20T00:00:00Z')."
+                        },
+                        "time_max": {
+                            "type": "string",
+                            "description": "End time in RFC3339 format."
+                        }
+                    },
+                    "required": ["time_min", "time_max"]
+                })),
+            },
+            GeminiFunctionDeclaration {
+                name: "get_unread_emails".to_string(),
+                description: "Lists recent unread emails from Gmail.".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of emails to fetch (default 5)."
+                        }
+                    }
+                })),
+            },
+            GeminiFunctionDeclaration {
+                name: "send_email".to_string(),
+                description: "Sends an email using Gmail.".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "to": {
+                            "type": "string",
+                            "description": "Recipient email address."
+                        },
+                        "subject": {
+                            "type": "string",
+                            "description": "Email subject."
+                        },
+                        "body": {
+                            "type": "string",
+                            "description": "Email body content."
+                        }
+                    },
+                    "required": ["to", "subject", "body"]
+                })),
+            },
+            GeminiFunctionDeclaration {
+                name: "create_calendar_event".to_string(),
+                description: "Creates a new event in the user's primary Google Calendar."
+                    .to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "summary": {
+                            "type": "string",
+                            "description": "Event title."
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Event description."
+                        },
+                        "start_time": {
+                            "type": "string",
+                            "description": "Start time in ISO format (e.g. '2026-01-20T14:00:00Z')."
+                        },
+                        "end_time": {
+                            "type": "string",
+                            "description": "End time in ISO format."
+                        },
+                        "location": {
+                            "type": "string",
+                            "description": "Physical or virtual location."
+                        }
+                    },
+                    "required": ["summary", "start_time", "end_time"]
+                })),
+            },
+            GeminiFunctionDeclaration {
+                name: "list_google_tasks".to_string(),
+                description: "Lists pending tasks from the user's default Google Tasks list."
+                    .to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of tasks to fetch (default 10)."
+                        }
+                    }
+                })),
+            },
+            GeminiFunctionDeclaration {
+                name: "create_google_task".to_string(),
+                description: "Creates a new task in the user's default Google Tasks list."
+                    .to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Task title."
+                        },
+                        "notes": {
+                            "type": "string",
+                            "description": "Task notes/description."
+                        },
+                        "due": {
+                            "type": "string",
+                            "description": "Due date in RFC3339 format (e.g. '2026-01-20T00:00:00Z')."
+                        }
+                    },
+                    "required": ["title"]
                 })),
             },
         ],
@@ -274,7 +395,11 @@ pub fn execute_tool_sync(
 }
 
 //INFO: Execute an asynchronous tool call and return the result as JSON
-pub async fn execute_tool_async(name: &str, args: &serde_json::Value) -> serde_json::Value {
+pub async fn execute_tool_async(
+    name: &str,
+    args: &serde_json::Value,
+    database: &crate::database::Database,
+) -> serde_json::Value {
     match name {
         "get_weather" => {
             let location = args
@@ -282,6 +407,87 @@ pub async fn execute_tool_async(name: &str, args: &serde_json::Value) -> serde_j
                 .and_then(|v| v.as_str())
                 .unwrap_or("Lagos");
             fetch_weather(location).await
+        }
+        "get_google_calendar_events" => {
+            let time_min = args.get("time_min").and_then(|v| v.as_str()).unwrap_or("");
+            let time_max = args.get("time_max").and_then(|v| v.as_str()).unwrap_or("");
+
+            match crate::integrations::google_calendar::fetch_google_calendar_events(
+                database, time_min, time_max,
+            )
+            .await
+            {
+                Ok(events) => json!({ "events": events }),
+                Err(e) => json!({ "error": format!("Failed to fetch calendar: {}", e) }),
+            }
+        }
+        "get_unread_emails" => {
+            let max_results = args
+                .get("max_results")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5) as u32;
+
+            match crate::integrations::google_gmail::fetch_recent_emails(database, max_results)
+                .await
+            {
+                Ok(emails) => json!({ "emails": emails }),
+                Err(e) => json!({ "error": format!("Failed to fetch emails: {}", e) }),
+            }
+        }
+        "send_email" => {
+            let to = args.get("to").and_then(|v| v.as_str()).unwrap_or("");
+            let subject = args.get("subject").and_then(|v| v.as_str()).unwrap_or("");
+            let body = args.get("body").and_then(|v| v.as_str()).unwrap_or("");
+
+            match crate::integrations::google_gmail::send_email(database, to, subject, body).await {
+                Ok(_) => json!({ "status": "success", "message": "Email sent." }),
+                Err(e) => json!({ "error": format!("Failed up to send email: {}", e) }),
+            }
+        }
+        "create_calendar_event" => {
+            let summary = args.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+            let description = args.get("description").and_then(|v| v.as_str());
+            let start_time = args
+                .get("start_time")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let end_time = args.get("end_time").and_then(|v| v.as_str()).unwrap_or("");
+            let location = args.get("location").and_then(|v| v.as_str());
+
+            match crate::integrations::google_calendar::create_calendar_event(
+                database,
+                summary,
+                description,
+                start_time,
+                end_time,
+                location,
+            )
+            .await
+            {
+                Ok(event) => json!({ "status": "success", "event": event }),
+                Err(e) => json!({ "error": format!("Failed to create event: {}", e) }),
+            }
+        }
+        "list_google_tasks" => {
+            let max_results = args
+                .get("max_results")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(10) as u32;
+            match crate::integrations::google_tasks::list_tasks(database, max_results).await {
+                Ok(tasks) => json!({ "tasks": tasks }),
+                Err(e) => json!({ "error": format!("Failed to fetch tasks: {}", e) }),
+            }
+        }
+        "create_google_task" => {
+            let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("");
+            let notes = args.get("notes").and_then(|v| v.as_str());
+            let due = args.get("due").and_then(|v| v.as_str());
+
+            match crate::integrations::google_tasks::create_task(database, title, notes, due).await
+            {
+                Ok(task) => json!({ "status": "success", "task": task }),
+                Err(e) => json!({ "error": format!("Failed to create task: {}", e) }),
+            }
         }
         _ => json!({ "error": format!("Unknown asynchronous tool: {}", name) }),
     }
