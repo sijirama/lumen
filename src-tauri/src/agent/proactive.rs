@@ -81,6 +81,7 @@ async fn check_gmail(app_handle: &tauri::AppHandle, database: &Database) -> anyh
                     id: None,
                     role: "assistant".to_string(),
                     content: assistant_text.clone(),
+                    image_data: None,
                     created_at: chrono::Utc::now().to_rfc3339(),
                     session_id: None,
                 };
@@ -95,6 +96,7 @@ async fn check_gmail(app_handle: &tauri::AppHandle, database: &Database) -> anyh
                         id: Some(msg_id),
                         role: "assistant".to_string(),
                         content: assistant_text,
+                        image_data: None,
                         created_at: now_str,
                     },
                 );

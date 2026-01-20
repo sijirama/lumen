@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, Sparkles, X, Loader2, Camera, FileText } from 'lucide-react';
+import { Send, Sparkles, X, Loader2, Camera, FileText, Calendar } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 //INFO: Chat message type
@@ -237,17 +237,6 @@ function OverlayWindow() {
     return (
         <div className="overlay-container">
             <div className="overlay-panel">
-                {/* Header */}
-                <div className="overlay-header">
-                    <div className="overlay-title">
-                        <Sparkles size={16} style={{ color: 'var(--color-accent)' }} />
-                        <span>Lumen</span>
-                    </div>
-                    <button className="btn btn-ghost btn-icon" onClick={hideOverlay} style={{ width: '28px', height: '28px' }}>
-                        <X size={14} />
-                    </button>
-                </div>
-
                 {/* Messages */}
                 <div className="overlay-content">
                     <div className="chat-messages">
@@ -340,6 +329,23 @@ function OverlayWindow() {
                     </div>
                 </div>
 
+                {/* Floating Action Bar */}
+                <div className="floating-action-bar">
+                    <button
+                        className={`action-button ${isCapturing ? 'loading' : ''}`}
+                        onClick={handleCaptureScreen}
+                        disabled={isLoading || isCapturing}
+                        title="Capture screen"
+                    >
+                        {isCapturing ? <Loader2 size={18} className="loading-spinner" /> : <Camera size={20} />}
+                    </button>
+
+                    <button className="action-button calendar-btn">
+                        <Calendar size={18} />
+                        <span>Calendar</span>
+                    </button>
+                </div>
+
                 {/* Input */}
                 <div className="overlay-footer">
                     {capturedImage && (
@@ -378,20 +384,6 @@ function OverlayWindow() {
                     )}
 
                     <div className="chat-input-container">
-                        <button
-                            className={`btn btn-icon ${isCapturing ? 'loading' : ''}`}
-                            onClick={handleCaptureScreen}
-                            disabled={isLoading || isCapturing}
-                            style={{
-                                width: '36px',
-                                height: '36px',
-                                opacity: 0.6,
-                                flexShrink: 0
-                            }}
-                            title="Lumen, look at my screen"
-                        >
-                            {isCapturing ? <Loader2 size={16} className="loading-spinner" /> : <Camera size={16} />}
-                        </button>
                         <textarea
                             ref={inputRef}
                             className="chat-input"

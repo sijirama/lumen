@@ -86,12 +86,28 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
+            image_data TEXT,
             created_at TEXT NOT NULL,
             session_id TEXT
         )",
             [],
         )
         .context("Failed to create chat_messages table")?;
+
+    // Migration: Add image_data column if it doesn't exist
+    let mut stmt = connection.prepare("PRAGMA table_info(chat_messages)")?;
+    let mut has_image_data = false;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == "image_data" {
+            has_image_data = true;
+            break;
+        }
+    }
+    if !has_image_data {
+        connection.execute("ALTER TABLE chat_messages ADD COLUMN image_data TEXT", [])?;
+    }
 
     //INFO: Create calendar_events table - caches calendar events for offline access
     connection

@@ -56,22 +56,24 @@ pub async fn refresh_dashboard_briefing(
 ) -> Result<DashboardBriefing, String> {
     let current_hash = calculate_briefing_hash(&database).await?;
 
-    // 1. Get Context (Yesterday's final, Today's history)
+    // 1. Get Context (Yesterday's final + only the LAST briefing from today, truncated)
     let context = {
         let connection = database.connection.lock();
         let mut parts = Vec::new();
 
+        // Only include yesterday's final briefing (truncated)
         if let Ok(Some(yesterday)) = queries::get_yesterdays_final_briefing(&connection) {
-            parts.push(format!("Yesterday's final outcome: {}", yesterday.content));
+            let truncated: String = yesterday.content.chars().take(1000).collect();
+            parts.push(format!("Yesterday's summary: {}", truncated));
         }
 
+        // Only include the LAST briefing from today (not all of them!)
         let todays = queries::get_todays_briefings(&connection).unwrap_or_default();
-        if !todays.is_empty() {
-            parts.push("Today's narrative evolution so far:".to_string());
-            for (i, b) in todays.iter().enumerate() {
-                parts.push(format!("{}. {}", i + 1, b.content));
-            }
+        if let Some(last) = todays.last() {
+            let truncated: String = last.content.chars().take(1000).collect();
+            parts.push(format!("Previous briefing: {}", truncated));
         }
+
         parts.join("\n\n")
     };
 
@@ -222,24 +224,30 @@ pub async fn refresh_dashboard_briefing(
                 .timestamp();
 
             let today_query = format!("after:{}", start_of_day);
-            if let Ok(emails) = crate::integrations::google_gmail::fetch_recent_emails_with_query(
+
+            match crate::integrations::google_gmail::fetch_recent_emails_with_query(
                 &database,
                 10,
                 Some(&today_query),
             )
             .await
             {
-                if !emails.is_empty() {
-                    let mut m_str = String::from("Emails from today:\n");
-                    for m in emails {
-                        m_str.push_str(&format!(
-                            "- From: {} | Subject: {} | Snippet: {}\n",
-                            m.from.as_deref().unwrap_or("Unknown"),
-                            m.subject.as_deref().unwrap_or("No Subject"),
-                            m.snippet
-                        ));
+                Ok(emails) => {
+                    if !emails.is_empty() {
+                        let mut m_str = String::from("Emails from today:\n");
+                        for m in &emails {
+                            m_str.push_str(&format!(
+                                "- From: {} | Subject: {} | Snippet: {}\n",
+                                m.from.as_deref().unwrap_or("Unknown"),
+                                m.subject.as_deref().unwrap_or("No Subject"),
+                                m.snippet
+                            ));
+                        }
+                        live_data.push(m_str);
                     }
-                    live_data.push(m_str);
+                }
+                Err(e) => {
+                    eprintln!("[Lumen] Gmail fetch error: {:?}", e);
                 }
             }
 
@@ -284,11 +292,12 @@ pub async fn refresh_dashboard_briefing(
     - TIME-AWARENESS: It is currently {}. Be warm and gentle in your greeting. In the morning, provide quiet encouragement. In the evening, help the user reflect and transition to rest.
     - NO COMPLAINING: Never mention missing data. Focus on the beauty of what is present.
     - FORMAT: 
-      - NO TITLES OR HEADINGS: Do not use any headings, titles, or labels for sections (no \"###\", \"##\", or bolded titles). This is a single, flowing briefing.
-      - STRUCTURE: Use two empty lines to separate distinct topics or contexts for a breathable, minimalist layout.
-      - INSIGHTS: Use normal text for everything. DO NOT use blockquotes ('>') or any special highlighting.
-      - LINKS: Use [Name](<lumen://open?path=/absolute/path>) for all specific notes or files mentioned. IMPORTANT: You MUST wrap the URL in angle brackets `< >` because paths often contain spaces (e.g., [Daily Note](<lumen://open?path=/User/Notes/Daily Notes/Note.md>)).
-      - TONE: Minimal, clean, and deeply supportive. NO ITALICS. NO BOLDING.", 
+      - NO HEADINGS: Do not use any headings or titles (no ###, ##, or bolded section titles).
+      - NO LIST LABELS: When using bullet points, write pure text only. NEVER prefix items with labels like 'Project:', 'Lumen:', 'Task:', etc. Just write the content directly.
+      - STRUCTURE: Use two empty lines between different topics for breathing room.
+      - INSIGHTS: Use normal text for everything. No blockquotes ('>') or highlighting.
+      - LINKS: Use [Name](<lumen://open?path=/absolute/path>) with angle brackets around URLs.
+      - TONE: Minimal and supportive. NO ITALICS. NO BOLDING.", 
     greeting_name,
     Local::now().format("%I:%M %p")
     );
@@ -308,7 +317,10 @@ pub async fn refresh_dashboard_briefing(
             None,
         )
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| {
+            eprintln!("[Lumen] Gemini API error: {}", e);
+            e.to_string()
+        })?
         .iter()
         .filter_map(|p| p.text.as_ref())
         .cloned()

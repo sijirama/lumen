@@ -18,6 +18,7 @@ pub struct ChatMessageResponse {
     pub id: Option<i64>,
     pub role: String,
     pub content: String,
+    pub image_data: Option<String>,
     pub created_at: String,
 }
 
@@ -88,14 +89,14 @@ pub async fn send_chat_message(
         inline_data: None,
     }];
 
-    if let Some(b64) = request.base64_image {
+    if let Some(ref b64) = request.base64_image {
         parts.push(crate::gemini::client::GeminiPart {
             text: None,
             function_call: None,
             function_response: None,
             inline_data: Some(crate::gemini::client::InlineData {
                 mime_type: "image/png".to_string(),
-                data: b64,
+                data: b64.clone(),
             }),
         });
     }
@@ -307,6 +308,7 @@ pub async fn send_chat_message(
         id: None,
         role: "user".to_string(),
         content: request.message.clone(),
+        image_data: request.base64_image.clone(),
         created_at: now.clone(),
         session_id: request.session_id.clone(),
     };
@@ -315,6 +317,7 @@ pub async fn send_chat_message(
         id: None,
         role: "assistant".to_string(),
         content: final_response_text.clone(),
+        image_data: None, // Assistant doesn't send images back currently
         created_at: chrono::Utc::now().to_rfc3339(),
         session_id: request.session_id,
     };
@@ -334,12 +337,14 @@ pub async fn send_chat_message(
             id: Some(user_id),
             role: user_message.role,
             content: user_message.content,
+            image_data: user_message.image_data,
             created_at: user_message.created_at,
         },
         assistant_message: ChatMessageResponse {
             id: Some(assistant_id),
             role: assistant_message.role,
             content: final_response_text,
+            image_data: None,
             created_at: assistant_message.created_at,
         },
     })
@@ -364,6 +369,7 @@ pub fn get_chat_history(
             id: m.id,
             role: m.role,
             content: m.content,
+            image_data: m.image_data,
             created_at: m.created_at,
         })
         .collect())

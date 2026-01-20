@@ -728,13 +728,10 @@ html.overlay-window {
 
 .overlay-panel {
   height: 100%;
-  background: var(--color-bg-primary);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
+  background: transparent;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
+  gap: 0;
 }
 
 .overlay-header {
@@ -742,7 +739,10 @@ html.overlay-window {
   align-items: center;
   justify-content: space-between;
   padding: var(--spacing-3) var(--spacing-4);
-  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border-light);
+  flex-shrink: 0;
 }
 
 .overlay-title {
@@ -757,18 +757,76 @@ html.overlay-window {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  /* CRITICAL: Prevent any horizontal internal scrolling */
   padding: var(--spacing-4);
   display: flex;
   flex-direction: column;
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border-light);
+  box-shadow: var(--shadow-md);
+
+  /* Hide scrollbar while maintaining functionality */
+  scrollbar-width: none;
+  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE and Edge */
+}
+
+.overlay-content::-webkit-scrollbar {
+  display: none;
+  /* Chrome, Safari and Opera */
 }
 
 .overlay-footer {
-  padding: var(--spacing-3);
-  border-top: 1px solid var(--color-border-light);
+  padding: var(--spacing-2);
   background: var(--color-bg-primary);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border-light);
+  box-shadow: var(--shadow-md);
   width: 100%;
   box-sizing: border-box;
+}
+
+.floating-action-bar {
+  display: flex;
+  justify-content: center;
+  gap: var(--spacing-3);
+  padding: var(--spacing-3) 0;
+  /* Added more vertical space */
+}
+
+.action-button {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-full);
+  padding: 0.4rem 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-2);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  min-width: 40px;
+}
+
+.action-button:hover {
+  background: var(--color-bg-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  color: var(--color-accent);
+}
+
+.calendar-btn span {
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: -0.01em;
+}
+
+.action-button.loading {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 /* ============================================================================

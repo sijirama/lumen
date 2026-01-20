@@ -30,6 +30,7 @@ pub struct ChatMessage {
     pub id: Option<i64>,
     pub role: String,
     pub content: String,
+    pub image_data: Option<String>,
     pub created_at: String,
     pub session_id: Option<String>,
 }
@@ -237,8 +238,8 @@ pub fn has_api_token(connection: &Connection, provider: &str) -> Result<bool> {
 pub fn save_chat_message(connection: &Connection, message: &ChatMessage) -> Result<i64> {
     let now = Utc::now().to_rfc3339();
     connection.execute(
-        "INSERT INTO chat_messages (role, content, created_at, session_id) VALUES (?1, ?2, ?3, ?4)",
-        params![message.role, message.content, now, message.session_id],
+        "INSERT INTO chat_messages (role, content, image_data, created_at, session_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![message.role, message.content, message.image_data, now, message.session_id],
     ).context("Failed to save chat message")?;
 
     Ok(connection.last_insert_rowid())
@@ -256,7 +257,7 @@ pub fn get_chat_messages(
     match session_id {
         Some(sid) => {
             let mut statement = connection.prepare(
-                "SELECT id, role, content, created_at, session_id FROM chat_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2"
+                "SELECT id, role, content, image_data, created_at, session_id FROM chat_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2"
             ).context("Failed to prepare chat messages query")?;
 
             let rows = statement
@@ -265,8 +266,9 @@ pub fn get_chat_messages(
                         id: Some(row.get(0)?),
                         role: row.get(1)?,
                         content: row.get(2)?,
-                        created_at: row.get(3)?,
-                        session_id: row.get(4)?,
+                        image_data: row.get(3)?,
+                        created_at: row.get(4)?,
+                        session_id: row.get(5)?,
                     })
                 })
                 .context("Failed to query chat messages")?;
@@ -277,7 +279,7 @@ pub fn get_chat_messages(
         }
         None => {
             let mut statement = connection.prepare(
-                "SELECT id, role, content, created_at, session_id FROM chat_messages ORDER BY created_at DESC LIMIT ?1"
+                "SELECT id, role, content, image_data, created_at, session_id FROM chat_messages ORDER BY created_at DESC LIMIT ?1"
             ).context("Failed to prepare chat messages query")?;
 
             let rows = statement
@@ -286,8 +288,9 @@ pub fn get_chat_messages(
                         id: Some(row.get(0)?),
                         role: row.get(1)?,
                         content: row.get(2)?,
-                        created_at: row.get(3)?,
-                        session_id: row.get(4)?,
+                        image_data: row.get(3)?,
+                        created_at: row.get(4)?,
+                        session_id: row.get(5)?,
                     })
                 })
                 .context("Failed to query chat messages")?;
