@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { RefreshCw, Volume2, VolumeX } from 'lucide-react';
+import { RefreshCw, Volume2, VolumeX, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import { invoke } from '@tauri-apps/api/core';
 import ReactMarkdown from 'react-markdown';
@@ -179,14 +179,23 @@ function Dashboard({ userName }: DashboardProps) {
                     </p>
                 </div>
                 <div className="briefing-actions">
-                    <button
-                        className={`btn btn-ghost btn-icon ${isSpeaking ? 'active' : ''}`}
-                        onClick={handleSpeak}
-                        title={isSpeaking ? "Stop Speaking" : "Listen to Briefing"}
-                        style={{ color: isSpeaking ? 'var(--color-accent)' : 'inherit' }}
-                    >
-                        {isSpeaking ? <VolumeX size={18} /> : <Volume2 size={18} />}
-                    </button>
+                    {(() => {
+                        const canSpeak = !!briefing?.audio_data || voices.length > 0;
+                        return (
+                            <button
+                                className={`btn btn-ghost btn-icon ${isSpeaking ? 'active' : ''}`}
+                                onClick={handleSpeak}
+                                disabled={!canSpeak || refreshing}
+                                title={isSpeaking ? "Stop Speaking" : "Listen to Briefing"}
+                                style={{
+                                    color: isSpeaking ? 'var(--color-accent)' : 'inherit',
+                                    opacity: canSpeak ? 1 : 0.4
+                                }}
+                            >
+                                {isSpeaking ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                            </button>
+                        );
+                    })()}
                     <button
                         className={`btn btn-ghost btn-icon ${refreshing ? 'loading' : ''}`}
                         onClick={refreshBriefing}
@@ -228,7 +237,9 @@ function Dashboard({ userName }: DashboardProps) {
                                     );
                                 },
                                 a: ({ node, ...props }) => {
-                                    const href = props.href || '';
+                                    // Strip angle brackets that may be added by the pre-processor or AI
+                                    const href = (props.href || '').replace(/^<|>$/g, '');
+
                                     if (href.startsWith('lumen://open')) {
                                         return (
                                             <a
@@ -238,16 +249,20 @@ function Dashboard({ userName }: DashboardProps) {
                                                     e.preventDefault();
                                                     try {
                                                         const url = new URL(href);
-                                                        const path = url.searchParams.get('path');
-                                                        if (path) {
+                                                        const rawPath = url.searchParams.get('path');
+                                                        if (rawPath) {
+                                                            const path = decodeURIComponent(rawPath);
                                                             invoke('open_path', { path });
                                                         }
                                                     } catch (err) {
                                                         console.error('Failed to parse lumen link', err);
                                                     }
                                                 }}
-                                                className="lumen-link"
+                                                className="lumen-pill"
                                             >
+                                                <span className="lumen-pill-icon">
+                                                    <FileText size={12} />
+                                                </span>
                                                 {props.children}
                                             </a>
                                         );
@@ -256,7 +271,8 @@ function Dashboard({ userName }: DashboardProps) {
                                 }
                             }}
                         >
-                            {briefing.content}
+                            {/* Pre-process to handle spaces in markdown links by wrapping lumen URLs in angle brackets */}
+                            {briefing.content.replace(/\]\((lumen:\/\/open\?path=[^)]+)\)/g, '](<$1>)')}
                         </ReactMarkdown>
                     ) : (
                         loading ? (

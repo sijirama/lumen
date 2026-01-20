@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, Sparkles, X, Loader2, Camera } from 'lucide-react';
+import { Send, Sparkles, X, Loader2, Camera, FileText } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 //INFO: Chat message type
@@ -287,6 +287,37 @@ function OverlayWindow() {
                                                         {...rest}
                                                     />
                                                 );
+                                            },
+                                            a: ({ node, ...props }) => {
+                                                const href = props.href || '';
+                                                if (href.startsWith('lumen://open')) {
+                                                    return (
+                                                        <a
+                                                            {...props}
+                                                            href="#"
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                try {
+                                                                    const url = new URL(href);
+                                                                    const rawPath = url.searchParams.get('path');
+                                                                    if (rawPath) {
+                                                                        const path = decodeURIComponent(rawPath);
+                                                                        invoke('open_path', { path });
+                                                                    }
+                                                                } catch (err) {
+                                                                    console.error('Failed to parse lumen link', err);
+                                                                }
+                                                            }}
+                                                            className="lumen-pill"
+                                                        >
+                                                            <span className="lumen-pill-icon">
+                                                                <FileText size={12} />
+                                                            </span>
+                                                            {props.children}
+                                                        </a>
+                                                    );
+                                                }
+                                                return <a {...props} target="_blank" rel="noopener noreferrer" />;
                                             }
                                         }}
                                     >

@@ -6,11 +6,11 @@
    ============================================================================ */
 :root {
   /* INFO: Light theme colors */
-  --color-bg-primary: #ffffff;
-  --color-bg-secondary: #f8f9fa;
-  --color-bg-tertiary: #f1f3f4;
+  --color-bg-primary: #fdfdfd;
+  --color-bg-secondary: #f9f9f9;
+  --color-bg-tertiary: #f0f0f0;
   --color-bg-elevated: #ffffff;
-  --color-bg-hover: #e8eaed;
+  --color-bg-hover: #f5f5f5;
 
   /* INFO: Surface colors */
   --color-surface: #ffffff;
@@ -164,16 +164,43 @@ a:hover {
   text-decoration: underline;
 }
 
-.lumen-link {
-  color: var(--color-accent);
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  cursor: pointer;
+.lumen-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  padding: 1px var(--spacing-3);
+  margin: 0 2px;
+  border-radius: var(--radius-full);
+  text-decoration: none !important;
   font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  transition: all var(--transition-fast);
+  vertical-align: middle;
+  font-size: 0.9em;
 }
 
-.lumen-link:hover {
-  text-decoration-style: solid;
+.lumen-pill:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  transform: translateY(-1px);
+  border-color: var(--color-text-muted);
+}
+
+.lumen-pill:active {
+  transform: translateY(0);
+}
+
+.lumen-pill-icon {
+  display: flex;
+  align-items: center;
+  opacity: 0.8;
+}
+
+.lumen-pill:hover .lumen-pill-icon {
+  opacity: 1;
 }
 
 /* ============================================================================
@@ -475,15 +502,21 @@ input:checked+.slider:before {
    Dashboard - Briefing Card
    ============================================================================ */
 .briefing-card {
-  background: none;
-  border: none;
-  padding: var(--spacing-2) 0;
-  margin-top: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: var(--spacing-4) var(--spacing-6);
+  margin: var(--spacing-2) calc(-1 * var(--spacing-6));
   box-shadow: none;
   transition: all var(--transition-base);
   position: relative;
+  border-radius: var(--radius-xl);
   overflow: hidden;
   text-align: left;
+}
+
+.briefing-card.loading {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-border-light);
 }
 
 .briefing-card:hover {
@@ -770,7 +803,7 @@ html.overlay-window {
 }
 
 .markdown-content p {
-  margin-bottom: 0.8em;
+  margin-bottom: 1.25rem;
 }
 
 .markdown-content p:last-child {
@@ -815,36 +848,66 @@ html.overlay-window {
 }
 
 .markdown-content blockquote {
-  border-left: 3px solid var(--color-accent);
-  padding-left: var(--spacing-4);
-  margin: var(--spacing-4) 0;
-  color: var(--color-text-secondary);
-  font-style: italic;
+  padding: var(--spacing-2) 0;
+  margin: var(--spacing-2) 0;
+  color: var(--color-text-primary);
+  border-left: none;
 }
 
 .markdown-content ul,
 .markdown-content ol {
-  margin: 0.8em 0;
-  padding-left: 1.5em;
+  padding-left: var(--spacing-6);
+  margin-bottom: var(--spacing-4);
 }
 
 .markdown-content li {
-  margin-bottom: 0.4em;
+  margin-bottom: var(--spacing-2);
 }
 
-.lumen-link {
-  color: var(--color-accent);
-  text-decoration: none;
-  font-weight: var(--font-weight-medium);
-  border-bottom: 1px dashed var(--color-accent-light);
-  transition: all var(--transition-base);
+.markdown-content li input[type="checkbox"] {
+  margin-right: var(--spacing-2);
+  accent-color: var(--color-accent);
+  transform: scale(1.1);
+  vertical-align: middle;
 }
 
-.lumen-link:hover {
-  border-bottom-style: solid;
-  background: var(--color-accent-light);
-  border-radius: 2px;
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  margin-top: var(--spacing-6);
+  margin-bottom: var(--spacing-3);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  line-height: 1.2;
 }
+
+.markdown-content h1 {
+  font-size: 1.3rem;
+}
+
+.markdown-content h2 {
+  font-size: 1.15rem;
+}
+
+.markdown-content h3 {
+  font-size: 1rem;
+  padding-bottom: 4px;
+}
+
+.markdown-content hr {
+  border: 0;
+  height: 0;
+  margin: var(--spacing-4) 0;
+}
+
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--spacing-4) 0;
+  font-size: var(--font-size-xs);
+}
+
+
 
 .chat-message.user {
   align-self: flex-end;

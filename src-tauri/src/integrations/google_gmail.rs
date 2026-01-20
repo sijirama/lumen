@@ -118,6 +118,7 @@ pub async fn fetch_recent_emails_with_query(
             database,
             &tokens,
             max_results,
+            Some(q),
         ))
         .await;
     }
@@ -187,11 +188,15 @@ async fn fetch_recent_emails_with_tokens(
     _database: &Database,
     tokens: &GoogleTokens,
     max_results: u32,
+    query: Option<&str>,
 ) -> Result<Vec<GmailMessage>> {
     let client = reqwest::Client::new();
+    let q = query.unwrap_or("is:unread inbox");
+    let encoded_q = urlencoding::encode(q);
+
     let list_url = format!(
-        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults={}&q=is:unread inbox",
-        max_results
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults={}&q={}",
+        max_results, encoded_q
     );
 
     let list_response = client

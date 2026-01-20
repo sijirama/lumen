@@ -3,9 +3,9 @@
 
 use crate::database::{queries, Database};
 use crate::gemini::client::{GeminiClient, GeminiContent, GeminiPart};
+use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Local};
 use serde::{Deserialize, Serialize};
-use base64::{engine::general_purpose, Engine as _};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
@@ -34,8 +34,10 @@ pub async fn get_dashboard_briefing(
     let current_hash = calculate_briefing_hash(&database).await?;
 
     if let Some(summary) = latest {
-        let b64_audio = summary.audio_data.map(|data| general_purpose::STANDARD.encode(data));
-        
+        let b64_audio = summary
+            .audio_data
+            .map(|data| general_purpose::STANDARD.encode(data));
+
         Ok(Some(DashboardBriefing {
             content: summary.content,
             created_at: summary.created_at,
@@ -142,7 +144,9 @@ pub async fn refresh_dashboard_briefing(
                                     let mut skipping = false;
                                     for line in content.lines() {
                                         let l = line.to_lowercase();
-                                        if l.contains("notes created today") || l.contains("notes last touched today") {
+                                        if l.contains("notes created today")
+                                            || l.contains("notes last touched today")
+                                        {
                                             skipping = true;
                                         } else if skipping && line.starts_with("#") {
                                             // Stop skipping if we hit a new header
@@ -208,12 +212,25 @@ pub async fn refresh_dashboard_briefing(
                 }
             }
 
-            // Fetch Emails
-            if let Ok(emails) =
-                crate::integrations::google_gmail::fetch_recent_emails(&database, 5).await
+            // Fetch Emails (Use precise Unix timestamp for "today" to avoid timezone issues)
+            let start_of_day = Local::now()
+                .date_naive()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_local_timezone(Local)
+                .unwrap()
+                .timestamp();
+
+            let today_query = format!("after:{}", start_of_day);
+            if let Ok(emails) = crate::integrations::google_gmail::fetch_recent_emails_with_query(
+                &database,
+                10,
+                Some(&today_query),
+            )
+            .await
             {
                 if !emails.is_empty() {
-                    let mut m_str = String::from("Recent Unread Emails (from Gmail):\n");
+                    let mut m_str = String::from("Emails from today:\n");
                     for m in emails {
                         m_str.push_str(&format!(
                             "- From: {} | Subject: {} | Snippet: {}\n",
@@ -256,7 +273,7 @@ pub async fn refresh_dashboard_briefing(
     let decrypted_key = crate::crypto::decrypt_token(&api_key).map_err(|e| e.to_string())?;
     let client = GeminiClient::new(decrypted_key);
 
-    let system_instruction = format!("You are Lumen, a soft, kind, and observant companion for {}. 
+    let system_instruction = format!("You are Lumen, a soft, kind, and observant companion for {}.
     
     YOUR MISSION: 
     Provide a gentle, supportive, and tactical overview of the day.
@@ -267,13 +284,12 @@ pub async fn refresh_dashboard_briefing(
     - TIME-AWARENESS: It is currently {}. Be warm and gentle in your greeting. In the morning, provide quiet encouragement. In the evening, help the user reflect and transition to rest.
     - NO COMPLAINING: Never mention missing data. Focus on the beauty of what is present.
     - FORMAT: 
-      - Use clean spacing instead of horizontal separators.
-      - Use **bolding** for important names or tasks.
-      - LINKS: When referencing a specific note or folder, use: [Name](lumen://open?path=/absolute/path).
-      - Keep it to 3 short, warm paragraphs.
-
-    Tone: Soft, kind, premium, and deeply supportive.", 
-    greeting_name, 
+      - NO TITLES OR HEADINGS: Do not use any headings, titles, or labels for sections (no \"###\", \"##\", or bolded titles). This is a single, flowing briefing.
+      - STRUCTURE: Use two empty lines to separate distinct topics or contexts for a breathable, minimalist layout.
+      - INSIGHTS: Use normal text for everything. DO NOT use blockquotes ('>') or any special highlighting.
+      - LINKS: Use [Name](<lumen://open?path=/absolute/path>) for all specific notes or files mentioned. IMPORTANT: You MUST wrap the URL in angle brackets `< >` because paths often contain spaces (e.g., [Daily Note](<lumen://open?path=/User/Notes/Daily Notes/Note.md>)).
+      - TONE: Minimal, clean, and deeply supportive. NO ITALICS. NO BOLDING.", 
+    greeting_name,
     Local::now().format("%I:%M %p")
     );
 
@@ -309,8 +325,13 @@ pub async fn refresh_dashboard_briefing(
     // 5. Save to DB
     {
         let connection = database.connection.lock();
-        queries::save_briefing_summary(&connection, &response_text, &current_hash, audio_data.as_deref())
-            .map_err(|e| e.to_string())?;
+        queries::save_briefing_summary(
+            &connection,
+            &response_text,
+            &current_hash,
+            audio_data.as_deref(),
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     let b64_audio = audio_data.map(|data| general_purpose::STANDARD.encode(data));
