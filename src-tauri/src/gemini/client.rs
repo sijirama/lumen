@@ -29,6 +29,7 @@ pub fn get_default_system_instruction() -> String {
 
 //INFO: Request structure for Gemini API
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GeminiRequest {
     pub contents: Vec<GeminiContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -38,11 +39,13 @@ pub struct GeminiRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct GeminiTool {
     pub function_declarations: Vec<GeminiFunctionDeclaration>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct GeminiFunctionDeclaration {
     pub name: String,
     pub description: String,
@@ -52,6 +55,7 @@ pub struct GeminiFunctionDeclaration {
 
 //INFO: Content structure for messages
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct GeminiContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
@@ -60,14 +64,15 @@ pub struct GeminiContent {
 
 //INFO: Part structure (text content or function call)
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct GeminiPart {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    #[serde(rename = "functionCall", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub function_call: Option<GeminiFunctionCall>,
-    #[serde(rename = "functionResponse", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub function_response: Option<GeminiFunctionResponse>,
-    #[serde(rename = "inlineData", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub inline_data: Option<InlineData>,
 }
 
@@ -92,18 +97,21 @@ impl GeminiPart {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct InlineData {
     pub mime_type: String,
     pub data: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct GeminiFunctionCall {
     pub name: String,
     pub args: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct GeminiFunctionResponse {
     pub name: String,
     pub response: serde_json::Value,

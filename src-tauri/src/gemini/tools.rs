@@ -12,13 +12,13 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
         function_declarations: vec![
             GeminiFunctionDeclaration {
                 name: "read_file".to_string(),
-                description: "Reads the content of a file at the specified path.".to_string(),
+                description: "Reads the content of a local file (e.g., an Obsidian note or daily task list).".to_string(),
                 parameters: Some(json!({
                     "type": "object",
                     "properties": {
                         "path": {
                             "type": "string",
-                            "description": "The absolute path to the file to read."
+                            "description": "The absolute path to the local file."
                         }
                     },
                     "required": ["path"]
@@ -27,7 +27,7 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
             GeminiFunctionDeclaration {
                 name: "write_file".to_string(),
                 description:
-                    "Writes content to a file at the specified path. Overwrites if it exists."
+                    "Writes content to a local file. Use this for ticking tasks in daily notes OR updating vault content. Overwrites if it exists."
                         .to_string(),
                 parameters: Some(json!({
                     "type": "object",
@@ -38,7 +38,7 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                         },
                         "content": {
                             "type": "string",
-                            "description": "The content to write to the file."
+                            "description": "The content to write to the local file."
                         }
                     },
                     "required": ["path", "content"]
@@ -225,7 +225,7 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
             },
             GeminiFunctionDeclaration {
                 name: "list_google_tasks".to_string(),
-                description: "Lists pending tasks from the user's default Google Tasks list."
+                description: "Lists pending tasks from the user's default Google Tasks list (Official cloud-stored items). DO NOT use this for checking local Obsidian daily notes or Markdown tasks."
                     .to_string(),
                 parameters: Some(json!({
                     "type": "object",
@@ -239,7 +239,7 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
             },
             GeminiFunctionDeclaration {
                 name: "create_google_task".to_string(),
-                description: "Creates a new task in the user's default Google Tasks list. IMPORTANT: For due dates, use the current year and offset from the 'ISO' time in CONTEXT."
+                description: "Creates a new official cloud-stored task in Google Tasks. DO NOT use this for updating local Obsidian files. IMPORTANT: For due dates, use the current year and offset from the 'ISO' time in CONTEXT."
                     .to_string(),
                 parameters: Some(json!({
                     "type": "object",

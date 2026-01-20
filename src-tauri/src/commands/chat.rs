@@ -67,9 +67,9 @@ pub async fn send_chat_message(
     //INFO: 2. Build context from integrations
     let context = build_chat_context(&database)?;
 
-    //INFO: 3. Convert history to Gemini format
+    //INFO: 3. Convert history to Gemini format (History is already chronological)
     let mut gemini_messages = Vec::new();
-    for msg in history.into_iter().rev() {
+    for msg in history {
         gemini_messages.push(crate::gemini::client::GeminiContent {
             role: Some(if msg.role == "user" {
                 "user".to_string()
@@ -80,14 +80,9 @@ pub async fn send_chat_message(
         });
     }
 
-    //INFO: 4. Add current message with context enrichment
-    let user_message_content = match context {
-        Some(ctx) => format!("CONTEXT:\n{}\n\nUSER MESSAGE: {}", ctx, request.message),
-        None => request.message.clone(),
-    };
-
+    //INFO: 4. Add current message
     let mut parts = vec![crate::gemini::client::GeminiPart {
-        text: Some(user_message_content),
+        text: Some(request.message.clone()),
         function_call: None,
         function_response: None,
         inline_data: None,
@@ -127,6 +122,17 @@ pub async fn send_chat_message(
 
     //INFO: Enhance system instruction with specific user info
     let mut system_instruction = get_default_system_instruction();
+
+    if let Some(ctx) = context {
+        system_instruction.push_str("\n\n--- DYNAMIC KNOWLEDGE (BACKGROUND ONLY) ---");
+        system_instruction.push_str(
+            "\nThis is the user's current digital state. DO NOT acknowledgment it unless relevant.",
+        );
+        system_instruction.push_str("\nIf the user says 'hi' or chats, respond socially. DO NOT mention tasks unless they ask.");
+        system_instruction.push_str(&format!("\n\n{}", ctx));
+        system_instruction.push_str("\n-------------------------------------------");
+    }
+
     if let Some(config) = &obsidian_config {
         system_instruction.push_str("\n\n--- OBSIDIAN CONFIGURATION ---");
         if let Some(path) = config.get("vault_path").and_then(|v| v.as_str()) {
@@ -149,29 +155,7 @@ pub async fn send_chat_message(
         system_instruction.push_str("\n------------------------------");
     }
 
-    // Add explicit status of integrations to stop hallucination
-    system_instruction.push_str("\n\n--- INTEGRATION STATUS ---");
-    let google_enabled = {
-        let connection = database.connection.lock();
-        crate::database::queries::has_api_token(&connection, "google").unwrap_or(false)
-    };
-    system_instruction.push_str(&format!(
-        "\nGOOGLE SERVICES: {}",
-        if google_enabled {
-            "ENABLED ✅"
-        } else {
-            "DISABLED ❌ (Guide user to Integrations)"
-        }
-    ));
-    system_instruction.push_str(&format!(
-        "\nOBSIDIAN: {}",
-        if obsidian_config.is_some() {
-            "ENABLED ✅"
-        } else {
-            "DISABLED ❌"
-        }
-    ));
-    system_instruction.push_str("\n------------------------------");
+    system_instruction.push_str("\n\n🎯 CONVERSATIONAL RULE: If the user says 'hi', 'hello', or is just being social, respond ONLY with warmth and conversation. DO NOT mention tasks, technical context, or potential actions unless the user initiates it. Be a friend first, a sidekick second.");
 
     let mut current_messages = gemini_messages;
     let mut final_response_text = String::new();
@@ -187,10 +171,22 @@ pub async fn send_chat_message(
             .await
             .map_err(|e| format!("Failed to get AI response: {}", e))?;
 
-        //INFO: Record the model's response in history
+        //INFO: Record the model's response in history for the next loop turn
+        // We clean up redundant text turns in current_messages to prevent robotic repetition
+        let mut clean_response_parts = Vec::new();
+        for part in &response_parts {
+            if let Some(text) = &part.text {
+                if !final_response_text.contains(text) || part.function_call.is_none() {
+                    clean_response_parts.push(part.clone());
+                }
+            } else {
+                clean_response_parts.push(part.clone());
+            }
+        }
+
         current_messages.push(crate::gemini::client::GeminiContent {
             role: Some("model".to_string()),
-            parts: response_parts.clone(),
+            parts: clean_response_parts,
         });
 
         let mut has_function_calls = false;
@@ -274,15 +270,23 @@ pub async fn send_chat_message(
             if let Some(b64) = screenshot_data {
                 current_messages.push(crate::gemini::client::GeminiContent {
                     role: Some("user".to_string()),
-                    parts: vec![crate::gemini::client::GeminiPart {
-                        text: Some("[VISUAL CONTEXT ATTACHED]".to_string()),
-                        function_call: None,
-                        function_response: None,
-                        inline_data: Some(crate::gemini::client::InlineData {
-                            mime_type: "image/png".to_string(),
-                            data: b64,
-                        }),
-                    }],
+                    parts: vec![
+                        crate::gemini::client::GeminiPart {
+                            text: Some("[VISUAL CONTEXT ATTACHED]".to_string()),
+                            function_call: None,
+                            function_response: None,
+                            inline_data: None,
+                        },
+                        crate::gemini::client::GeminiPart {
+                            text: None,
+                            function_call: None,
+                            function_response: None,
+                            inline_data: Some(crate::gemini::client::InlineData {
+                                mime_type: "image/png".to_string(),
+                                data: b64,
+                            }),
+                        },
+                    ],
                 });
             }
             continue;
@@ -380,19 +384,18 @@ fn build_chat_context(database: &State<Database>) -> Result<Option<String>, Stri
 
     //INFO: Get today's date info
     let today = Local::now();
-    let today_str = today.format("%A, %B %d, %Y").to_string();
+    let today_str = today.format("%A, %b %d").to_string();
     let current_time = today.format("%H:%M").to_string();
     let iso_now = today.to_rfc3339();
 
-    context_parts.push(format!(
-        "Current date and time: {} at {} (ISO: {})",
-        today_str, current_time, iso_now
-    ));
+    context_parts.push(format!("Today: {} at {}", today_str, current_time));
 
     //INFO: Add user profile info
     if let Ok(Some(profile)) = get_user_profile(&connection) {
         context_parts.push(format!("User Name: {}", profile.display_name));
     }
+
+    context_parts.push(format!("\n[TECHNICAL CONTEXT]\nISO_NOW: {}", iso_now));
 
     //INFO: Integration Status (Helpful for AI to know what's possible)
     let mut status_parts = Vec::new();
