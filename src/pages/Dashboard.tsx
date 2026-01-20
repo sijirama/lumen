@@ -213,11 +213,20 @@ function Dashboard({ userName }: DashboardProps) {
                     </div>
                 </div>
 
-                <div className="briefing-content">
+                <div className="briefing-content markdown-content">
                     {briefing ? (
                         <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{
+                                code: ({ node, ...props }: any) => {
+                                    const { inline, ...rest } = props;
+                                    return (
+                                        <code
+                                            className={inline ? 'inline-code' : 'block-code'}
+                                            {...rest}
+                                        />
+                                    );
+                                },
                                 a: ({ node, ...props }) => {
                                     const href = props.href || '';
                                     if (href.startsWith('lumen://open')) {

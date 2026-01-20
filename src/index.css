@@ -527,23 +527,9 @@ input:checked+.slider:before {
 }
 
 .briefing-content {
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.6;
   color: var(--color-text-primary);
-}
-
-.briefing-content p {
-  margin-bottom: var(--spacing-4);
-}
-
-.briefing-content hr {
-  display: none;
-}
-
-.briefing-content ul,
-.briefing-content ol {
-  margin-left: var(--spacing-4);
-  margin-bottom: var(--spacing-3);
 }
 
 .shimmer-overlay {
@@ -779,16 +765,85 @@ html.overlay-window {
 .markdown-content {
   max-width: 100%;
   overflow-x: hidden;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.markdown-content p {
+  margin-bottom: 0.8em;
+}
+
+.markdown-content p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content strong {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.markdown-content em {
+  font-style: italic;
+  opacity: 0.9;
 }
 
 .markdown-content pre {
   max-width: 100%;
   overflow-x: auto;
-  /* Only code blocks can scroll sideways if absolutely needed */
-  background: rgba(0, 0, 0, 0.05);
-  padding: var(--spacing-2);
+  background: var(--color-bg-tertiary);
+  padding: var(--spacing-3);
   border-radius: var(--radius-md);
-  margin: var(--spacing-2) 0;
+  margin: var(--spacing-4) 0;
+  border: 1px solid var(--color-border-light);
+}
+
+.markdown-content code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.9em;
+}
+
+.inline-code {
+  background: var(--color-bg-tertiary);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+}
+
+.block-code {
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding-left: var(--spacing-4);
+  margin: var(--spacing-4) 0;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.8em 0;
+  padding-left: 1.5em;
+}
+
+.markdown-content li {
+  margin-bottom: 0.4em;
+}
+
+.lumen-link {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-weight: var(--font-weight-medium);
+  border-bottom: 1px dashed var(--color-accent-light);
+  transition: all var(--transition-base);
+}
+
+.lumen-link:hover {
+  border-bottom-style: solid;
+  background: var(--color-accent-light);
+  border-radius: 2px;
 }
 
 .chat-message.user {

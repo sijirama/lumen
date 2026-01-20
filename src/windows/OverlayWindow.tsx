@@ -45,7 +45,17 @@ function OverlayWindow() {
         };
     }, []);
 
-    //INFO: Listen for window focus events to re-focus the input
+    const scrollToBottom = (instant = false) => {
+        // Use a small timeout to ensure layout is complete
+        setTimeout(() => {
+            messagesEndRef.current?.scrollIntoView({
+                behavior: instant ? 'instant' : 'smooth',
+                block: 'end'
+            });
+        }, 50);
+    };
+
+    //INFO: Listen for window focus events to re-focus the input and scroll to bottom
     useEffect(() => {
         let unlisten: (() => void) | null = null;
 
@@ -54,6 +64,8 @@ function OverlayWindow() {
             const { listen } = await import('@tauri-apps/api/event');
             unlisten = await listen('tauri://focus', () => {
                 inputRef.current?.focus();
+                // When window "comes up", ensure we are at the bottom
+                scrollToBottom(true);
             });
         }
 
@@ -67,17 +79,21 @@ function OverlayWindow() {
         loadChatHistory();
     }, []);
 
+    const isFirstLoad = useRef(true);
+
     // Scroll to bottom when messages change
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
-
-    // Scroll to bottom immediately when chat history loads
-    useEffect(() => {
         if (messages.length > 0) {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+            if (isFirstLoad.current) {
+                scrollToBottom(true);
+                isFirstLoad.current = false;
+            } else {
+                const lastMessage = messages[messages.length - 1];
+                // Smooth scroll for new messages (id is null for temp messages)
+                scrollToBottom(lastMessage?.id === null);
+            }
         }
-    }, [messages.length > 0]);
+    }, [messages]);
 
     //INFO: Auto-resize textarea
     useEffect(() => {
@@ -220,20 +236,11 @@ function OverlayWindow() {
                                     <ReactMarkdown
                                         remarkPlugins={[remarkGfm]}
                                         components={{
-                                            p: ({ node, ...props }) => <p style={{ margin: 0, marginBottom: index === messages.length - 1 ? 0 : '0.5em' }} {...props} />,
-                                            ul: ({ node, ...props }) => <ul style={{ paddingLeft: '1.2em', margin: '0.5em 0' }} {...props} />,
-                                            ol: ({ node, ...props }) => <ol style={{ paddingLeft: '1.2em', margin: '0.5em 0' }} {...props} />,
                                             code: ({ node, ...props }: any) => {
                                                 const { inline, ...rest } = props;
                                                 return (
                                                     <code
-                                                        style={{
-                                                            background: 'rgba(0,0,0,0.1)',
-                                                            padding: '2px 4px',
-                                                            borderRadius: '4px',
-                                                            fontFamily: 'monospace',
-                                                            fontSize: '0.9em'
-                                                        }}
+                                                        className={inline ? 'inline-code' : 'block-code'}
                                                         {...rest}
                                                     />
                                                 );
