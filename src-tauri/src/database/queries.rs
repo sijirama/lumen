@@ -62,6 +62,7 @@ pub struct BriefingSummary {
     pub id: i32,
     pub content: String,
     pub data_hash: String,
+    pub audio_data: Option<Vec<u8>>,
     pub created_at: String,
     pub is_final_of_day: bool,
 }
@@ -492,11 +493,12 @@ pub fn save_briefing_summary(
     connection: &Connection,
     content: &str,
     data_hash: &str,
+    audio_data: Option<&[u8]>,
 ) -> Result<()> {
     let now = Utc::now().to_rfc3339();
     connection.execute(
-        "INSERT INTO briefing_summaries (content, data_hash, created_at) VALUES (?, ?, ?)",
-        params![content, data_hash, now],
+        "INSERT INTO briefing_summaries (content, data_hash, audio_data, created_at) VALUES (?, ?, ?, ?)",
+        params![content, data_hash, audio_data, now],
     )?;
     Ok(())
 }
@@ -504,14 +506,15 @@ pub fn save_briefing_summary(
 // INFO: Gets the latest briefing summary
 pub fn get_latest_briefing_summary(connection: &Connection) -> Result<Option<BriefingSummary>> {
     connection.query_row(
-        "SELECT id, content, data_hash, created_at, is_final_of_day FROM briefing_summaries ORDER BY created_at DESC LIMIT 1",
+        "SELECT id, content, data_hash, audio_data, created_at, is_final_of_day FROM briefing_summaries ORDER BY created_at DESC LIMIT 1",
         [],
         |row| Ok(BriefingSummary {
             id: row.get(0)?,
             content: row.get(1)?,
             data_hash: row.get(2)?,
-            created_at: row.get(3)?,
-            is_final_of_day: row.get::<_, i32>(4)? != 0,
+            audio_data: row.get(3)?,
+            created_at: row.get(4)?,
+            is_final_of_day: row.get::<_, i32>(5)? != 0,
         })
     ).optional().context("Failed to get latest briefing summary")
 }
@@ -521,7 +524,7 @@ pub fn get_yesterdays_final_briefing(connection: &Connection) -> Result<Option<B
     // Search for the most recent summary created before today's start
     connection
         .query_row(
-            "SELECT id, content, data_hash, created_at, is_final_of_day 
+            "SELECT id, content, data_hash, audio_data, created_at, is_final_of_day 
          FROM briefing_summaries 
          WHERE created_at < date('now', 'start of day')
          ORDER BY created_at DESC LIMIT 1",
@@ -531,8 +534,9 @@ pub fn get_yesterdays_final_briefing(connection: &Connection) -> Result<Option<B
                     id: row.get(0)?,
                     content: row.get(1)?,
                     data_hash: row.get(2)?,
-                    created_at: row.get(3)?,
-                    is_final_of_day: row.get::<_, i32>(4)? != 0,
+                    audio_data: row.get(3)?,
+                    created_at: row.get(4)?,
+                    is_final_of_day: row.get::<_, i32>(5)? != 0,
                 })
             },
         )
@@ -545,7 +549,7 @@ pub fn get_todays_briefings(connection: &Connection) -> Result<Vec<BriefingSumma
     let today = Utc::now().format("%Y-%m-%d").to_string();
 
     let mut stmt = connection.prepare(
-        "SELECT id, content, data_hash, created_at, is_final_of_day 
+        "SELECT id, content, data_hash, audio_data, created_at, is_final_of_day 
          FROM briefing_summaries 
          WHERE created_at LIKE ? 
          ORDER BY created_at ASC",
@@ -557,8 +561,9 @@ pub fn get_todays_briefings(connection: &Connection) -> Result<Vec<BriefingSumma
                 id: row.get(0)?,
                 content: row.get(1)?,
                 data_hash: row.get(2)?,
-                created_at: row.get(3)?,
-                is_final_of_day: row.get::<_, i32>(4)? != 0,
+                audio_data: row.get(3)?,
+                created_at: row.get(4)?,
+                is_final_of_day: row.get::<_, i32>(5)? != 0,
             })
         })?
         .filter_map(|r| r.ok())

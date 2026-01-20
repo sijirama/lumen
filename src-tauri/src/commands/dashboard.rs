@@ -5,6 +5,7 @@ use crate::database::{queries, Database};
 use crate::gemini::client::{GeminiClient, GeminiContent, GeminiPart};
 use chrono::{Duration, Local};
 use serde::{Deserialize, Serialize};
+use base64::{engine::general_purpose, Engine as _};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
@@ -15,6 +16,7 @@ pub struct DashboardBriefing {
     pub content: String,
     pub created_at: String,
     pub is_stale: bool,
+    pub audio_data: Option<String>, // Base64 encoded audio
 }
 
 //INFO: Gets the latest briefing from the database and checks if it's stale
@@ -32,10 +34,13 @@ pub async fn get_dashboard_briefing(
     let current_hash = calculate_briefing_hash(&database).await?;
 
     if let Some(summary) = latest {
+        let b64_audio = summary.audio_data.map(|data| general_purpose::STANDARD.encode(data));
+        
         Ok(Some(DashboardBriefing {
             content: summary.content,
             created_at: summary.created_at,
             is_stale: summary.data_hash != current_hash,
+            audio_data: b64_audio,
         }))
     } else {
         Ok(None)
@@ -296,17 +301,25 @@ pub async fn refresh_dashboard_briefing(
         .trim()
         .to_string();
 
-    // 4. Save to DB
+    // 4. Generate Audio (Gemini TTS)
+    let audio_data = crate::integrations::gemini_tts::generate_audio(&database, &response_text)
+        .await
+        .ok(); // Fallback if TTS fails
+
+    // 5. Save to DB
     {
         let connection = database.connection.lock();
-        queries::save_briefing_summary(&connection, &response_text, &current_hash)
+        queries::save_briefing_summary(&connection, &response_text, &current_hash, audio_data.as_deref())
             .map_err(|e| e.to_string())?;
     }
+
+    let b64_audio = audio_data.map(|data| general_purpose::STANDARD.encode(data));
 
     Ok(DashboardBriefing {
         content: response_text,
         created_at: Local::now().to_rfc3339(),
         is_stale: false,
+        audio_data: b64_audio,
     })
 }
 

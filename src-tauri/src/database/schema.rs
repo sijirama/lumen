@@ -169,12 +169,31 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
             data_hash TEXT NOT NULL,
+            audio_data BLOB,
             created_at TEXT NOT NULL,
             is_final_of_day INTEGER NOT NULL DEFAULT 0
         )",
             [],
         )
         .context("Failed to create briefing_summaries table")?;
+
+    // Migration: Add audio_data column if it doesn't exist
+    let mut stmt = connection.prepare("PRAGMA table_info(briefing_summaries)")?;
+    let mut has_audio = false;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == "audio_data" {
+            has_audio = true;
+            break;
+        }
+    }
+    if !has_audio {
+        connection.execute(
+            "ALTER TABLE briefing_summaries ADD COLUMN audio_data BLOB",
+            [],
+        )?;
+    }
 
     //INFO: Create notifications table to track proactive pings
     connection

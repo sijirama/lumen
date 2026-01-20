@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { RefreshCw, Volume2, VolumeX } from 'lucide-react';
 import { format } from 'date-fns';
 import { invoke } from '@tauri-apps/api/core';
@@ -14,6 +14,7 @@ interface Briefing {
     content: string;
     created_at: string;
     is_stale: boolean;
+    audio_data?: string; // Base64 audio from Gemini TTS
 }
 
 function Dashboard({ userName }: DashboardProps) {
@@ -24,6 +25,7 @@ function Dashboard({ userName }: DashboardProps) {
     const [refreshing, setRefreshing] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
 
     // Load voices on mount (required for Web Speech API)
     useEffect(() => {
@@ -50,40 +52,67 @@ function Dashboard({ userName }: DashboardProps) {
     }, []);
 
     const handleSpeak = () => {
-        // Safety check
-        if (!window.speechSynthesis) {
-            console.warn('Speech synthesis not available');
-            return;
-        }
-
         if (isSpeaking) {
-            window.speechSynthesis.cancel();
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current = null;
+            } else if (window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+            }
             setIsSpeaking(false);
             return;
         }
 
         if (!briefing) return;
 
-        // Strip markdown links for cleaner speech
-        const cleanText = briefing.content
-            .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-            .replace(/[*_#`]/g, '');
+        // 1. Prefer Gemini TTS Pre-generated Audio
+        if (briefing.audio_data) {
+            const audio = new Audio(`data:audio/wav;base64,${briefing.audio_data}`);
+            audioRef.current = audio;
+            audio.onended = () => {
+                setIsSpeaking(false);
+                audioRef.current = null;
+            };
+            audio.onerror = () => {
+                console.error("Audio playback error");
+                setIsSpeaking(false);
+                audioRef.current = null;
+            };
+            setIsSpeaking(true);
+            audio.play().catch(e => {
+                console.error("Failed to play audio:", e);
+                setIsSpeaking(false);
+                audioRef.current = null;
+            });
+            return;
+        }
 
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.rate = 0.9;
-        utterance.pitch = 1.0;
+        console.log("No pre-generated audio found for this briefing. Try refreshing the briefing to generate it.");
 
-        // Try to find a nice neural-sounding voice
-        const preferredVoice = voices.find(v =>
-            v.name.includes('Google') || v.name.includes('Neural') || v.name.includes('English')
-        ) || voices[0];
+        // 2. Fallback to Web Speech API if available
+        if (typeof window !== 'undefined' && window.speechSynthesis) {
+            // Strip markdown links for cleaner speech
+            const cleanText = briefing.content
+                .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+                .replace(/[*_#`]/g, '');
 
-        if (preferredVoice) utterance.voice = preferredVoice;
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            utterance.rate = 0.9;
+            utterance.pitch = 1.0;
 
-        utterance.onend = () => setIsSpeaking(false);
-        utterance.onerror = () => setIsSpeaking(false);
-        setIsSpeaking(true);
-        window.speechSynthesis.speak(utterance);
+            const preferredVoice = voices.find(v =>
+                v.name.includes('Google') || v.name.includes('Neural') || v.name.includes('English')
+            ) || voices[0];
+
+            if (preferredVoice) utterance.voice = preferredVoice;
+
+            utterance.onend = () => setIsSpeaking(false);
+            utterance.onerror = () => setIsSpeaking(false);
+            setIsSpeaking(true);
+            window.speechSynthesis.speak(utterance);
+        } else {
+            console.warn('No audio data and Web Speech API not available');
+        }
     };
 
     //INFO: Update time every minute
