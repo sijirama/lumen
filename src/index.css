@@ -817,9 +817,10 @@ html.overlay-window {
 
 .action-button:hover {
   background: var(--color-bg-hover);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
   color: var(--color-accent);
+  border-color: var(--color-accent);
 }
 
 .calendar-btn span {
@@ -846,15 +847,51 @@ html.overlay-window {
 
 .chat-message {
   max-width: 85%;
-  padding: var(--spacing-3);
+  padding: var(--spacing-3) var(--spacing-4);
   border-radius: var(--radius-lg);
   font-size: var(--font-size-xs);
   line-height: 1.5;
   word-break: break-word;
-  /* Force break long words */
   overflow-wrap: anywhere;
-  /* Hard break for anything too long */
   position: relative;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: messageSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  border: 1px solid transparent;
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.chat-message.user {
+  align-self: flex-end;
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  border-bottom-right-radius: var(--radius-sm);
+  border-color: var(--color-border-light);
+  box-shadow: none;
+}
+
+.chat-message.assistant {
+  align-self: flex-start;
+  background: #fcfcfc;
+  color: var(--color-text-primary);
+  border-bottom-left-radius: var(--radius-sm);
+  border-color: var(--color-border-light);
+  box-shadow: none;
+}
+
+.chat-message:hover {
+  transform: translateY(-1px);
+  border-color: var(--color-border);
 }
 
 .markdown-content {
@@ -1004,7 +1041,6 @@ html.overlay-window {
 .chat-input {
   flex: 1;
   padding: 8px var(--spacing-3);
-  /* Even more compact */
   background: var(--color-bg-tertiary);
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-lg);
@@ -1018,6 +1054,11 @@ html.overlay-window {
   line-height: 1.4;
   overflow-y: auto;
   box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.chat-input:focus {
+  background: var(--color-bg-elevated);
 }
 
 .chat-input::placeholder {
@@ -1298,6 +1339,45 @@ select.input {
 
   to {
     opacity: 1;
+  }
+}
+
+/* Typing Indicator (iMessage style) */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 12px;
+}
+
+.typing-dot {
+  width: 5px;
+  height: 5px;
+  background-color: var(--color-text-muted);
+  border-radius: 50%;
+  opacity: 0.4;
+  animation: typingPulse 1.5s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typingPulse {
+
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+
+  50% {
+    transform: scale(1.4);
+    opacity: 0.9;
   }
 }
 

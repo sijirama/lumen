@@ -317,9 +317,12 @@ function OverlayWindow() {
                         ))}
 
                         {isLoading && (
-                            <div className="chat-message assistant" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-                                <Loader2 size={14} className="loading-spinner" />
-                                <span>Thinking...</span>
+                            <div className="chat-message assistant">
+                                <div className="typing-indicator">
+                                    <div className="typing-dot"></div>
+                                    <div className="typing-dot"></div>
+                                    <div className="typing-dot"></div>
+                                </div>
                             </div>
                         )}
 
