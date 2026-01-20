@@ -119,6 +119,8 @@ pub async fn refresh_dashboard_briefing(
                                 .replace("MM", "%m")
                                 .replace("DD", "%d");
 
+                            data.push(format!("Obsidian Vault Root: {}", vault_path));
+
                             // Try today, then go back up to 7 days
                             let mut found_note = false;
                             for i in 0..7 {
@@ -129,16 +131,28 @@ pub async fn refresh_dashboard_briefing(
                                     .join(daily_notes_folder)
                                     .join(&daily_note_name);
 
-                                if let Ok(content) = fs::read_to_string(daily_note_path) {
+                                if let Ok(content) = fs::read_to_string(&daily_note_path) {
+                                    // Strip unwanted sections
+                                    let mut cleaned_lines = Vec::new();
+                                    let mut skipping = false;
+                                    for line in content.lines() {
+                                        let l = line.to_lowercase();
+                                        if l.contains("notes created today") || l.contains("notes last touched today") {
+                                            skipping = true;
+                                        } else if skipping && line.starts_with("#") {
+                                            // Stop skipping if we hit a new header
+                                            skipping = false;
+                                            cleaned_lines.push(line);
+                                        } else if !skipping {
+                                            cleaned_lines.push(line);
+                                        }
+                                    }
+                                    let cleaned_content = cleaned_lines.join("\n");
+
                                     data.push(format!(
-                                        "Available Daily Note ({}{}):\n{}",
-                                        if i == 0 { "TODAY" } else { "PAST" },
-                                        if i > 0 {
-                                            format!(" - {} days ago", i)
-                                        } else {
-                                            "".to_string()
-                                        },
-                                        content
+                                        "Daily Note (Path: {}):\n{}",
+                                        daily_note_path.display(),
+                                        cleaned_content
                                     ));
                                     found_note = true;
                                     break;
@@ -206,6 +220,17 @@ pub async fn refresh_dashboard_briefing(
                     live_data.push(m_str);
                 }
             }
+
+            // Fetch Tasks
+            if let Ok(tasks) = crate::integrations::google_tasks::list_tasks(&database, 10).await {
+                if !tasks.is_empty() {
+                    let mut t_str = String::from("Pending Tasks (from Google Tasks):\n");
+                    for t in tasks {
+                        t_str.push_str(&format!("- {} (status: {})\n", t.title, t.status));
+                    }
+                    live_data.push(t_str);
+                }
+            }
         }
     }
 
@@ -226,20 +251,26 @@ pub async fn refresh_dashboard_briefing(
     let decrypted_key = crate::crypto::decrypt_token(&api_key).map_err(|e| e.to_string())?;
     let client = GeminiClient::new(decrypted_key);
 
-    let system_instruction = format!("You are Lumen, a witty and proactive desktop agent. Your task is to generate a 'Daily Briefing' for the user, {}.
+    let system_instruction = format!("You are Lumen, a soft, kind, and observant companion for {}. 
+    
+    YOUR MISSION: 
+    Provide a gentle, supportive, and tactical overview of the day.
 
     CRITICAL INSTRUCTIONS:
-    - NEVER EVER ask the user for missing information. If data is lacking, DO NOT MENTION IT. 
-    - You MUST provide a briefing based ONLY on the available data. 
-    - If Google Calendar or Gmail data is provided, weave it into the narrative naturally. 
-    - If emails are provided, highlight the most important-sounding ones (don't list them, summarize).
-    - If briefings/summaries exist in the history, ensure your narrative 'evolves' instead of repeating.
-    - If no data is found, FOCUS HEAVILY on the weather and provide a witty greeting.
-    - The briefing should be a narrative, not a status report on missing data.
-- Use Markdown for bolding important parts or names.
-- Be concise (2-3 short paragraphs max).
+    - ANALYZE: Softly weave together connections between Obsidian notes, unread Emails, and Calendar events.
+    - PRIORITIZE: Help the user find their focus today by identifying the most meaningful 'Lead Domino' in a calm, encouraging way.
+    - TIME-AWARENESS: It is currently {}. Be warm and gentle in your greeting. In the morning, provide quiet encouragement. In the evening, help the user reflect and transition to rest.
+    - NO COMPLAINING: Never mention missing data. Focus on the beauty of what is present.
+    - FORMAT: 
+      - Use clean spacing instead of horizontal separators.
+      - Use **bolding** for important names or tasks.
+      - LINKS: When referencing a specific note or folder, use: [Name](lumen://open?path=/absolute/path).
+      - Keep it to 3 short, warm paragraphs.
 
-Tone: Premium, witty, and deeply helpful.", greeting_name);
+    Tone: Soft, kind, premium, and deeply supportive.", 
+    greeting_name, 
+    Local::now().format("%I:%M %p")
+    );
 
     let prompt = format!(
         "RAW DATA CONTEXT:\n{}\n\nHISTORY CONTEXT:\n{}\n\nGenerate the briefing. Remember: be proactive, never ask questions or list missing data.",
@@ -250,11 +281,7 @@ Tone: Premium, witty, and deeply helpful.", greeting_name);
         .send_chat(
             vec![GeminiContent {
                 role: Some("user".to_string()),
-                parts: vec![GeminiPart {
-                    text: Some(prompt),
-                    function_call: None,
-                    function_response: None,
-                }],
+                parts: vec![GeminiPart::text(prompt)],
             }],
             Some(&system_instruction),
             None,

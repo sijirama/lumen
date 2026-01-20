@@ -26,6 +26,7 @@ pub struct ChatMessageResponse {
 pub struct SendMessageRequest {
     pub message: String,
     pub session_id: Option<String>,
+    pub base64_image: Option<String>,
 }
 
 //INFO: Response from sending a chat message
@@ -72,11 +73,7 @@ pub async fn send_chat_message(
             } else {
                 "model".to_string()
             }),
-            parts: vec![crate::gemini::client::GeminiPart {
-                text: Some(msg.content),
-                function_call: None,
-                function_response: None,
-            }],
+            parts: vec![crate::gemini::client::GeminiPart::text(msg.content)],
         });
     }
 
@@ -86,13 +83,28 @@ pub async fn send_chat_message(
         None => request.message.clone(),
     };
 
-    gemini_messages.push(crate::gemini::client::GeminiContent {
-        role: Some("user".to_string()),
-        parts: vec![crate::gemini::client::GeminiPart {
-            text: Some(user_message_content),
+    let mut parts = vec![crate::gemini::client::GeminiPart {
+        text: Some(user_message_content),
+        function_call: None,
+        function_response: None,
+        inline_data: None,
+    }];
+
+    if let Some(b64) = request.base64_image {
+        parts.push(crate::gemini::client::GeminiPart {
+            text: None,
             function_call: None,
             function_response: None,
-        }],
+            inline_data: Some(crate::gemini::client::InlineData {
+                mime_type: "image/png".to_string(),
+                data: b64,
+            }),
+        });
+    }
+
+    gemini_messages.push(crate::gemini::client::GeminiContent {
+        role: Some("user".to_string()),
+        parts,
     });
 
     //INFO: 5. Load Tools
@@ -178,14 +190,9 @@ pub async fn send_chat_message(
                     let result =
                         crate::gemini::tools::execute_tool_async(&call.name, &call.args, &database)
                             .await;
-                    function_responses.push(crate::gemini::client::GeminiPart {
-                        text: None,
-                        function_call: None,
-                        function_response: Some(crate::gemini::client::GeminiFunctionResponse {
-                            name: call.name,
-                            response: result,
-                        }),
-                    });
+                    function_responses.push(crate::gemini::client::GeminiPart::function_response(
+                        call.name, result,
+                    ));
                 } else {
                     let result = {
                         let connection = database.connection.lock();
@@ -196,14 +203,9 @@ pub async fn send_chat_message(
                             &connection,
                         )
                     };
-                    function_responses.push(crate::gemini::client::GeminiPart {
-                        text: None,
-                        function_call: None,
-                        function_response: Some(crate::gemini::client::GeminiFunctionResponse {
-                            name: call.name,
-                            response: result,
-                        }),
-                    });
+                    function_responses.push(crate::gemini::client::GeminiPart::function_response(
+                        call.name, result,
+                    ));
                 }
             }
         }
@@ -321,6 +323,33 @@ fn build_chat_context(database: &State<Database>) -> Result<Option<String>, Stri
     if let Ok(Some(profile)) = get_user_profile(&connection) {
         context_parts.push(format!("User Name: {}", profile.display_name));
     }
+
+    //INFO: Integration Status (Helpful for AI to know what's possible)
+    let mut status_parts = Vec::new();
+    status_parts.push("--- INTEGRATION STATUS ---".to_string());
+
+    let g_int = get_integration(&connection, "google").ok().flatten();
+    status_parts.push(format!(
+        "Google Services: {}",
+        if g_int.map_or(false, |i| i.enabled) {
+            "ENABLED"
+        } else {
+            "DISABLED"
+        }
+    ));
+
+    let o_int = get_integration(&connection, "obsidian").ok().flatten();
+    status_parts.push(format!(
+        "Obsidian: {}",
+        if o_int.map_or(false, |i| i.enabled) {
+            "ENABLED"
+        } else {
+            "DISABLED"
+        }
+    ));
+
+    status_parts.push("--------------------------".to_string());
+    context_parts.push(status_parts.join("\n"));
 
     //INFO: Add calendar events if integration is enabled
     let google_integration = get_integration(&connection, "google")

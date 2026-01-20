@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { RefreshCw, Volume2, VolumeX } from 'lucide-react';
 import { format } from 'date-fns';
 import { invoke } from '@tauri-apps/api/core';
 import ReactMarkdown from 'react-markdown';
@@ -21,6 +22,69 @@ function Dashboard({ userName }: DashboardProps) {
     const [briefing, setBriefing] = useState<Briefing | null>(null);
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+    // Load voices on mount (required for Web Speech API)
+    useEffect(() => {
+        // Safety check - speechSynthesis may not be available in all environments
+        if (typeof window === 'undefined' || !window.speechSynthesis) {
+            return;
+        }
+
+        const loadVoices = () => {
+            const availableVoices = window.speechSynthesis.getVoices();
+            if (availableVoices.length > 0) {
+                setVoices(availableVoices);
+            }
+        };
+
+        loadVoices();
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+
+        return () => {
+            if (window.speechSynthesis) {
+                window.speechSynthesis.onvoiceschanged = null;
+            }
+        };
+    }, []);
+
+    const handleSpeak = () => {
+        // Safety check
+        if (!window.speechSynthesis) {
+            console.warn('Speech synthesis not available');
+            return;
+        }
+
+        if (isSpeaking) {
+            window.speechSynthesis.cancel();
+            setIsSpeaking(false);
+            return;
+        }
+
+        if (!briefing) return;
+
+        // Strip markdown links for cleaner speech
+        const cleanText = briefing.content
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+            .replace(/[*_#`]/g, '');
+
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.rate = 0.9;
+        utterance.pitch = 1.0;
+
+        // Try to find a nice neural-sounding voice
+        const preferredVoice = voices.find(v =>
+            v.name.includes('Google') || v.name.includes('Neural') || v.name.includes('English')
+        ) || voices[0];
+
+        if (preferredVoice) utterance.voice = preferredVoice;
+
+        utterance.onend = () => setIsSpeaking(false);
+        utterance.onerror = () => setIsSpeaking(false);
+        setIsSpeaking(true);
+        window.speechSynthesis.speak(utterance);
+    };
 
     //INFO: Update time every minute
     useEffect(() => {
@@ -85,20 +149,24 @@ function Dashboard({ userName }: DashboardProps) {
                         {format(currentTime, "EEEE, MMMM d")}
                     </p>
                 </div>
-
-                <button
-                    className={`refresh-btn ${refreshing ? 'spinning' : ''}`}
-                    onClick={refreshBriefing}
-                    disabled={refreshing}
-                    title="Refresh briefing"
-                    style={{ padding: 'var(--spacing-2)', opacity: 0.6 }}
-                >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M23 4v6h-6"></path>
-                        <path d="M1 20v-6h6"></path>
-                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-                    </svg>
-                </button>
+                <div className="briefing-actions">
+                    <button
+                        className={`btn btn-ghost btn-icon ${isSpeaking ? 'active' : ''}`}
+                        onClick={handleSpeak}
+                        title={isSpeaking ? "Stop Speaking" : "Listen to Briefing"}
+                        style={{ color: isSpeaking ? 'var(--color-accent)' : 'inherit' }}
+                    >
+                        {isSpeaking ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                    </button>
+                    <button
+                        className={`btn btn-ghost btn-icon ${refreshing ? 'loading' : ''}`}
+                        onClick={refreshBriefing}
+                        disabled={refreshing}
+                        title="Refresh Briefing"
+                    >
+                        <RefreshCw size={18} className={refreshing ? 'loading-spinner' : ''} />
+                    </button>
+                </div>
             </div>
 
             {/* Briefing Card */}
@@ -118,7 +186,38 @@ function Dashboard({ userName }: DashboardProps) {
 
                 <div className="briefing-content">
                     {briefing ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                                a: ({ node, ...props }) => {
+                                    const href = props.href || '';
+                                    if (href.startsWith('lumen://open')) {
+                                        return (
+                                            <a
+                                                {...props}
+                                                href="#"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    try {
+                                                        const url = new URL(href);
+                                                        const path = url.searchParams.get('path');
+                                                        if (path) {
+                                                            invoke('open_path', { path });
+                                                        }
+                                                    } catch (err) {
+                                                        console.error('Failed to parse lumen link', err);
+                                                    }
+                                                }}
+                                                className="lumen-link"
+                                            >
+                                                {props.children}
+                                            </a>
+                                        );
+                                    }
+                                    return <a {...props} target="_blank" rel="noopener noreferrer" />;
+                                }
+                            }}
+                        >
                             {briefing.content}
                         </ReactMarkdown>
                     ) : (

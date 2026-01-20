@@ -137,3 +137,12 @@ pub async fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
         Err("Main window not found".to_string())
     }
 }
+
+//INFO: Opens a path using the system's default application
+#[tauri::command]
+pub async fn open_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(path, None::<String>)
+        .map_err(|e| e.to_string())
+}

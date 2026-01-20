@@ -37,35 +37,37 @@ function MainWindow({ userName }: MainWindowProps) {
         <div className="app-layout">
             {/* INFO: Minimal header with logo and tiny nav links */}
             <header className="app-header">
-                <div className="app-logo">
-                    <div className="app-logo-icon">
-                        <Sparkles size={16} />
+                <div className="header-container">
+                    <div className="app-logo">
+                        <div className="app-logo-icon">
+                            <Sparkles size={16} />
+                        </div>
+                        <span>Lumen</span>
                     </div>
-                    <span>Lumen</span>
-                </div>
 
-                <nav className="app-nav">
-                    <button
-                        className={`nav-link ${activePage === 'dashboard' ? 'active' : ''}`}
-                        onClick={() => setActivePage('dashboard')}
-                    >
-                        Home
-                    </button>
-                    <button
-                        className={`nav-link ${activePage === 'settings' ? 'active' : ''}`}
-                        onClick={() => setActivePage('settings')}
-                    >
-                        <Settings size={14} style={{ marginRight: '4px' }} />
-                        Settings
-                    </button>
-                    <button
-                        className={`nav-link ${activePage === 'integrations' ? 'active' : ''}`}
-                        onClick={() => setActivePage('integrations')}
-                    >
-                        <Plug size={14} style={{ marginRight: '4px' }} />
-                        Integrations
-                    </button>
-                </nav>
+                    <nav className="app-nav">
+                        <button
+                            className={`nav-link ${activePage === 'dashboard' ? 'active' : ''}`}
+                            onClick={() => setActivePage('dashboard')}
+                        >
+                            Home
+                        </button>
+                        <button
+                            className={`nav-link ${activePage === 'settings' ? 'active' : ''}`}
+                            onClick={() => setActivePage('settings')}
+                        >
+                            <Settings size={14} style={{ marginRight: '4px' }} />
+                            Settings
+                        </button>
+                        <button
+                            className={`nav-link ${activePage === 'integrations' ? 'active' : ''}`}
+                            onClick={() => setActivePage('integrations')}
+                        >
+                            <Plug size={14} style={{ marginRight: '4px' }} />
+                            Integrations
+                        </button>
+                    </nav>
+                </div>
             </header>
 
             {/* INFO: Main content */}

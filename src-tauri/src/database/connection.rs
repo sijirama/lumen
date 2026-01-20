@@ -5,11 +5,13 @@ use anyhow::{Context, Result};
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 //INFO: Thread-safe database wrapper
-//NOTE: Wrapped in Mutex for safe concurrent access from multiple Tauri commands
+//NOTE: Wrapped in Arc<Mutex> for safe concurrent access and cheap cloning
+#[derive(Clone)]
 pub struct Database {
-    pub connection: Mutex<Connection>,
+    pub connection: Arc<Mutex<Connection>>,
     pub database_path: PathBuf,
 }
 
@@ -36,7 +38,7 @@ impl Database {
             .context("Failed to enable foreign keys")?;
 
         Ok(Self {
-            connection: Mutex::new(connection),
+            connection: Arc::new(Mutex::new(connection)),
             database_path,
         })
     }

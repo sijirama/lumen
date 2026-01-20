@@ -575,3 +575,35 @@ pub fn mark_briefing_as_final(connection: &Connection, id: i32) -> Result<()> {
     )?;
     Ok(())
 }
+// ============================================================================
+// Notification Queries
+// ============================================================================
+
+// INFO: Checks if a notification has already been sent for an item
+pub fn has_notified(connection: &Connection, external_id: &str, provider: &str) -> Result<bool> {
+    let result: Option<i32> = connection
+        .query_row(
+            "SELECT 1 FROM notifications WHERE external_id = ?1 AND provider = ?2",
+            params![external_id, provider],
+            |_| Ok(1),
+        )
+        .optional()
+        .context("Failed to check notification status")?;
+
+    Ok(result.is_some())
+}
+
+// INFO: Records that a notification was sent
+pub fn record_notification(
+    connection: &Connection,
+    external_id: &str,
+    provider: &str,
+    title: &str,
+) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    connection.execute(
+        "INSERT INTO notifications (external_id, provider, title, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![external_id, provider, title, now],
+    ).context("Failed to record notification")?;
+    Ok(())
+}

@@ -155,13 +155,17 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
             },
             GeminiFunctionDeclaration {
                 name: "get_unread_emails".to_string(),
-                description: "Lists recent unread emails from Gmail.".to_string(),
+                description: "Lists recent emails from Gmail. Can filter by query (e.g. 'newer_than:1d', 'after:2026/01/20', 'from:person@example.com').".to_string(),
                 parameters: Some(json!({
                     "type": "object",
                     "properties": {
                         "max_results": {
                             "type": "integer",
                             "description": "Maximum number of emails to fetch (default 5)."
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Gmail search query. For today's emails use 'newer_than:1d'. Default is 'is:unread inbox'."
                         }
                     }
                 })),
@@ -426,9 +430,14 @@ pub async fn execute_tool_async(
                 .get("max_results")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(5) as u32;
+            let query = args.get("query").and_then(|v| v.as_str());
 
-            match crate::integrations::google_gmail::fetch_recent_emails(database, max_results)
-                .await
+            match crate::integrations::google_gmail::fetch_recent_emails_with_query(
+                database,
+                max_results,
+                query,
+            )
+            .await
             {
                 Ok(emails) => json!({ "emails": emails }),
                 Err(e) => json!({ "error": format!("Failed to fetch emails: {}", e) }),

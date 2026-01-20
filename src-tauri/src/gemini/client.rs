@@ -49,6 +49,34 @@ pub struct GeminiPart {
     pub function_call: Option<GeminiFunctionCall>,
     #[serde(rename = "functionResponse", skip_serializing_if = "Option::is_none")]
     pub function_response: Option<GeminiFunctionResponse>,
+    #[serde(rename = "inlineData", skip_serializing_if = "Option::is_none")]
+    pub inline_data: Option<InlineData>,
+}
+
+impl GeminiPart {
+    pub fn text(t: String) -> Self {
+        Self {
+            text: Some(t),
+            function_call: None,
+            function_response: None,
+            inline_data: None,
+        }
+    }
+
+    pub fn function_response(name: String, response: serde_json::Value) -> Self {
+        Self {
+            text: None,
+            function_call: None,
+            function_response: Some(GeminiFunctionResponse { name, response }),
+            inline_data: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct InlineData {
+    pub mime_type: String,
+    pub data: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -114,11 +142,7 @@ impl GeminiClient {
             contents: messages,
             system_instruction: system_instruction.map(|instruction| GeminiContent {
                 role: None,
-                parts: vec![GeminiPart {
-                    text: Some(instruction.to_string()),
-                    function_call: None,
-                    function_response: None,
-                }],
+                parts: vec![GeminiPart::text(instruction.to_string())],
             }),
             tools,
         };
@@ -162,11 +186,7 @@ impl GeminiClient {
     pub async fn test_connection(&self) -> Result<bool> {
         let request = vec![GeminiContent {
             role: Some("user".to_string()),
-            parts: vec![GeminiPart {
-                text: Some("Say 'Hello' in one word.".to_string()),
-                function_call: None,
-                function_response: None,
-            }],
+            parts: vec![GeminiPart::text("Say 'Hello' in one word.".to_string())],
         }];
         let result = self.send_chat(request, None, None).await;
         Ok(result.is_ok())
@@ -176,22 +196,21 @@ impl GeminiClient {
 //INFO: Default system instruction for Lumen AI assistant
 pub fn get_default_system_instruction() -> String {
     String::from(
-        "You are Lumen, a powerful, witty, and deeply helpful AI agent living on the user's desktop. ✨ \
-        Think of yourself as a super-intelligent sidekick. Your goal is to be proactive and precise. \
-        🚀 CORE CAPABILITIES: \
-        - You can manage Obsidian notes. \
-        - You can set reminders ('add_reminder'). \
-        - You can manage Google Calendar ('get_google_calendar_events', 'create_calendar_event'). \
-        - You can manage Gmail ('get_unread_emails', 'send_email'). \
-        - You can manage Google Tasks ('list_google_tasks', 'create_google_task'). \
-        - You can check real weather ('get_weather'). \
-        - You can 'search_web' for information. \
-        🎯 RULES: \
-        - Use Markdown for all responses. Use bolding, lists, and code blocks to make info readable. \
-        - If 'read_file' fails, use 'list_files' to hunt for the right note. Don't give up! \
-        - Always use 'get_obsidian_vault_info' first for vault tasks. \
-        - Be concise but friendly. Use emojis to add personality. \
-        - If the user asks about their schedule, mail, or tasks, use your Google tools! \
-        - Never hallucinate paths like /home/sijibomi/. Stick to the confirmed context."
+        "You are Lumen, a soft, kind, and deeply helpful AI agent living on the user's desktop. ✨ \
+        Think of yourself as a super-intelligent and gentle sidekick with direct access to your user's digital life. \
+        🚀 YOUR CAPABILITIES: \
+        - 📔 OBSIDIAN: Use 'get_obsidian_vault_info', 'list_files', 'read_file', 'write_file', and 'search_notes'. \
+        - 📅 CALENDAR: Use 'get_google_calendar_events' to see schedule and 'create_calendar_event' to add meetings. \
+        - 📧 GMAIL: Use 'get_unread_emails' to check messages and 'send_email' to reach out. \
+        - ✅ TASKS: Use 'list_google_tasks' to see to-dos and 'create_google_task' to add new ones. \
+        - 🔔 REMINDERS: Use 'add_reminder' and 'list_reminders' for local alerts. \
+        - 🌍 WORLD: Use 'get_weather' for real-time sky info and 'search_web' for everything else. \
+        🎯 GENTLE RULES: \
+        - NEVER say 'I can't do that' if a tool above exists. Proactively use them to be helpful! \
+        - Use Markdown for beautiful responses (bolding, headers, tables). \
+        - If 'read_file' fails, gently 'list_files' to help find the correct path. \
+        - Be concise, smart, and warm. Use emojis to add a friendly touch! \
+        - If an integration is disabled (check CONTEXT), kindly guide the user to 'Integrations' to enable it. \
+        - Never hallucinate system paths. Stick to confirmed context."
     )
 }

@@ -176,6 +176,21 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
         )
         .context("Failed to create briefing_summaries table")?;
 
+    //INFO: Create notifications table to track proactive pings
+    connection
+        .execute(
+            "CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            external_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            title TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(external_id, provider)
+        )",
+            [],
+        )
+        .context("Failed to create notifications table")?;
+
     Ok(())
 }
 

@@ -1,6 +1,7 @@
 //INFO: Lumen Library - Main entry point for the Tauri application
 //NOTE: This file wires together all modules and registers Tauri commands
 
+pub mod agent;
 pub mod commands;
 pub mod crypto;
 pub mod database;
@@ -8,7 +9,7 @@ pub mod gemini;
 pub mod integrations;
 pub mod oauth;
 
-use commands::{auth, chat, dashboard, settings, setup, window};
+use commands::{auth, chat, dashboard, settings, setup, vision, window};
 use database::{initialize_database, Database};
 use tauri::Manager;
 
@@ -20,7 +21,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
@@ -38,7 +39,14 @@ pub fn run() {
             }
 
             //INFO: Store database in app state for access from commands
+            let db_clone = database.clone();
             app.manage(database);
+
+            // Start proactive background agent
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                agent::proactive::start_proactive_agent(app_handle, db_clone).await;
+            });
 
             //INFO: Setup global hotkey listener
             let _ = setup_global_hotkey(app);
@@ -101,6 +109,7 @@ pub fn run() {
             window::is_overlay_visible,
             window::show_main_window,
             window::hide_main_window,
+            window::open_path,
             // Dashboard commands
             dashboard::get_dashboard_briefing,
             dashboard::refresh_dashboard_briefing,
@@ -108,6 +117,8 @@ pub fn run() {
             auth::get_google_auth_status,
             auth::save_google_config,
             auth::start_google_auth,
+            // Vision commands
+            vision::capture_primary_screen,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

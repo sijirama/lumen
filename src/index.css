@@ -164,6 +164,18 @@ a:hover {
   text-decoration: underline;
 }
 
+.lumen-link {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  cursor: pointer;
+  font-weight: var(--font-weight-medium);
+}
+
+.lumen-link:hover {
+  text-decoration-style: solid;
+}
+
 /* ============================================================================
    Buttons
    ============================================================================ */
@@ -351,12 +363,19 @@ input:checked+.slider:before {
 }
 
 .app-header {
+  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-bg-primary);
+  width: 100%;
+}
+
+.header-container {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: var(--spacing-4) var(--spacing-6);
-  border-bottom: 1px solid var(--color-border-light);
-  background: var(--color-bg-primary);
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .app-logo {
@@ -514,7 +533,11 @@ input:checked+.slider:before {
 }
 
 .briefing-content p {
-  margin-bottom: var(--spacing-3);
+  margin-bottom: var(--spacing-4);
+}
+
+.briefing-content hr {
+  display: none;
 }
 
 .briefing-content ul,
