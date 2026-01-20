@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, Sparkles, X, Loader2, Camera, FileText, Calendar } from 'lucide-react';
+import { Send, Sparkles, X, Loader2, Camera, FileText, Calendar, Home } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 //INFO: Chat message type
@@ -343,6 +343,14 @@ function OverlayWindow() {
                     <button className="action-button calendar-btn">
                         <Calendar size={18} />
                         <span>Calendar</span>
+                    </button>
+
+                    <button
+                        className="action-button home-btn"
+                        onClick={() => invoke('show_main_window')}
+                        title="Go to Home"
+                    >
+                        <Home size={18} />
                     </button>
                 </div>
 
