@@ -1,0 +1,61 @@
+[package]
+name = "lumen"
+version = "0.1.0"
+description = "Lumen - Your AI-powered desktop assistant"
+authors = ["sijirama"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "lumen_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# INFO: Core Tauri framework
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-global-shortcut = "2"
+
+# INFO: Serialization for data transfer between frontend and backend
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# INFO: SQLite database for local storage
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# INFO: Async runtime for non-blocking operations
+tokio = { version = "1", features = ["full"] }
+
+# INFO: HTTP client for Gemini API calls
+reqwest = { version = "0.12", features = ["json"] }
+
+# INFO: Encryption for storing sensitive data like API keys
+aes-gcm = "0.10"
+base64 = "0.22"
+rand = "0.8"
+
+# INFO: Date and time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# INFO: Directory paths for config storage
+dirs = "5"
+
+# INFO: Async mutex for thread-safe database access
+parking_lot = "0.12"
+
+# INFO: Error handling
+thiserror = "1"
+anyhow = "1"
+walkdir = "2.5"
+tauri-plugin-autostart = "2.5.1"
+sha2 = "0.10.9"
