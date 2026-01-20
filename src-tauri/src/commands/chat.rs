@@ -39,9 +39,12 @@ pub struct SendMessageResponse {
 //INFO: Sends a message to the AI and returns the response
 #[tauri::command]
 pub async fn send_chat_message(
+    app_handle: tauri::AppHandle,
     database: State<'_, Database>,
     request: SendMessageRequest,
 ) -> Result<SendMessageResponse, String> {
+    use tauri::Emitter;
+
     //INFO: Get the Gemini API key from the database
     let api_key = {
         let connection = database.connection.lock();
@@ -146,6 +149,30 @@ pub async fn send_chat_message(
         system_instruction.push_str("\n------------------------------");
     }
 
+    // Add explicit status of integrations to stop hallucination
+    system_instruction.push_str("\n\n--- INTEGRATION STATUS ---");
+    let google_enabled = {
+        let connection = database.connection.lock();
+        crate::database::queries::has_api_token(&connection, "google").unwrap_or(false)
+    };
+    system_instruction.push_str(&format!(
+        "\nGOOGLE SERVICES: {}",
+        if google_enabled {
+            "ENABLED ✅"
+        } else {
+            "DISABLED ❌ (Guide user to Integrations)"
+        }
+    ));
+    system_instruction.push_str(&format!(
+        "\nOBSIDIAN: {}",
+        if obsidian_config.is_some() {
+            "ENABLED ✅"
+        } else {
+            "DISABLED ❌"
+        }
+    ));
+    system_instruction.push_str("\n------------------------------");
+
     let mut current_messages = gemini_messages;
     let mut final_response_text = String::new();
 
@@ -171,6 +198,9 @@ pub async fn send_chat_message(
 
         for part in response_parts {
             if let Some(text) = part.text {
+                //INFO: Emit event for "double texting" / streaming behavior
+                let _ = app_handle.emit("assistant-reply-turn", text.clone());
+
                 //INFO: Append text to final response
                 if !final_response_text.is_empty() {
                     final_response_text.push_str("\n\n");
@@ -186,10 +216,12 @@ pub async fn send_chat_message(
                     || call.name == "create_calendar_event"
                     || call.name == "list_google_tasks"
                     || call.name == "create_google_task"
+                    || call.name == "take_screenshot"
                 {
                     let result =
                         crate::gemini::tools::execute_tool_async(&call.name, &call.args, &database)
                             .await;
+
                     function_responses.push(crate::gemini::client::GeminiPart::function_response(
                         call.name, result,
                     ));
@@ -211,11 +243,45 @@ pub async fn send_chat_message(
         }
 
         if has_function_calls {
+            // Check for screenshots in responses to handle multimodality
+            let mut screenshot_data = None;
+            for resp in &mut function_responses {
+                if let Some(f_resp) = &mut resp.function_response {
+                    if f_resp.name == "take_screenshot" {
+                        if let Some(obj) = f_resp.response.as_object_mut() {
+                            if let Some(b64) = obj
+                                .get("image_data")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                            {
+                                screenshot_data = Some(b64);
+                                obj.remove("image_data");
+                                obj.insert("info".into(), serde_json::json!("Screenshot captured successfully. You can now see the image in this Turn."));
+                            }
+                        }
+                    }
+                }
+            }
+
             //INFO: Push function responses to history and continue loop
             current_messages.push(crate::gemini::client::GeminiContent {
                 role: Some("function".to_string()),
                 parts: function_responses,
             });
+            if let Some(b64) = screenshot_data {
+                current_messages.push(crate::gemini::client::GeminiContent {
+                    role: Some("user".to_string()),
+                    parts: vec![crate::gemini::client::GeminiPart {
+                        text: Some("[VISUAL CONTEXT ATTACHED]".to_string()),
+                        function_call: None,
+                        function_response: None,
+                        inline_data: Some(crate::gemini::client::InlineData {
+                            mime_type: "image/png".to_string(),
+                            data: b64,
+                        }),
+                    }],
+                });
+            }
             continue;
         } else {
             //INFO: No more function calls, we are done
@@ -313,10 +379,11 @@ fn build_chat_context(database: &State<Database>) -> Result<Option<String>, Stri
     let today = Local::now();
     let today_str = today.format("%A, %B %d, %Y").to_string();
     let current_time = today.format("%H:%M").to_string();
+    let iso_now = today.to_rfc3339();
 
     context_parts.push(format!(
-        "Current date and time: {} at {}",
-        today_str, current_time
+        "Current date and time: {} at {} (ISO: {})",
+        today_str, current_time, iso_now
     ));
 
     //INFO: Add user profile info

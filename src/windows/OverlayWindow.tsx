@@ -55,7 +55,27 @@ function OverlayWindow() {
         }, 50);
     };
 
-    //INFO: Listen for window focus events to re-focus the input and scroll to bottom
+    //INFO: Listen for streaming "double-texting" messages from the backend
+    useEffect(() => {
+        let unlisten: (() => void) | null = null;
+        async function setup() {
+            // @ts-ignore
+            const { listen } = await import('@tauri-apps/api/event');
+            unlisten = await listen<string>('assistant-reply-turn', (event) => {
+                const newPart: ChatMessage = {
+                    id: -1, // Mark as special/streaming
+                    role: 'assistant',
+                    content: event.payload,
+                    created_at: new Date().toISOString()
+                };
+                setMessages(prev => [...prev, newPart]);
+            });
+        }
+        setup();
+        return () => { if (unlisten) unlisten(); };
+    }, []);
+
+    //INFO: Listen for window focus events
     useEffect(() => {
         let unlisten: (() => void) | null = null;
 
@@ -160,14 +180,19 @@ function OverlayWindow() {
                 }
             });
 
-            setMessages(prev => [
-                ...prev.slice(0, -1),
-                response.user_message,
-                response.assistant_message
-            ]);
+            setMessages(prev => {
+                // Filter out the temp user message (id: null) 
+                // and any streamed turns (id: -1) from this interaction
+                const filtered = prev.filter(m => m.id !== null && m.id !== -1);
+                return [
+                    ...filtered,
+                    response.user_message,
+                    response.assistant_message
+                ];
+            });
         } catch (err) {
             setError(String(err));
-            setMessages(prev => prev.slice(0, -1));
+            setMessages(prev => prev.filter(m => m.id !== null && m.id !== -1));
         } finally {
             setIsLoading(false);
         }

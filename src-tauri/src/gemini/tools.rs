@@ -194,7 +194,7 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
             },
             GeminiFunctionDeclaration {
                 name: "create_calendar_event".to_string(),
-                description: "Creates a new event in the user's primary Google Calendar."
+                description: "Creates a new event in the user's primary Google Calendar. IMPORTANT: Use the current year and the user's timezone offset from the 'ISO' time provided in CONTEXT (e.g. '2026-01-20T14:00:00+01:00')."
                     .to_string(),
                 parameters: Some(json!({
                     "type": "object",
@@ -209,11 +209,11 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                         },
                         "start_time": {
                             "type": "string",
-                            "description": "Start time in ISO format (e.g. '2026-01-20T14:00:00Z')."
+                            "description": "Start time in RFC3339 format with offset (e.g. '2026-01-20T14:00:00+01:00')."
                         },
                         "end_time": {
                             "type": "string",
-                            "description": "End time in ISO format."
+                            "description": "End time in RFC3339 format with offset."
                         },
                         "location": {
                             "type": "string",
@@ -239,7 +239,7 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
             },
             GeminiFunctionDeclaration {
                 name: "create_google_task".to_string(),
-                description: "Creates a new task in the user's default Google Tasks list."
+                description: "Creates a new task in the user's default Google Tasks list. IMPORTANT: For due dates, use the current year and offset from the 'ISO' time in CONTEXT."
                     .to_string(),
                 parameters: Some(json!({
                     "type": "object",
@@ -254,11 +254,16 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                         },
                         "due": {
                             "type": "string",
-                            "description": "Due date in RFC3339 format (e.g. '2026-01-20T00:00:00Z')."
+                            "description": "Due date in RFC3339 format with offset (e.g. '2026-01-20T23:59:59+01:00')."
                         }
                     },
                     "required": ["title"]
                 })),
+            },
+            GeminiFunctionDeclaration {
+                name: "take_screenshot".to_string(),
+                description: "Captures a screenshot of the user's primary screen so you can 'see' what they are doing. Call this when they say 'look at my screen' or 'what am I doing'.".to_string(),
+                parameters: None,
             },
         ],
     }]
@@ -498,6 +503,12 @@ pub async fn execute_tool_async(
                 Err(e) => json!({ "error": format!("Failed to create task: {}", e) }),
             }
         }
+        "take_screenshot" => match crate::commands::vision::capture_primary_screen().await {
+            Ok(b64) => {
+                json!({ "status": "success", "image_data": b64, "message": "Screen captured. You can now see the image in the next turn." })
+            }
+            Err(e) => json!({ "error": format!("Failed to capture screen: {}", e) }),
+        },
         _ => json!({ "error": format!("Unknown asynchronous tool: {}", name) }),
     }
 }
