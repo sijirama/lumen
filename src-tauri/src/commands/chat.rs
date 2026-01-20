@@ -198,14 +198,17 @@ pub async fn send_chat_message(
 
         for part in response_parts {
             if let Some(text) = part.text {
-                //INFO: Emit event for "double texting" / streaming behavior
-                let _ = app_handle.emit("assistant-reply-turn", text.clone());
+                // Deduplicate consecutive text turns if they are identical
+                if !final_response_text.ends_with(&text) {
+                    //INFO: Emit event for "double texting" / streaming behavior
+                    let _ = app_handle.emit("assistant-reply-turn", text.clone());
 
-                //INFO: Append text to final response
-                if !final_response_text.is_empty() {
-                    final_response_text.push_str("\n\n");
+                    //INFO: Append text to final response
+                    if !final_response_text.is_empty() {
+                        final_response_text.push_str("\n\n");
+                    }
+                    final_response_text.push_str(&text);
                 }
-                final_response_text.push_str(&text);
             }
             if let Some(call) = part.function_call {
                 has_function_calls = true;

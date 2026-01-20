@@ -55,24 +55,42 @@ function OverlayWindow() {
         }, 50);
     };
 
-    //INFO: Listen for streaming "double-texting" messages from the backend
+    //INFO: Listen for streaming "double-texting" messages and proactive updates
     useEffect(() => {
-        let unlisten: (() => void) | null = null;
+        let unlistenTurn: (() => void) | null = null;
+        let unlistenMsg: (() => void) | null = null;
+
         async function setup() {
             // @ts-ignore
             const { listen } = await import('@tauri-apps/api/event');
-            unlisten = await listen<string>('assistant-reply-turn', (event) => {
-                const newPart: ChatMessage = {
-                    id: -1, // Mark as special/streaming
-                    role: 'assistant',
-                    content: event.payload,
-                    created_at: new Date().toISOString()
-                };
-                setMessages(prev => [...prev, newPart]);
+
+            // Turn-by-turn streaming (Temporary)
+            unlistenTurn = await listen<string>('assistant-reply-turn', (event) => {
+                setMessages(prev => {
+                    // Check if the last message is already a turn and has the same content (deduplicate)
+                    const last = prev[prev.length - 1];
+                    if (last?.id === -1 && last.content === event.payload) return prev;
+
+                    const newPart: ChatMessage = {
+                        id: -1,
+                        role: 'assistant',
+                        content: event.payload,
+                        created_at: new Date().toISOString()
+                    };
+                    return [...prev, newPart];
+                });
+            });
+
+            // Permanent proactive messages (from Agent)
+            unlistenMsg = await listen<ChatMessage>('assistant-message', (event) => {
+                setMessages(prev => [...prev.filter(m => m.id !== event.payload.id), event.payload]);
             });
         }
         setup();
-        return () => { if (unlisten) unlisten(); };
+        return () => {
+            if (unlistenTurn) unlistenTurn();
+            if (unlistenMsg) unlistenMsg();
+        };
     }, []);
 
     //INFO: Listen for window focus events
@@ -109,8 +127,8 @@ function OverlayWindow() {
                 isFirstLoad.current = false;
             } else {
                 const lastMessage = messages[messages.length - 1];
-                // Smooth scroll for new messages (id is null for temp messages)
-                scrollToBottom(lastMessage?.id === null);
+                // Smooth scroll for new messages (id is null for temp user msg, or -1 for turns)
+                scrollToBottom(lastMessage?.id === null || lastMessage?.id === -1);
             }
         }
     }, [messages]);

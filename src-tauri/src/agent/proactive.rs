@@ -59,25 +59,48 @@ async fn check_gmail(app_handle: &tauri::AppHandle, database: &Database) -> anyh
 
         // Triage with Gemini
         if should_notify_for_email(database, &email).await? {
-            // Send notification
             let title = email
                 .subject
                 .clone()
                 .unwrap_or_else(|| "New Email".to_string());
-            let body = format!(
-                "From: {}\n{}",
-                email.from.clone().unwrap_or_default(),
-                email.snippet
-            );
 
+            // 1. Send System Notification
             app_handle
                 .notification()
                 .builder()
                 .title("Lumen: Meaningful Update")
-                .body(&format!("{}\n{}", title, body))
+                .body(&format!("{}", title))
                 .show()?;
 
-            // Record in DB
+            // 2. Generate and Save Proactive Chat Message
+            let assistant_text = generate_proactive_message(database, &email).await?;
+            {
+                use crate::database::queries::ChatMessage;
+                let connection = database.connection.lock();
+                let msg = ChatMessage {
+                    id: None,
+                    role: "assistant".to_string(),
+                    content: assistant_text.clone(),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    session_id: None,
+                };
+                let msg_id = queries::save_chat_message(&connection, &msg)?;
+
+                // Emit event to update UI live
+                use tauri::Emitter;
+                let now_str = chrono::Utc::now().to_rfc3339();
+                let _ = app_handle.emit(
+                    "assistant-message",
+                    crate::commands::chat::ChatMessageResponse {
+                        id: Some(msg_id),
+                        role: "assistant".to_string(),
+                        content: assistant_text,
+                        created_at: now_str,
+                    },
+                );
+            }
+
+            // Record in DB to avoid double notification
             {
                 let connection = database.connection.lock();
                 queries::record_notification(&connection, &email.id, "gmail", &title)?;
@@ -92,6 +115,46 @@ async fn check_gmail(app_handle: &tauri::AppHandle, database: &Database) -> anyh
     }
 
     Ok(())
+}
+
+async fn generate_proactive_message(
+    database: &Database,
+    email: &google_gmail::GmailMessage,
+) -> anyhow::Result<String> {
+    let api_key = {
+        let connection = database.connection.lock();
+        let encrypted_key = queries::get_api_token(&connection, "gemini")?
+            .ok_or_else(|| anyhow::anyhow!("Gemini key missing"))?;
+        decrypt_token(&encrypted_key)?
+    };
+
+    let client = GeminiClient::new(api_key);
+    let prompt = format!(
+        "As Lumen, a soft and kind desktop sidekick, write a very brief (1-2 sentences) chat message to the user about this email. 
+        Be warm and professional. Use an emoji.
+        
+        EMAIL:
+        From: {:?}
+        Subject: {:?}
+        Snippet: {:?}",
+        email.from, email.subject, email.snippet
+    );
+
+    let response = client
+        .send_chat(
+            vec![GeminiContent {
+                role: Some("user".to_string()),
+                parts: vec![GeminiPart::text(prompt)],
+            }],
+            None,
+            None,
+        )
+        .await?;
+
+    Ok(response
+        .first()
+        .and_then(|p| p.text.clone())
+        .unwrap_or_else(|| "I noticed a new email you might want to check! 📧".to_string()))
 }
 
 async fn should_notify_for_email(
