@@ -30,8 +30,40 @@ function OverlayWindow() {
     const [error, setError] = useState<string | null>(null);
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
     const [currentView, setCurrentView] = useState<'chat' | 'calendar'>('chat');
+    const [transitionView, setTransitionView] = useState<'chat' | 'calendar'>('chat');
+    const [isExiting, setIsExiting] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+
+    //INFO: Orchestrate smooth view switching
+    const switchView = async (newView: 'chat' | 'calendar') => {
+        if (newView === transitionView || isExiting) return;
+
+        // 1. Kick off CSS exit animation
+        setIsExiting(true);
+
+        // 2. Wait for fade-out (must match CSS animation time)
+        await new Promise(resolve => setTimeout(resolve, 110));
+
+        // 3. Perform authoritative window resize while screen is empty
+        try {
+            await invoke('resize_overlay', { view: newView });
+            // Settle time for WM and Layout to sync
+            await new Promise(resolve => setTimeout(resolve, 50));
+        } catch (err) {
+            console.error('Resize failed during switch:', err);
+        }
+
+        // 4. Swap the actual component and clear transition state
+        setTransitionView(newView);
+        setCurrentView(newView); // Keep for backend tracking if needed
+        setIsExiting(false);
+
+        // 5. Post-layout scroll handling
+        if (newView === 'chat') {
+            setTimeout(() => scrollToBottom(true), 50);
+        }
+    };
 
     //INFO: Set transparent background for overlay window
     useEffect(() => {
@@ -43,13 +75,12 @@ function OverlayWindow() {
             adjustInputHeight();
             inputRef.current?.focus();
         });
-        // Second pass after a short delay to catch any late layout shifts
-        const timer = setTimeout(adjustInputHeight, 100);
+
+        loadChatHistory();
 
         return () => {
             document.body.classList.remove('overlay-window');
             document.documentElement.classList.remove('overlay-window');
-            clearTimeout(timer);
         };
     }, []);
 
@@ -149,24 +180,6 @@ function OverlayWindow() {
         }
     }, [messages]);
 
-    //INFO: Handle dynamic window resizing for different views (Atomic Rust Command)
-    useEffect(() => {
-        async function updateWindowSize() {
-            try {
-                // Call the authoritative Rust command to resize and reposition
-                await invoke('resize_overlay', { view: currentView });
-
-                // If we switched back to chat, force scroll to bottom
-                if (currentView === 'chat') {
-                    scrollToBottom(true);
-                }
-            } catch (err) {
-                console.error('Failed to update window size:', err);
-            }
-        }
-
-        updateWindowSize();
-    }, [currentView]);
 
     //INFO: Auto-resize textarea logic
     const adjustInputHeight = () => {
@@ -199,14 +212,14 @@ function OverlayWindow() {
             const { listen } = await import('@tauri-apps/api/event');
             unlisten = await listen('snipped-image', (event: any) => {
                 setCapturedImage(event.payload);
-                // Ensure overlay is visible (should be handled by backend but double check)
+                switchView('chat');
             });
         }
         setupSnipListener();
         return () => {
             if (unlisten) unlisten();
         };
-    }, []);
+    }, [transitionView, isExiting]);
 
     async function handleCaptureScreen() {
         setIsCapturing(true);
@@ -238,6 +251,10 @@ function OverlayWindow() {
             image_data: base64Image || undefined
         };
         setMessages(prev => [...prev, tempMessage]);
+
+        if (transitionView !== 'chat') {
+            switchView('chat');
+        }
 
         try {
             const response = await invoke<SendMessageResponse>('send_chat_message', {
@@ -289,101 +306,109 @@ function OverlayWindow() {
             <div className="overlay-panel">
                 {/* Messages / Calendar */}
                 <div className="overlay-content">
-                    {currentView === 'chat' ? (
-                        <div className="chat-messages">
-                            {messages.length === 0 && !isLoading && (
-                                <div className="welcome-message">
-                                    <img src="/logo.png" alt="Lumen Logo" style={{ width: '48px', height: '48px', marginBottom: 'var(--spacing-3)', opacity: 0.8 }} />
-                                    <p>Hi! I'm Lumen.</p>
-                                    <p style={{ fontSize: 'var(--font-size-sm)' }}>Ask me anything.</p>
-                                </div>
-                            )}
+                    <div className="view-transition-wrapper">
+                        {currentView === 'chat' ? (
+                            <div key="view-chat" className="view-transition-content chat-messages">
+                                {messages.length === 0 && !isLoading && (
+                                    <div className="welcome-message">
+                                        <img src="/logo.png" alt="Lumen Logo" style={{ width: '48px', height: '48px', marginBottom: 'var(--spacing-3)', opacity: 0.8 }} />
+                                        <p>Hi! I'm Lumen.</p>
+                                        <p style={{ fontSize: 'var(--font-size-sm)' }}>Ask me anything.</p>
+                                    </div>
+                                )}
 
-                            {messages.map((message, index) => (
-                                <div key={message.id || index} className={`chat-message ${message.role}`}>
-                                    {message.image_data && (
-                                        <div className="chat-message-image" style={{ marginBottom: 'var(--spacing-2)' }}>
-                                            <img
-                                                src={`data:image/png;base64,${message.image_data}`}
-                                                alt="Observation"
-                                                style={{
-                                                    maxWidth: '100%',
-                                                    maxHeight: '200px',
-                                                    borderRadius: 'var(--radius-md)',
-                                                    border: '1px solid rgba(0,0,0,0.1)'
-                                                }}
-                                            />
-                                        </div>
-                                    )}
-                                    <div className="markdown-content">
-                                        <ReactMarkdown
-                                            remarkPlugins={[remarkGfm]}
-                                            components={{
-                                                code: ({ node, ...props }: any) => {
-                                                    const { inline, ...rest } = props;
-                                                    return (
-                                                        <code
-                                                            className={inline ? 'inline-code' : 'block-code'}
-                                                            {...rest}
-                                                        />
-                                                    );
-                                                },
-                                                a: ({ node, ...props }) => {
-                                                    const href = props.href || '';
-                                                    if (href.startsWith('lumen://open')) {
+                                {messages.map((message, index) => (
+                                    <div key={message.id || index} className={`chat-message ${message.role}`}>
+                                        {message.image_data && (
+                                            <div className="chat-message-image" style={{ marginBottom: 'var(--spacing-2)' }}>
+                                                <img
+                                                    src={`data:image/png;base64,${message.image_data}`}
+                                                    alt="Observation"
+                                                    style={{
+                                                        maxWidth: '100%',
+                                                        maxHeight: '200px',
+                                                        borderRadius: 'var(--radius-md)',
+                                                        border: '1px solid rgba(0,0,0,0.1)'
+                                                    }}
+                                                />
+                                            </div>
+                                        )}
+                                        <div className="markdown-content">
+                                            <ReactMarkdown
+                                                remarkPlugins={[remarkGfm]}
+                                                components={{
+                                                    code: ({ node, ...props }: any) => {
+                                                        const { inline, ...rest } = props;
                                                         return (
-                                                            <a
-                                                                {...props}
-                                                                href="#"
-                                                                onClick={(e) => {
-                                                                    e.preventDefault();
-                                                                    try {
-                                                                        const url = new URL(href);
-                                                                        const rawPath = url.searchParams.get('path');
-                                                                        if (rawPath) {
-                                                                            const path = decodeURIComponent(rawPath);
-                                                                            invoke('open_path', { path });
-                                                                        }
-                                                                    } catch (err) {
-                                                                        console.error('Failed to parse lumen link', err);
-                                                                    }
-                                                                }}
-                                                                className="lumen-pill"
-                                                            >
-                                                                <span className="lumen-pill-icon">
-                                                                    <FileText size={12} />
-                                                                </span>
-                                                                {props.children}
-                                                            </a>
+                                                            <code
+                                                                className={inline ? 'inline-code' : 'block-code'}
+                                                                {...rest}
+                                                            />
                                                         );
+                                                    },
+                                                    a: ({ node, ...props }) => {
+                                                        const href = props.href || '';
+                                                        if (href.startsWith('lumen://open')) {
+                                                            return (
+                                                                <a
+                                                                    {...props}
+                                                                    href="#"
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        try {
+                                                                            const url = new URL(href);
+                                                                            const rawPath = url.searchParams.get('path');
+                                                                            if (rawPath) {
+                                                                                const path = decodeURIComponent(rawPath);
+                                                                                invoke('open_path', { path });
+                                                                            }
+                                                                        } catch (err) {
+                                                                            console.error('Failed to parse lumen link', err);
+                                                                        }
+                                                                    }}
+                                                                    className="lumen-pill"
+                                                                >
+                                                                    <span className="lumen-pill-icon">
+                                                                        <FileText size={12} />
+                                                                    </span>
+                                                                    {props.children}
+                                                                </a>
+                                                            );
+                                                        }
+                                                        return <a {...props} target="_blank" rel="noopener noreferrer" />;
                                                     }
-                                                    return <a {...props} target="_blank" rel="noopener noreferrer" />;
-                                                }
-                                            }}
-                                        >
-                                            {message.content}
-                                        </ReactMarkdown>
+                                                }}
+                                            >
+                                                {message.content}
+                                            </ReactMarkdown>
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                ))}
 
-                            {isLoading && (
-                                <div className="chat-message assistant">
-                                    <div className="typing-indicator">
-                                        <div className="typing-dot"></div>
-                                        <div className="typing-dot"></div>
-                                        <div className="typing-dot"></div>
+                                {isLoading && (
+                                    <div className="chat-message assistant">
+                                        <div className="typing-indicator">
+                                            <div className="typing-dot"></div>
+                                            <div className="typing-dot"></div>
+                                            <div className="typing-dot"></div>
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                )}
 
-                            {error && <div className="error-message">{error}</div>}
+                                {error && <div className="error-message">{error}</div>}
 
-                            <div ref={messagesEndRef} />
-                        </div>
-                    ) : (
-                        <CalendarView />
-                    )}
+                                <div className="chat-spacer" />
+                                <div ref={messagesEndRef} />
+                            </div>
+                        ) : (
+                            <div
+                                key="calendar-view"
+                                className={`view-transition-content ${isExiting ? 'is-exiting' : ''}`}
+                            >
+                                <CalendarView />
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Floating Action Bar */}
@@ -398,10 +423,11 @@ function OverlayWindow() {
                     </button>
 
                     <button
-                        className={`action-button ${currentView === 'calendar' ? 'active' : ''} calendar-btn`}
-                        onClick={() => setCurrentView(currentView === 'chat' ? 'calendar' : 'chat')}
+                        className={`action-button ${transitionView === 'calendar' ? 'active' : ''} calendar-btn`}
+                        onClick={() => switchView(transitionView === 'chat' ? 'calendar' : 'chat')}
+                        disabled={isExiting}
                     >
-                        {currentView === 'chat' ? (
+                        {transitionView === 'chat' ? (
                             <>
                                 <CalendarDays size={16} />
                                 <span>Calendar</span>

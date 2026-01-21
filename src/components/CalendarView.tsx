@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, Calendar as CalendarIcon, Clock, MapPin, AlignLeft } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Loader2, Calendar as CalendarIcon, Clock, MapPin, AlignLeft } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import {
     format,
@@ -29,6 +29,7 @@ const CalendarView: React.FC = () => {
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [events, setEvents] = useState<CalendarEvent[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(false);
 
     useEffect(() => {
         fetchEvents();
@@ -97,9 +98,17 @@ const CalendarView: React.FC = () => {
         <div className="sexy-calendar-container animate-fade-in">
             {/* Header: Minimal & Stylish */}
             <div className="sexy-header">
-                <div className="current-month-display">
+                <div
+                    className="current-month-display"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    style={{ cursor: 'pointer' }}
+                >
                     <span className="month-label">{format(currentDate, 'MMMM')}</span>
                     <span className="year-label">{format(currentDate, 'yyyy')}</span>
+                    <ChevronDown
+                        size={14}
+                        className={`dropdown-chevron ${isExpanded ? 'rotated' : ''}`}
+                    />
                 </div>
                 <div className="header-actions">
                     <button className="sexy-btn mini" onClick={goToToday}>Today</button>
@@ -110,34 +119,39 @@ const CalendarView: React.FC = () => {
                 </div>
             </div>
 
-            {/* The Grid: Airy & Modern */}
-            <div className="sexy-grid">
-                <div className="weekdays-row">
-                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                        <div key={d} className="weekday-label">{d}</div>
-                    ))}
-                </div>
-                <div className="dates-grid">
-                    {days.map((day, idx) => {
-                        const dateKey = format(day, 'yyyy-MM-dd');
-                        const isToday = isSameDay(day, new Date());
-                        const isSelected = isSameDay(day, selectedDate);
-                        const isCurrentMonth = isSameMonth(day, monthStart);
-                        const dayEvents = groupedEvents[dateKey] || [];
+            {/* The Grid: Airy & Modern (Collapsible) */}
+            <div className={`sexy-grid-wrapper ${isExpanded ? 'expanded' : 'collapsed'}`}>
+                <div className="sexy-grid">
+                    <div className="weekdays-row">
+                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                            <div key={d} className="weekday-label">{d}</div>
+                        ))}
+                    </div>
+                    <div className="dates-grid">
+                        {days.map((day, idx) => {
+                            const dateKey = format(day, 'yyyy-MM-dd');
+                            const isToday = isSameDay(day, new Date());
+                            const isSelected = isSameDay(day, selectedDate);
+                            const isCurrentMonth = isSameMonth(day, monthStart);
+                            const dayEvents = groupedEvents[dateKey] || [];
 
-                        return (
-                            <div
-                                key={idx}
-                                className={`date-cell ${!isCurrentMonth ? 'dimmed' : ''} ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''}`}
-                                onClick={() => setSelectedDate(day)}
-                            >
-                                <div className="date-content">
-                                    <span className="date-val">{format(day, 'd')}</span>
-                                    {dayEvents.length > 0 && <div className="event-indicator" />}
+                            return (
+                                <div
+                                    key={idx}
+                                    className={`date-cell ${!isCurrentMonth ? 'dimmed' : ''} ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''}`}
+                                    onClick={() => {
+                                        setSelectedDate(day);
+                                        setIsExpanded(false);
+                                    }}
+                                >
+                                    <div className="date-content">
+                                        <span className="date-val">{format(day, 'd')}</span>
+                                        {dayEvents.length > 0 && <div className="event-indicator" />}
+                                    </div>
                                 </div>
-                            </div>
-                        );
-                    })}
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
 
@@ -224,6 +238,16 @@ const CalendarView: React.FC = () => {
                     font-weight: 500;
                     color: var(--color-text-tertiary);
                     opacity: 0.7;
+                    margin-right: 4px;
+                }
+
+                .dropdown-chevron {
+                    color: var(--color-text-tertiary);
+                    opacity: 0.5;
+                    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                }
+                .dropdown-chevron.rotated {
+                    transform: rotate(180deg);
                 }
 
                 .header-actions {
@@ -264,8 +288,25 @@ const CalendarView: React.FC = () => {
                 .nav-icon-btn:hover { background: var(--color-bg-subtle); color: var(--color-text-primary); }
 
                 /* Grid Styling */
-                .sexy-grid {
+                .sexy-grid-wrapper {
+                    overflow: hidden;
+                    transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+                    opacity: 0;
+                }
+                .sexy-grid-wrapper.collapsed {
+                    max-height: 0;
+                    margin-bottom: 0;
+                    pointer-events: none;
+                }
+                .sexy-grid-wrapper.expanded {
+                    max-height: 300px;
+                    opacity: 1;
                     margin-bottom: var(--spacing-4);
+                    pointer-events: auto;
+                }
+
+                .sexy-grid {
+                    padding-bottom: 4px;
                 }
 
                 .weekdays-row {
