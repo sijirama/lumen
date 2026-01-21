@@ -32,6 +32,7 @@ function OverlayWindow() {
     const [currentView, setCurrentView] = useState<'chat' | 'calendar'>('chat');
     const [transitionView, setTransitionView] = useState<'chat' | 'calendar'>('chat');
     const [isExiting, setIsExiting] = useState(false);
+    const [isCalendarExpanded, setIsCalendarExpanded] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -47,7 +48,10 @@ function OverlayWindow() {
 
         // 3. Perform authoritative window resize while screen is empty
         try {
-            await invoke('resize_overlay', { view: newView });
+            const resizeView = newView === 'calendar'
+                ? (isCalendarExpanded ? 'calendar' : 'calendar-collapsed')
+                : newView;
+            await invoke('resize_overlay', { view: resizeView });
             // Settle time for WM and Layout to sync
             await new Promise(resolve => setTimeout(resolve, 50));
         } catch (err) {
@@ -62,6 +66,18 @@ function OverlayWindow() {
         // 5. Post-layout scroll handling
         if (newView === 'chat') {
             setTimeout(() => scrollToBottom(true), 50);
+        }
+    };
+
+    //INFO: Toggle calendar expansion with window resize
+    const handleCalendarExpansionToggle = async (expanded: boolean) => {
+        setIsCalendarExpanded(expanded);
+        try {
+            await invoke('resize_overlay', {
+                view: expanded ? 'calendar' : 'calendar-collapsed'
+            });
+        } catch (err) {
+            console.error('Resize failed during expansion toggle:', err);
         }
     };
 
@@ -405,7 +421,10 @@ function OverlayWindow() {
                                 key="calendar-view"
                                 className={`view-transition-content ${isExiting ? 'is-exiting' : ''}`}
                             >
-                                <CalendarView />
+                                <CalendarView
+                                    isExpanded={isCalendarExpanded}
+                                    onToggleExpand={handleCalendarExpansionToggle}
+                                />
                             </div>
                         )}
                     </div>

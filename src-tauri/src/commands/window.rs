@@ -90,10 +90,10 @@ pub async fn is_overlay_visible(app: tauri::AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub async fn resize_overlay(app: tauri::AppHandle, view: String) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("overlay") {
-        let (width, height) = if view == "calendar" {
-            (400.0, 850.0)
-        } else {
-            (400.0, 520.0)
+        let (width, height) = match view.as_str() {
+            "calendar" => (400.0, 850.0),
+            "calendar-collapsed" => (400.0, 600.0),
+            _ => (400.0, 520.0),
         };
 
         // 1. Set Size
