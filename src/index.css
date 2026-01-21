@@ -743,11 +743,13 @@ input:checked+.slider:before {
 body.overlay-window,
 body.widget-window {
   background: transparent !important;
+  overflow: hidden !important;
 }
 
 html.overlay-window,
 html.widget-window {
   background: transparent !important;
+  overflow: hidden !important;
 }
 
 .overlay-panel {
