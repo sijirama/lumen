@@ -141,43 +141,57 @@ sudo chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
 echo -e "${GREEN}🎉 Lumen is successfully installed!${NC}"
 
-# 5. Desktop Integration
-echo -e "${BLUE}🖥 Integrating with your desktop launcher...${NC}"
+# 5. Desktop Integration & Autostart
+echo -e "${BLUE}🖥 Integrating with your desktop launcher & autostart...${NC}"
+
+AUTOSTART_DIR="$HOME/.config/autostart"
 mkdir -p "$ICON_DIR"
 mkdir -p "$DESKTOP_DIR"
+mkdir -p "$AUTOSTART_DIR"
+
+# Cleanup any previous broken entries (Case-sensitive cleanup)
+rm -f "$DESKTOP_DIR/Lumen.desktop" "$DESKTOP_DIR/lumen.desktop"
+rm -f "$AUTOSTART_DIR/Lumen.desktop" "$AUTOSTART_DIR/lumen.desktop"
 
 # Download or Copy icon
 if [ -f "./public/logo.png" ]; then
-    echo "Found local logo.png, using that."
     cp "./public/logo.png" "$ICON_DIR/lumen.png"
 elif [ -f "./src-tauri/icons/128x128.png" ]; then
-    echo "Found local tauri icons, using that."
     cp "./src-tauri/icons/128x128.png" "$ICON_DIR/lumen.png"
 else
-    echo "Downloading icon from GitHub..."
     curl -s -L -o "$ICON_DIR/lumen.png" "$ICON_URL"
 fi
 
-# Create Desktop Entry
+# Create high-quality Desktop Entry with absolute path
 cat <<EOF > "$DESKTOP_DIR/lumen.desktop"
 [Desktop Entry]
 Name=Lumen
 Comment=Your AI-powered desktop sidekick
-Exec=$BINARY_NAME
+Exec=$INSTALL_DIR/$BINARY_NAME
 Icon=$ICON_DIR/lumen.png
 Terminal=false
 Type=Application
 Categories=Utility;Contextual;AI;
 Keywords=ai;chat;lumen;assistant;
+StartupNotify=false
 EOF
 
 chmod +x "$DESKTOP_DIR/lumen.desktop"
-echo -e "${GREEN}✅ Desktop entry created. You can now find Lumen in your applications menu! ✨${NC}"
 
-echo -e "${BLUE}What else we cookin' up today? Let's check some vibes...${NC}"
+# Copy to Autostart so it boots with the OS
+cp "$DESKTOP_DIR/lumen.desktop" "$AUTOSTART_DIR/lumen.desktop"
+chmod +x "$AUTOSTART_DIR/lumen.desktop"
 
-# 5. Run it immediately
-echo -e "${GREEN}🚀 Launching Lumen now! ✨${NC}"
-lumen &
+# Refresh desktop database so icon appears immediately (if tool exists)
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
+fi
 
-echo -e "${BLUE}Lumen is now running in the background. Tap your global shortcut or find the icon in your tray. ✨${NC}"
+echo -e "${GREEN}✅ Desktop & Autostart integration complete. ✨${NC}"
+
+# 6. Run it immediately (Detached from terminal)
+echo -e "${GREEN}🚀 Launching Lumen (Background Mode)...${NC}"
+# Use nohup and redirect output to ensure it survives terminal closing
+nohup "$INSTALL_DIR/$BINARY_NAME" > /dev/null 2>&1 &
+
+echo -e "${BLUE}Lumen is now running. Close this terminal and stay wavy. ✨${NC}"
