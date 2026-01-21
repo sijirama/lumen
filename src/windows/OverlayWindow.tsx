@@ -54,13 +54,20 @@ function OverlayWindow() {
     }, []);
 
     const scrollToBottom = (instant = false) => {
-        // Use a small timeout to ensure layout is complete
-        setTimeout(() => {
+        // Use a small timeout for smooth scrolling to let layout settle, 
+        // but go instant for view switches/mounts
+        const performScroll = () => {
             messagesEndRef.current?.scrollIntoView({
                 behavior: instant ? 'instant' : 'smooth',
                 block: 'end'
             });
-        }, 50);
+        };
+
+        if (instant) {
+            requestAnimationFrame(performScroll);
+        } else {
+            setTimeout(performScroll, 50);
+        }
     };
 
     //INFO: Listen for streaming "double-texting" messages and proactive updates
@@ -148,6 +155,11 @@ function OverlayWindow() {
             try {
                 // Call the authoritative Rust command to resize and reposition
                 await invoke('resize_overlay', { view: currentView });
+
+                // If we switched back to chat, force scroll to bottom
+                if (currentView === 'chat') {
+                    scrollToBottom(true);
+                }
             } catch (err) {
                 console.error('Failed to update window size:', err);
             }
@@ -173,6 +185,7 @@ function OverlayWindow() {
         try {
             const history = await invoke<ChatMessage[]>('get_chat_history', { sessionId: null, limit: 50 });
             setMessages(history);
+            scrollToBottom(true);
         } catch (err) {
             console.error('Failed to load chat history:', err);
         }

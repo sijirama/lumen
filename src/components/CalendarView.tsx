@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { ChevronLeft, ChevronRight, Loader2, Calendar as CalendarIcon, Clock, MapPin, AlignLeft } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import {
     format,
@@ -11,7 +11,8 @@ import {
     endOfWeek,
     isSameMonth,
     isSameDay,
-    eachDayOfInterval
+    eachDayOfInterval,
+    parseISO
 } from 'date-fns';
 
 interface CalendarEvent {
@@ -25,6 +26,7 @@ interface CalendarEvent {
 
 const CalendarView: React.FC = () => {
     const [currentDate, setCurrentDate] = useState(new Date());
+    const [selectedDate, setSelectedDate] = useState(new Date());
     const [events, setEvents] = useState<CalendarEvent[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
@@ -41,7 +43,7 @@ const CalendarView: React.FC = () => {
                 startIso: start,
                 endIso: end
             });
-            setEvents(data);
+            setEvents(data || []);
         } catch (err) {
             console.error('Failed to fetch calendar events:', err);
         } finally {
@@ -51,284 +53,395 @@ const CalendarView: React.FC = () => {
 
     const nextMonth = () => setCurrentDate(addMonths(currentDate, 1));
     const prevMonth = () => setCurrentDate(subMonths(currentDate, 1));
-    const goToToday = () => setCurrentDate(new Date());
+    const goToToday = () => {
+        const today = new Date();
+        setCurrentDate(today);
+        setSelectedDate(today);
+    };
 
     // Calendar Grid Logic
     const monthStart = startOfMonth(currentDate);
     const monthEnd = endOfMonth(currentDate);
     const startDate = startOfWeek(monthStart);
     const endDate = endOfWeek(monthEnd);
-
     const days = eachDayOfInterval({ start: startDate, end: endDate });
 
-    const groupedEvents = events.reduce((acc: any, event) => {
-        const dateKey = event.start.dateTime
-            ? format(new Date(event.start.dateTime), 'yyyy-MM-dd')
-            : event.start.date;
-        if (!dateKey) return acc;
-        if (!acc[dateKey]) acc[dateKey] = [];
-        acc[dateKey].push(event);
-        return acc;
-    }, {});
+    const groupedEvents = useMemo(() => {
+        return events.reduce((acc: Record<string, CalendarEvent[]>, event) => {
+            const dateStr = event.start.dateTime || event.start.date;
+            if (!dateStr) return acc;
+            const key = format(parseISO(dateStr), 'yyyy-MM-dd');
+            if (!acc[key]) acc[key] = [];
+            acc[key].push(event);
+            return acc;
+        }, {});
+    }, [events]);
 
-    const timelineDates = Object.keys(groupedEvents).sort();
+    const colors = [
+        { bg: 'rgba(59, 130, 246, 0.12)', text: '#3b82f6', border: 'rgba(59, 130, 246, 0.2)' },
+        { bg: 'rgba(16, 185, 129, 0.12)', text: '#10b981', border: 'rgba(16, 185, 129, 0.2)' },
+        { bg: 'rgba(245, 158, 11, 0.12)', text: '#f59e0b', border: 'rgba(245, 158, 11, 0.2)' },
+        { bg: 'rgba(239, 68, 68, 0.12)', text: '#ef4444', border: 'rgba(239, 68, 68, 0.2)' },
+        { bg: 'rgba(139, 92, 246, 0.12)', text: '#8b5cf6', border: 'rgba(139, 92, 246, 0.2)' },
+        { bg: 'rgba(236, 72, 153, 0.12)', text: '#ec4899', border: 'rgba(236, 72, 153, 0.2)' }
+    ];
+
+    const getEventStyle = (title: string) => {
+        const hash = title.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        return colors[hash % colors.length];
+    };
+
+    const selectedEvents = groupedEvents[format(selectedDate, 'yyyy-MM-dd')] || [];
 
     return (
-        <div className="calendar-view animate-fade-in">
-            {/* Header */}
-            <div className="calendar-header">
-                <div className="calendar-month-nav">
-                    <h2>{format(currentDate, 'MMMM yyyy')}</h2>
-                    <div className="calendar-nav-controls">
-                        <button className="nav-btn today-btn" onClick={goToToday}>Today</button>
-                        <div className="nav-arrows">
-                            <button onClick={prevMonth} className="icon-btn"><ChevronLeft size={16} /></button>
-                            <button onClick={nextMonth} className="icon-btn"><ChevronRight size={16} /></button>
-                        </div>
+        <div className="sexy-calendar-container animate-fade-in">
+            {/* Header: Minimal & Stylish */}
+            <div className="sexy-header">
+                <div className="current-month-display">
+                    <span className="month-label">{format(currentDate, 'MMMM')}</span>
+                    <span className="year-label">{format(currentDate, 'yyyy')}</span>
+                </div>
+                <div className="header-actions">
+                    <button className="sexy-btn mini" onClick={goToToday}>Today</button>
+                    <div className="nav-pair">
+                        <button onClick={prevMonth} className="nav-icon-btn"><ChevronLeft size={18} /></button>
+                        <button onClick={nextMonth} className="nav-icon-btn"><ChevronRight size={18} /></button>
                     </div>
                 </div>
             </div>
 
-            {/* Grid */}
-            <div className="calendar-grid-container">
-                <div className="calendar-days-row">
-                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
-                        <div key={i} className="calendar-day-label">{day}</div>
+            {/* The Grid: Airy & Modern */}
+            <div className="sexy-grid">
+                <div className="weekdays-row">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                        <div key={d} className="weekday-label">{d}</div>
                     ))}
                 </div>
-                <div className="calendar-dates-grid">
-                    {days.map((day, i) => {
+                <div className="dates-grid">
+                    {days.map((day, idx) => {
                         const dateKey = format(day, 'yyyy-MM-dd');
-                        const hasEvents = groupedEvents[dateKey]?.length > 0;
                         const isToday = isSameDay(day, new Date());
+                        const isSelected = isSameDay(day, selectedDate);
+                        const isCurrentMonth = isSameMonth(day, monthStart);
+                        const dayEvents = groupedEvents[dateKey] || [];
 
                         return (
                             <div
-                                key={i}
-                                className={`calendar-date-cell ${!isSameMonth(day, monthStart) ? 'out-of-month' : ''} ${isToday ? 'is-today' : ''}`}
+                                key={idx}
+                                className={`date-cell ${!isCurrentMonth ? 'dimmed' : ''} ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''}`}
+                                onClick={() => setSelectedDate(day)}
                             >
-                                <span className="date-number">{format(day, 'd')}</span>
-                                {hasEvents && <div className="event-dot" />}
+                                <div className="date-content">
+                                    <span className="date-val">{format(day, 'd')}</span>
+                                    {dayEvents.length > 0 && <div className="event-indicator" />}
+                                </div>
                             </div>
                         );
                     })}
                 </div>
             </div>
 
-            {/* Timeline */}
-            <div className="calendar-timeline">
-                {isLoading && events.length === 0 ? (
-                    <div className="calendar-loading">
-                        <Loader2 className="animate-spin" size={20} />
-                    </div>
-                ) : timelineDates.length === 0 ? (
-                    <div className="no-events">No events scheduled.</div>
-                ) : (
-                    timelineDates.map(dateKey => (
-                        <div key={dateKey} className="timeline-day-section">
-                            <h3 className="timeline-date-sticky">
-                                {format(new Date(dateKey), 'EEEE MM/dd/yy')}
-                            </h3>
-                            <div className="timeline-events-list">
-                                {groupedEvents[dateKey].map((event: CalendarEvent) => {
-                                    const timeStr = event.start.dateTime
-                                        ? format(new Date(event.start.dateTime), 'h:mm a')
-                                        : 'All day';
+            {/* Event List: Modern "Bubbles" */}
+            <div className="events-timeline-glow">
+                <div className="timeline-header">
+                    <span className="sticky-day-title">{format(selectedDate, 'EEEE, MMM do')}</span>
+                    {isLoading && <Loader2 className="animate-spin opacity-50" size={14} />}
+                </div>
 
-                                    const colors = [
-                                        { bg: '#FCE7F3', text: '#9D174D' }, // Pink
-                                        { bg: '#FFEDD5', text: '#9A3412' }, // Orange
-                                        { bg: '#E0F2FE', text: '#0369A1' }, // Blue
-                                        { bg: '#DCFCE7', text: '#15803D' }, // Green
-                                        { bg: '#F3E8FF', text: '#6B21A8' }, // Purple
-                                        { bg: '#F1F5F9', text: '#334155' }  // Slate
-                                    ];
-                                    const colorIndex = Math.abs(event.summary.split('').reduce((a, b) => a + b.charCodeAt(0), 0));
-                                    const style = colors[colorIndex % colors.length];
-
-                                    return (
-                                        <div
-                                            key={event.id}
-                                            className="event-pill-full"
-                                            style={{ backgroundColor: style.bg, color: style.text }}
-                                        >
-                                            <span className="event-pill-time">{timeStr}</span>
-                                            <span className="event-pill-title">{event.summary}</span>
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                <div className="sexy-event-list">
+                    {selectedEvents.length === 0 ? (
+                        <div className="sexy-empty-state">
+                            <CalendarIcon size={32} strokeWidth={1} className="opacity-10 mb-2" />
+                            <p>No plans for this day</p>
                         </div>
-                    ))
-                )}
+                    ) : (
+                        selectedEvents.map(event => {
+                            const style = getEventStyle(event.summary);
+                            const startTime = event.start.dateTime ? format(parseISO(event.start.dateTime), 'h:mm a') : 'All Day';
+
+                            return (
+                                <div key={event.id} className="sexy-pill" style={{ backgroundColor: style.bg }}>
+                                    <div className="pill-main">
+                                        <div className="pill-top">
+                                            <span className="pill-time" style={{ color: style.text }}>
+                                                <Clock size={10} className="mr-1" /> {startTime}
+                                            </span>
+                                            {event.location && (
+                                                <span className="pill-location">
+                                                    <MapPin size={10} className="mr-1" /> {event.location}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <h4 className="pill-title">{event.summary}</h4>
+                                        {event.description && (
+                                            <p className="pill-desc">
+                                                <AlignLeft size={10} className="mr-1" /> {event.description}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
             </div>
 
             <style>{`
-                .calendar-view {
+                .sexy-calendar-container {
                     flex: 1;
                     display: flex;
                     flex-direction: column;
-                    gap: var(--spacing-2);
+                    padding: 0 2px;
                     height: 100%;
-                    overflow-y: auto;
-                    scrollbar-width: none;
-                    padding: 0 var(--spacing-1); /* Minimized X padding */
-                }
-                .calendar-view::-webkit-scrollbar { display: none; }
-
-                .calendar-header {
-                    margin-bottom: var(--spacing-1);
+                    overflow: hidden;
+                    font-family: var(--font-family-sans);
                 }
 
-                .calendar-month-nav {
+                /* Header Styling */
+                .sexy-header {
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
+                    margin-bottom: var(--spacing-3);
+                    padding: 0 2px;
                 }
 
-                .calendar-month-nav h2 {
-                    font-size: 0.95rem;
-                    font-weight: 700;
-                    color: var(--color-text-primary);
-                }
-
-                .calendar-nav-controls {
+                .current-month-display {
                     display: flex;
-                    align-items: center;
+                    align-items: baseline;
                     gap: var(--spacing-2);
                 }
 
-                .nav-btn {
-                    padding: 2px 8px;
-                    border-radius: var(--radius-full);
-                    border: 1px solid var(--color-border-light);
-                    background: white;
-                    font-size: 0.65rem;
-                    font-weight: 600;
-                    cursor: pointer;
+                .month-label {
+                    font-size: 1.1rem;
+                    font-weight: 800;
+                    color: var(--color-text-primary);
+                    letter-spacing: -0.02em;
                 }
-                
-                .icon-btn {
+
+                .year-label {
+                    font-size: 0.85rem;
+                    font-weight: 500;
+                    color: var(--color-text-tertiary);
+                    opacity: 0.7;
+                }
+
+                .header-actions {
+                    display: flex;
+                    align-items: center;
+                    gap: var(--spacing-3);
+                }
+
+                .sexy-btn.mini {
+                    background: var(--color-bg-subtle);
+                    border: 1px solid var(--color-border-light);
+                    padding: 3px 10px;
+                    border-radius: var(--radius-full);
+                    font-size: 0.65rem;
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+                .sexy-btn.mini:hover { background: white; transform: translateY(-1px); }
+
+                .nav-pair {
+                    display: flex;
+                    gap: 4px;
+                }
+
+                .nav-icon-btn {
                     background: none;
                     border: none;
                     color: var(--color-text-tertiary);
                     cursor: pointer;
+                    padding: 4px;
+                    border-radius: 50%;
+                    transition: all 0.2s;
                     display: flex;
-                    align-items: center;
-                    padding: 2px;
+                }
+                .nav-icon-btn:hover { background: var(--color-bg-subtle); color: var(--color-text-primary); }
+
+                /* Grid Styling */
+                .sexy-grid {
+                    margin-bottom: var(--spacing-4);
                 }
 
-                .nav-arrows {
-                    display: flex;
-                    gap: var(--spacing-1);
-                }
-
-                .calendar-grid-container {
-                    padding: 0;
-                    margin-bottom: var(--spacing-1);
-                }
-
-                .calendar-days-row {
+                .weekdays-row {
                     display: grid;
                     grid-template-columns: repeat(7, 1fr);
-                    margin-bottom: var(--spacing-1);
+                    margin-bottom: 6px;
                 }
 
-                .calendar-day-label {
+                .weekday-label {
                     text-align: center;
                     font-size: 0.6rem;
-                    font-weight: 700;
+                    font-weight: 800;
+                    text-transform: uppercase;
                     color: var(--color-text-tertiary);
+                    opacity: 0.5;
+                    letter-spacing: 0.05em;
                 }
 
-                .calendar-dates-grid {
+                .dates-grid {
                     display: grid;
                     grid-template-columns: repeat(7, 1fr);
-                    gap: 1px;
+                    gap: 4px;
                 }
 
-                .calendar-date-cell {
-                    height: 32px;
+                .date-cell {
+                    aspect-ratio: 1;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: 12px;
+                    cursor: pointer;
+                    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                    position: relative;
+                }
+
+                .date-content {
+                    width: 100%;
+                    height: 100%;
                     display: flex;
                     flex-direction: column;
                     align-items: center;
                     justify-content: center;
-                    position: relative;
-                    font-size: 0.75rem;
-                    border-radius: var(--radius-md);
-                    cursor: pointer;
-                    color: var(--color-text-primary);
+                    gap: 2px;
                 }
 
-                .calendar-date-cell.is-today {
-                    background: var(--color-accent-light);
-                    color: var(--color-accent);
-                    font-weight: 700;
-                }
-
-                .calendar-date-cell.out-of-month {
-                    opacity: 0.2;
-                }
-
-                .event-dot {
-                    width: 3px;
-                    height: 3px;
-                    background: var(--color-accent);
-                    border-radius: 50%;
-                    position: absolute;
-                    bottom: 3px;
-                }
-
-                .calendar-timeline {
-                    display: flex;
-                    flex-direction: column;
-                    gap: var(--spacing-3);
-                    margin-top: 0; /* Minimized margin from calendar */
-                }
-
-                .timeline-date-sticky {
+                .date-val {
                     font-size: 0.8rem;
                     font-weight: 600;
-                    margin-bottom: var(--spacing-1);
-                    color: var(--color-text-tertiary);
-                    background: var(--color-bg-primary);
-                    padding: 2px 0;
+                    color: var(--color-text-primary);
+                    z-index: 2;
                 }
 
-                .timeline-events-list {
+                .date-cell.dimmed .date-val { opacity: 0.15; }
+                
+                .date-cell:hover:not(.selected) {
+                    background: var(--color-bg-subtle);
+                }
+
+                .date-cell.today {
+                    background: rgba(167, 139, 250, 0.1); /* Lighter Pastel Violet */
+                }
+                .date-cell.today .date-val {
+                    color: #a78bfa;
+                    font-weight: 800;
+                }
+
+                .date-cell.selected {
+                    background: #a78bfa;
+                    box-shadow: 0 4px 12px rgba(167, 139, 250, 0.3);
+                }
+                .date-cell.selected .date-val {
+                    color: white;
+                }
+
+                .event-indicator {
+                    width: 4px;
+                    height: 4px;
+                    background: #a78bfa;
+                    border-radius: 50%;
+                    opacity: 0.5;
+                }
+                .date-cell.selected .event-indicator { background: white; opacity: 1; }
+
+                /* Event List Styling */
+                .events-timeline-glow {
+                    flex: 1;
                     display: flex;
                     flex-direction: column;
-                    gap: var(--spacing-1);
+                    min-height: 0;
                 }
 
-                .event-pill-full {
-                    padding: 6px 10px;
-                    border-radius: var(--radius-md);
-                    font-size: 0.7rem; /* Reduced font size */
-                    font-weight: 500;
+                .timeline-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    margin-bottom: var(--spacing-3);
+                }
+
+                .sticky-day-title {
+                    font-size: 0.85rem;
+                    font-weight: 800;
+                    color: var(--color-text-primary);
+                    letter-spacing: -0.01em;
+                }
+
+                .sexy-event-list {
+                    flex: 1;
+                    overflow-y: auto;
                     display: flex;
                     flex-direction: column;
-                    gap: 0;
-                    border: 1px solid rgba(0,0,0,0.02);
+                    gap: var(--spacing-2);
+                    padding-bottom: var(--spacing-6);
+                    scrollbar-width: none;
+                }
+                .sexy-event-list::-webkit-scrollbar { display: none; }
+
+                .sexy-pill {
+                    padding: 10px 14px;
+                    border-radius: 14px;
+                    position: relative;
+                    overflow: hidden;
+                    transition: transform 0.2s;
+                }
+                .sexy-pill:hover { transform: scale(1.01); }
+
+
+                .pill-main {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
                 }
 
-                .event-pill-time {
+                .pill-top {
+                    display: flex;
+                    align-items: center;
+                    gap: var(--spacing-3);
+                    margin-bottom: 2px;
+                }
+
+                .pill-time, .pill-location, .pill-desc {
                     font-size: 0.6rem;
-                    opacity: 0.7;
-                    font-weight: 600;
-                    margin-bottom: -1px;
+                    font-weight: 700;
+                    display: flex;
+                    align-items: center;
+                    opacity: 0.8;
                 }
 
-                .event-pill-title {
-                    line-height: 1.1;
+                .pill-location, .pill-desc { color: var(--color-text-tertiary); font-weight: 600; opacity: 0.6; }
+
+                .pill-title {
+                    font-size: 0.75rem;
                     font-weight: 600;
+                    color: var(--color-text-primary);
+                    line-height: 1.2;
                 }
 
-                .calendar-loading, .no-events {
-                    padding: var(--spacing-6);
-                    text-align: center;
+                .pill-desc {
+                    margin-top: 2px;
+                    display: -webkit-box;
+                    -webkit-line-clamp: 2;
+                    -webkit-box-orient: vertical;
+                    overflow: hidden;
+                    line-height: 1.4;
+                }
+
+                .mr-1 { margin-right: 2px; }
+
+                .sexy-empty-state {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    padding: var(--spacing-10) 0;
                     color: var(--color-text-tertiary);
                     font-size: 0.75rem;
+                    font-weight: 600;
                 }
             `}</style>
         </div>
