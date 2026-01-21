@@ -42,25 +42,17 @@ fi
 # 2. Dependency Check (Essential for Tauri apps on Linux)
 echo -e "${BLUE}🏗 Checking for survivors (dependencies)...${NC}"
 
-# Function to check if a package is installed via pkg-config
-check_lib() {
-    pkg-config --exists "$1"
-}
-
-NEEDS_INSTALL=false
-if ! check_lib webkit2gtk-4.1; then NEEDS_INSTALL=true; fi
-if ! check_lib appindicator3-0.1; then NEEDS_INSTALL=true; fi
-
-if [ "$NEEDS_INSTALL" = true ]; then
+# If the header exists, we skip the apt install to avoid conflicts
+if [ -d "/usr/include/webkitgtk-4.1" ] || [ -d "/usr/include/webkitgtk-4.0" ]; then
+    echo -e "${GREEN}Developer headers detected. Skipping system library install. ✨${NC}"
+else
     if command -v apt-get >/dev/null; then
         echo "Installing missing system libraries..."
         sudo apt-get update -qq
         sudo apt-get install -qq -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
     else
-        echo -e "${YELLOW}Missing dependencies and non-Debian system detected. Please ensure webkit2gtk-4.1 is installed!${NC}"
+        echo -e "${YELLOW}Non-Debian system detected. Please ensure webkit2gtk-4.1 is installed!${NC}"
     fi
-else
-    echo -e "${GREEN}All system dependencies already satisfied. Skipping install step. ✨${NC}"
 fi
 
 # 3. Fetch Latest Release
