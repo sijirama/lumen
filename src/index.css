@@ -104,8 +104,7 @@ body {
   background-color: transparent;
   margin: 0;
   padding: 0;
-  overflow: hidden;
-  /* pointer-events: none; - REMOVED: Re-enabling interaction for the main app */
+  /* overflow: hidden; - REMOVED: Allow scrolling by default */
 }
 
 /* Force global transparency for all window backdrops */
@@ -118,6 +117,8 @@ body {
 /* Class for windows that NEED the solid background (Main, Setup) */
 .with-app-bg {
   background-color: var(--color-bg-primary);
+  min-height: 100vh;
+  overflow-y: auto;
 }
 
 #root {

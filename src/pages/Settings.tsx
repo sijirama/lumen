@@ -142,22 +142,62 @@ function SettingsPage() {
     }
 
     return (
-        <div className="animate-fade-in">
-            <h2 style={{ marginBottom: 'var(--spacing-6)' }}>Settings</h2>
+        <div className="animate-fade-in" style={{ paddingBottom: 'var(--spacing-12)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-6)' }}>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 600, letterSpacing: '-0.025em' }}>Settings</h2>
+                {success && (
+                    <div style={{
+                        padding: '4px 12px',
+                        background: 'var(--color-bg-tertiary)',
+                        borderRadius: 'var(--radius-full)',
+                        color: 'var(--color-success)',
+                        fontSize: '0.75rem',
+                        fontWeight: 500,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                    }}>
+                        <CheckCircle2 size={12} />
+                        {success}
+                    </div>
+                )}
+                {error && (
+                    <div style={{
+                        padding: '4px 12px',
+                        background: '#fce8e6',
+                        borderRadius: 'var(--radius-full)',
+                        color: 'var(--color-error)',
+                        fontSize: '0.75rem',
+                        fontWeight: 500,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                    }}>
+                        <AlertCircle size={12} />
+                        {error}
+                    </div>
+                )}
+            </div>
 
-            {error && <div className="error-message">{error}</div>}
-            {success && <div style={{ padding: 'var(--spacing-3)', background: '#e6f4ea', borderRadius: 'var(--radius-md)', color: 'var(--color-success)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--spacing-3)' }}>{success}</div>}
-
-            {/* App Settings */}
-            <section className="settings-section">
-                <h4 className="settings-section-title">App</h4>
-                <div className="settings-card">
+            {/* General Settings */}
+            <section style={{ marginBottom: 'var(--spacing-6)' }}>
+                <h4 style={{
+                    fontSize: '0.75rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    color: 'var(--color-text-tertiary)',
+                    marginBottom: 'var(--spacing-2)',
+                    fontWeight: 600
+                }}>
+                    General
+                </h4>
+                <div className="settings-card" style={{ padding: 'var(--spacing-3) var(--spacing-4)' }}>
                     <div className="settings-row">
                         <div className="settings-row-info">
-                            <span className="settings-row-title">Launch on Startup</span>
-                            <span className="settings-row-description">Start Lumen automatically when you log in.</span>
+                            <span className="settings-row-title" style={{ fontSize: '0.9rem' }}>Launch on Startup</span>
+                            <span className="settings-row-description" style={{ fontSize: '0.8rem' }}>Start Lumen automatically when you log in.</span>
                         </div>
-                        <label className="switch">
+                        <label className="switch" style={{ transform: 'scale(0.8)' }}>
                             <input
                                 type="checkbox"
                                 checked={autostartEnabled}
@@ -171,113 +211,184 @@ function SettingsPage() {
             </section>
 
             {/* Profile */}
-            <section className="settings-section">
-                <h4 className="settings-section-title">Profile</h4>
-                <div className="settings-card">
-                    <div className="input-group" style={{ marginBottom: 'var(--spacing-4)' }}>
-                        <label className="input-label">Display Name</label>
+            <section style={{ marginBottom: 'var(--spacing-6)' }}>
+                <h4 style={{
+                    fontSize: '0.75rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    color: 'var(--color-text-tertiary)',
+                    marginBottom: 'var(--spacing-2)',
+                    fontWeight: 600
+                }}>
+                    Personalization
+                </h4>
+                <div className="settings-card" style={{ padding: 'var(--spacing-4)' }}>
+                    <div style={{ marginBottom: 'var(--spacing-3)' }}>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Display Name</label>
                         <input
                             type="text"
                             className="input"
                             value={displayName}
                             onChange={(e) => setDisplayName(e.target.value)}
                             placeholder="Your name"
+                            style={{ fontSize: '0.9rem', padding: '6px 10px' }}
                         />
                     </div>
-                    <div className="input-group" style={{ marginBottom: 'var(--spacing-6)' }}>
-                        <label className="input-label">Home Location</label>
+                    <div style={{ marginBottom: 'var(--spacing-4)' }}>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Home Location</label>
                         <input
                             type="text"
                             className="input"
                             value={location}
                             onChange={(e) => setLocation(e.target.value)}
-                            placeholder="e.g. Lagos, London, New York"
+                            placeholder="e.g. Lagos, London"
+                            style={{ fontSize: '0.9rem', padding: '6px 10px' }}
                         />
-                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginTop: 'var(--spacing-1)' }}>
-                            Used for accurate weather in your daily briefing.
-                        </span>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)', marginTop: '4px' }}>
+                            Used for local weather updates.
+                        </div>
                     </div>
-                    <button className="btn btn-primary" onClick={saveProfile} disabled={saving}>
-                        Save Profile
-                    </button>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <button className="btn btn-primary btn-sm" onClick={saveProfile} disabled={saving} style={{ fontSize: '0.8rem' }}>
+                            Save Changes
+                        </button>
+                    </div>
                 </div>
             </section>
 
             {/* Hotkey */}
-            <section className="settings-section">
-                <h4 className="settings-section-title">Hotkey</h4>
-                <div className="settings-card">
-                    <div style={{ marginBottom: 'var(--spacing-4)' }}>
-                        <label className="input-label" style={{ marginBottom: 'var(--spacing-2)', display: 'block' }}>Modifiers</label>
-                        <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
-                            {['Super', 'Ctrl', 'Alt', 'Shift'].map(mod => (
-                                <button
-                                    key={mod}
-                                    className={`btn btn-sm ${hotkeyModifiers.includes(mod) ? 'btn-primary' : ''}`}
-                                    onClick={() => toggleModifier(mod)}
-                                >
-                                    {mod}
-                                </button>
-                            ))}
+            <section style={{ marginBottom: 'var(--spacing-6)' }}>
+                <h4 style={{
+                    fontSize: '0.75rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    color: 'var(--color-text-tertiary)',
+                    marginBottom: 'var(--spacing-2)',
+                    fontWeight: 600
+                }}>
+                    Shortcuts
+                </h4>
+                <div className="settings-card" style={{ padding: 'var(--spacing-4)' }}>
+                    <div style={{ marginBottom: 'var(--spacing-3)' }}>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, marginBottom: '6px', color: 'var(--color-text-secondary)' }}>Activation Hotkey</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                                {['Super', 'Ctrl', 'Alt', 'Shift'].map(mod => (
+                                    <button
+                                        key={mod}
+                                        onClick={() => toggleModifier(mod)}
+                                        style={{
+                                            padding: '4px 10px',
+                                            fontSize: '0.75rem',
+                                            borderRadius: '4px',
+                                            border: '1px solid',
+                                            borderColor: hotkeyModifiers.includes(mod) ? 'var(--color-accent)' : 'var(--color-border)',
+                                            background: hotkeyModifiers.includes(mod) ? 'var(--color-accent)' : 'transparent',
+                                            color: hotkeyModifiers.includes(mod) ? 'white' : 'var(--color-text-secondary)',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        {mod}
+                                    </button>
+                                ))}
+                            </div>
+                            <span style={{ color: 'var(--color-text-tertiary)', fontSize: '0.9rem' }}>+</span>
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    type="text"
+                                    value={hotkeyKey}
+                                    onChange={(e) => setHotkeyKey(e.target.value.toUpperCase())}
+                                    maxLength={1}
+                                    style={{
+                                        width: '40px',
+                                        textAlign: 'center',
+                                        fontWeight: 'bold',
+                                        fontSize: '0.9rem',
+                                        padding: '4px',
+                                        borderRadius: '4px',
+                                        border: '1px solid var(--color-border)',
+                                        outline: 'none'
+                                    }}
+                                />
+                            </div>
                         </div>
                     </div>
-                    <div className="input-group" style={{ marginBottom: 'var(--spacing-4)' }}>
-                        <label className="input-label">Key</label>
-                        <input
-                            type="text"
-                            className="input"
-                            value={hotkeyKey}
-                            onChange={(e) => setHotkeyKey(e.target.value.toUpperCase())}
-                            maxLength={1}
-                            style={{ width: '60px', textAlign: 'center' }}
-                        />
-                    </div>
-                    <div style={{ marginBottom: 'var(--spacing-4)' }}>
-                        <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>
-                            Current: {hotkeyModifiers.map(m => <kbd key={m} className="kbd" style={{ marginRight: '4px' }}>{m}</kbd>)} + <kbd className="kbd">{hotkeyKey}</kbd>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--spacing-3)' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                            Active: <span style={{ fontWeight: 500 }}>{hotkeyModifiers.join('+')}+{hotkeyKey}</span>
                         </span>
+                        <button className="btn btn-primary btn-sm" onClick={saveHotkey} disabled={saving} style={{ fontSize: '0.8rem' }}>
+                            Update
+                        </button>
                     </div>
-                    <button className="btn btn-primary" onClick={saveHotkey} disabled={saving}>
-                        Save
-                    </button>
                 </div>
             </section>
 
             {/* API Key */}
-            <section className="settings-section">
-                <h4 className="settings-section-title">Gemini API Key</h4>
-                <div className="settings-card">
-                    {geminiKeyConfigured && (
-                        <div style={{ marginBottom: 'var(--spacing-3)' }}>
-                            <span className="badge badge-success">Configured</span>
+            <section style={{ marginBottom: 'var(--spacing-6)' }}>
+                <h4 style={{
+                    fontSize: '0.75rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    color: 'var(--color-text-tertiary)',
+                    marginBottom: 'var(--spacing-2)',
+                    fontWeight: 600
+                }}>
+                    Intelligence
+                </h4>
+                <div className="settings-card" style={{ padding: 'var(--spacing-4)' }}>
+                    <div className="settings-row" style={{ marginBottom: 'var(--spacing-3)' }}>
+                        <div className="settings-row-info">
+                            <span className="settings-row-title" style={{ fontSize: '0.9rem' }}>Gemini API Key</span>
                         </div>
-                    )}
-                    <div className="input-group" style={{ marginBottom: 'var(--spacing-4)' }}>
+                        {geminiKeyConfigured && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--color-success)', fontSize: '0.75rem', fontWeight: 600, background: 'rgba(52, 168, 83, 0.1)', padding: '2px 8px', borderRadius: '4px' }}>
+                                Active
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{ marginBottom: 'var(--spacing-3)' }}>
                         <input
                             type="password"
                             className="input"
                             value={geminiApiKey}
                             onChange={(e) => setGeminiApiKey(e.target.value)}
-                            placeholder={geminiKeyConfigured ? 'Enter new key to update...' : 'Enter your API key...'}
+                            placeholder={geminiKeyConfigured ? '••••••••••••••••••••••••' : 'Paste API Key'}
+                            style={{ fontSize: '0.9rem', padding: '6px 10px', fontFamily: 'monospace' }}
                         />
                     </div>
-                    <button className="btn btn-primary" onClick={saveApiKey} disabled={saving || !geminiApiKey.trim()}>
-                        Save
-                    </button>
-                    <p style={{ marginTop: 'var(--spacing-3)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
-                        Get your key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Google AI Studio</a>
-                    </p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <a
+                            href="https://aistudio.google.com/apikey"
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', textDecoration: 'none' }}
+                        >
+                            Get APi key
+                        </a>
+                        <button className="btn btn-primary btn-sm" onClick={saveApiKey} disabled={saving || !geminiApiKey.trim()} style={{ fontSize: '0.8rem' }}>
+                            Save Key
+                        </button>
+                    </div>
                 </div>
             </section>
 
             {/* Data */}
-            <section className="settings-section">
-                <h4 className="settings-section-title">Data</h4>
-                <div className="settings-card">
-                    <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-2)' }}>
-                        Database location:
+            <section>
+                <div className="settings-card" style={{ padding: 'var(--spacing-3)', background: 'transparent', border: 'none', boxShadow: 'none' }}>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '4px' }}>
+                        Database Location
                     </p>
-                    <code style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', wordBreak: 'break-all' }}>
+                    <code style={{
+                        display: 'inline-block',
+                        fontSize: '0.7rem',
+                        color: 'var(--color-text-tertiary)',
+                        background: 'rgba(0,0,0,0.03)',
+                        padding: '4px 6px',
+                        borderRadius: '4px',
+                    }}>
                         {databasePath}
                     </code>
                 </div>
