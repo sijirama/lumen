@@ -180,10 +180,13 @@ function OverlayWindow() {
     }, []);
 
     async function handleCaptureScreen() {
+        setIsCapturing(true);
         try {
             await invoke('start_snipping');
         } catch (err) {
             console.error('Failed to start snipping:', err);
+        } finally {
+            setIsCapturing(false);
         }
     }
 

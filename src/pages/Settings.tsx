@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
+import { CheckCircle2, AlertCircle } from 'lucide-react';
 
 //INFO: Types
 interface UserProfile {
