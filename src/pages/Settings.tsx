@@ -13,6 +13,9 @@ interface HotkeyConfig {
     modifier_keys: string[];
     key: string;
     enabled: boolean;
+    snipper_modifier_keys: string[];
+    snipper_key: string;
+    snipper_enabled: boolean;
 }
 
 interface ApiKeyStatus {
@@ -25,8 +28,15 @@ function SettingsPage() {
     //INFO: State
     const [displayName, setDisplayName] = useState('');
     const [location, setLocation] = useState('');
+
+    // Main Hotkey
     const [hotkeyModifiers, setHotkeyModifiers] = useState<string[]>(['Super']);
     const [hotkeyKey, setHotkeyKey] = useState('L');
+
+    // Snipper Hotkey
+    const [snipperModifiers, setSnipperModifiers] = useState<string[]>(['Super', 'Shift']);
+    const [snipperKey, setSnipperKey] = useState('S');
+
     const [geminiApiKey, setGeminiApiKey] = useState('');
     const [geminiKeyConfigured, setGeminiKeyConfigured] = useState(false);
     const [databasePath, setDatabasePath] = useState('');
@@ -62,6 +72,9 @@ function SettingsPage() {
             if (hotkey) {
                 setHotkeyModifiers(hotkey.modifier_keys);
                 setHotkeyKey(hotkey.key);
+                // Load Snipper config if available (backend defaults handle nulls)
+                if (hotkey.snipper_modifier_keys) setSnipperModifiers(hotkey.snipper_modifier_keys);
+                if (hotkey.snipper_key) setSnipperKey(hotkey.snipper_key);
             }
 
             const geminiStatus = await invoke<ApiKeyStatus>('get_api_key_status', { provider: 'gemini' });
@@ -108,8 +121,17 @@ function SettingsPage() {
         setSaving(true);
         setError(null);
         try {
-            await invoke('update_hotkey', { request: { modifier_keys: hotkeyModifiers, key: hotkeyKey, enabled: true } });
-            setSuccess('Hotkey saved (restart to apply)');
+            await invoke('update_hotkey', {
+                request: {
+                    modifier_keys: hotkeyModifiers,
+                    key: hotkeyKey,
+                    enabled: true,
+                    snipper_modifier_keys: snipperModifiers,
+                    snipper_key: snipperKey,
+                    snipper_enabled: true
+                }
+            });
+            setSuccess('Shortcuts saved (restart to apply)');
         } catch (err) {
             setError(`Failed to save hotkey: ${err}`);
         } finally {
@@ -133,11 +155,19 @@ function SettingsPage() {
         }
     }
 
-    function toggleModifier(mod: string) {
-        if (hotkeyModifiers.includes(mod)) {
-            setHotkeyModifiers(hotkeyModifiers.filter(m => m !== mod));
+    function toggleModifier(mod: string, isMain: boolean) {
+        if (isMain) {
+            if (hotkeyModifiers.includes(mod)) {
+                setHotkeyModifiers(hotkeyModifiers.filter(m => m !== mod));
+            } else {
+                setHotkeyModifiers([...hotkeyModifiers, mod]);
+            }
         } else {
-            setHotkeyModifiers([...hotkeyModifiers, mod]);
+            if (snipperModifiers.includes(mod)) {
+                setSnipperModifiers(snipperModifiers.filter(m => m !== mod));
+            } else {
+                setSnipperModifiers([...snipperModifiers, mod]);
+            }
         }
     }
 
@@ -269,14 +299,16 @@ function SettingsPage() {
                     Shortcuts
                 </h4>
                 <div className="settings-card" style={{ padding: 'var(--spacing-4)' }}>
-                    <div style={{ marginBottom: 'var(--spacing-3)' }}>
+
+                    {/* Main Activation */}
+                    <div style={{ marginBottom: 'var(--spacing-4)' }}>
                         <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, marginBottom: '6px', color: 'var(--color-text-secondary)' }}>Activation Hotkey</label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <div style={{ display: 'flex', gap: '4px' }}>
                                 {['Super', 'Ctrl', 'Alt', 'Shift'].map(mod => (
                                     <button
                                         key={mod}
-                                        onClick={() => toggleModifier(mod)}
+                                        onClick={() => toggleModifier(mod, true)}
                                         style={{
                                             padding: '4px 10px',
                                             fontSize: '0.75rem',
@@ -314,12 +346,57 @@ function SettingsPage() {
                             </div>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--spacing-3)' }}>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                            Active: <span style={{ fontWeight: 500 }}>{hotkeyModifiers.join('+')}+{hotkeyKey}</span>
-                        </span>
+
+                    {/* Snipper Shortcut */}
+                    <div style={{ marginBottom: 'var(--spacing-3)' }}>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, marginBottom: '6px', color: 'var(--color-text-secondary)' }}>Snipping Tool</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                                {['Super', 'Ctrl', 'Alt', 'Shift'].map(mod => (
+                                    <button
+                                        key={mod}
+                                        onClick={() => toggleModifier(mod, false)}
+                                        style={{
+                                            padding: '4px 10px',
+                                            fontSize: '0.75rem',
+                                            borderRadius: '4px',
+                                            border: '1px solid',
+                                            borderColor: snipperModifiers.includes(mod) ? 'var(--color-accent)' : 'var(--color-border)',
+                                            background: snipperModifiers.includes(mod) ? 'var(--color-accent)' : 'transparent',
+                                            color: snipperModifiers.includes(mod) ? 'white' : 'var(--color-text-secondary)',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        {mod}
+                                    </button>
+                                ))}
+                            </div>
+                            <span style={{ color: 'var(--color-text-tertiary)', fontSize: '0.9rem' }}>+</span>
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    type="text"
+                                    value={snipperKey}
+                                    onChange={(e) => setSnipperKey(e.target.value.toUpperCase())}
+                                    maxLength={1}
+                                    style={{
+                                        width: '40px',
+                                        textAlign: 'center',
+                                        fontWeight: 'bold',
+                                        fontSize: '0.9rem',
+                                        padding: '4px',
+                                        borderRadius: '4px',
+                                        border: '1px solid var(--color-border)',
+                                        outline: 'none'
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: 'var(--spacing-3)' }}>
                         <button className="btn btn-primary btn-sm" onClick={saveHotkey} disabled={saving} style={{ fontSize: '0.8rem' }}>
-                            Update
+                            Update Shortcuts
                         </button>
                     </div>
                 </div>

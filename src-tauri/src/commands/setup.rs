@@ -112,6 +112,9 @@ pub fn setup_save_hotkey(
         modifier_keys: request.modifier_keys,
         key: request.key,
         enabled: true,
+        snipper_modifier_keys: vec!["Super".to_string(), "Shift".to_string()],
+        snipper_key: "S".to_string(),
+        snipper_enabled: true,
     };
 
     save_hotkey_config(&connection, &config)

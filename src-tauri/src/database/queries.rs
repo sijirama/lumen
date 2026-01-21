@@ -22,6 +22,22 @@ pub struct HotkeyConfig {
     pub modifier_keys: Vec<String>,
     pub key: String,
     pub enabled: bool,
+    #[serde(default = "default_snipper_modifiers")]
+    pub snipper_modifier_keys: Vec<String>,
+    #[serde(default = "default_snipper_key")]
+    pub snipper_key: String,
+    #[serde(default = "default_snipper_enabled")]
+    pub snipper_enabled: bool,
+}
+
+fn default_snipper_modifiers() -> Vec<String> {
+    vec!["Super".to_string(), "Shift".to_string()]
+}
+fn default_snipper_key() -> String {
+    "S".to_string()
+}
+fn default_snipper_enabled() -> bool {
+    true
 }
 
 //INFO: Chat message data structure
@@ -158,16 +174,29 @@ pub fn save_user_profile(
 pub fn get_hotkey_config(connection: &Connection) -> Result<Option<HotkeyConfig>> {
     let result = connection
         .query_row(
-            "SELECT modifier_keys, key, enabled FROM hotkey_config WHERE id = 1",
+            "SELECT modifier_keys, key, enabled, snipper_modifier_keys, snipper_key, snipper_enabled FROM hotkey_config WHERE id = 1",
             [],
             |row| {
                 let modifier_keys_json: String = row.get(0)?;
                 let modifier_keys: Vec<String> =
                     serde_json::from_str(&modifier_keys_json).unwrap_or_default();
+                    
+                let snip_mod_json: Option<String> = row.get(3).unwrap_or(None);
+                let snipper_modifier_keys: Vec<String> = match snip_mod_json {
+                    Some(json) => serde_json::from_str(&json).unwrap_or_else(|_| default_snipper_modifiers()),
+                    None => default_snipper_modifiers()
+                };
+
+                let snipper_key: String = row.get(4).unwrap_or_else(|_| default_snipper_key());
+                let snipper_enabled: bool = row.get::<_, i32>(5).unwrap_or(1) == 1;
+
                 Ok(HotkeyConfig {
                     modifier_keys,
                     key: row.get(1)?,
                     enabled: row.get::<_, i32>(2)? == 1,
+                    snipper_modifier_keys,
+                    snipper_key,
+                    snipper_enabled,
                 })
             },
         )
@@ -181,10 +210,13 @@ pub fn get_hotkey_config(connection: &Connection) -> Result<Option<HotkeyConfig>
 pub fn save_hotkey_config(connection: &Connection, config: &HotkeyConfig) -> Result<()> {
     let modifier_keys_json = serde_json::to_string(&config.modifier_keys)
         .context("Failed to serialize modifier keys")?;
+    
+    let snipper_modifiers_json = serde_json::to_string(&config.snipper_modifier_keys)
+        .context("Failed to serialize snipper modifier keys")?;
 
     connection.execute(
-        "INSERT OR REPLACE INTO hotkey_config (id, modifier_keys, key, enabled) VALUES (1, ?1, ?2, ?3)",
-        params![modifier_keys_json, config.key, config.enabled as i32],
+        "INSERT OR REPLACE INTO hotkey_config (id, modifier_keys, key, enabled, snipper_modifier_keys, snipper_key, snipper_enabled) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)",
+        params![modifier_keys_json, config.key, config.enabled as i32, snipper_modifiers_json, config.snipper_key, config.snipper_enabled as i32],
     ).context("Failed to save hotkey config")?;
 
     Ok(())

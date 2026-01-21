@@ -25,6 +25,9 @@ pub struct HotkeyConfigResponse {
     pub modifier_keys: Vec<String>,
     pub key: String,
     pub enabled: bool,
+    pub snipper_modifier_keys: Vec<String>,
+    pub snipper_key: String,
+    pub snipper_enabled: bool,
 }
 
 //INFO: API key status response (never returns actual key)
@@ -49,6 +52,9 @@ pub struct UpdateHotkeyRequest {
     pub modifier_keys: Vec<String>,
     pub key: String,
     pub enabled: bool,
+    pub snipper_modifier_keys: Option<Vec<String>>,
+    pub snipper_key: Option<String>,
+    pub snipper_enabled: Option<bool>,
 }
 
 //INFO: Request to update API key
@@ -112,6 +118,9 @@ pub fn get_hotkey(database: State<Database>) -> Result<Option<HotkeyConfigRespon
         modifier_keys: c.modifier_keys,
         key: c.key,
         enabled: c.enabled,
+        snipper_modifier_keys: c.snipper_modifier_keys,
+        snipper_key: c.snipper_key,
+        snipper_enabled: c.snipper_enabled,
     }))
 }
 
@@ -123,10 +132,27 @@ pub fn update_hotkey(
 ) -> Result<(), String> {
     let connection = database.connection.lock();
 
+    // Preserve existing values if not provided (though frontend should provide all)
+    let existing = get_hotkey_config(&connection)
+        .map_err(|e| format!("DB Error: {}", e))?
+        .unwrap_or(HotkeyConfig {
+            modifier_keys: vec![],
+            key: "".to_string(),
+            enabled: true,
+            snipper_modifier_keys: vec!["Super".to_string(), "Shift".to_string()],
+            snipper_key: "S".to_string(),
+            snipper_enabled: true,
+        });
+
     let config = HotkeyConfig {
         modifier_keys: request.modifier_keys,
         key: request.key,
         enabled: request.enabled,
+        snipper_modifier_keys: request
+            .snipper_modifier_keys
+            .unwrap_or(existing.snipper_modifier_keys),
+        snipper_key: request.snipper_key.unwrap_or(existing.snipper_key),
+        snipper_enabled: request.snipper_enabled.unwrap_or(existing.snipper_enabled),
     };
 
     save_hotkey_config(&connection, &config)

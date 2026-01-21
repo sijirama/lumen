@@ -136,6 +136,8 @@ pub fn run() {
 
 //INFO: Sets up the global hotkey listener
 //NOTE: Uses the hotkey configured by the user to toggle the overlay
+//INFO: Sets up the global hotkey listener
+//NOTE: Uses the hotkey configured by the user to toggle the overlay
 fn setup_global_hotkey(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -150,42 +152,71 @@ fn setup_global_hotkey(app: &tauri::App) -> Result<(), Box<dyn std::error::Error
 
     drop(connection); // Release the lock before async operations
 
-    //INFO: Default to Super+L if no hotkey is configured
-    let shortcut_str = if let Some(config) = hotkey_config {
-        if config.enabled {
-            //INFO: Build shortcut string from modifier keys and key
+    let mut main_shortcut_str = "Super+L".to_string();
+    let mut snip_shortcut_str = "Super+Shift+S".to_string();
+    let mut main_enabled = true;
+    let mut snip_enabled = true;
+
+    if let Some(config) = hotkey_config {
+        main_enabled = config.enabled;
+        if main_enabled {
             let modifiers = config.modifier_keys.join("+");
-            if modifiers.is_empty() {
+            main_shortcut_str = if modifiers.is_empty() {
                 config.key
             } else {
                 format!("{}+{}", modifiers, config.key)
-            }
-        } else {
-            return Ok(()); // Hotkey disabled, don't register
+            };
         }
-    } else {
-        "Super+L".to_string() // Default hotkey
-    };
 
-    //INFO: Parse and register the shortcut
-    if let Ok(shortcut) = shortcut_str.parse::<Shortcut>() {
-        let app_handle = app.app_handle().clone();
+        snip_enabled = config.snipper_enabled;
+        if snip_enabled {
+            let snip_modifiers = config.snipper_modifier_keys.join("+");
+            snip_shortcut_str = if snip_modifiers.is_empty() {
+                config.snipper_key
+            } else {
+                format!("{}+{}", snip_modifiers, config.snipper_key)
+            };
+        }
+    }
 
-        app.global_shortcut()
-            .on_shortcut(shortcut, move |_app, _shortcut, event| {
-                if event.state == ShortcutState::Pressed {
-                    //INFO: Toggle overlay visibility on the main thread to avoid X11 crashes
-                    let app_handle_clone = app_handle.clone();
-                    let _ = app_handle.run_on_main_thread(move || {
-                        tauri::async_runtime::block_on(async move {
-                            let _ = window::toggle_overlay(app_handle_clone).await;
+    //INFO: Parse and register the shortcuts independently
+
+    let app_handle = app.app_handle().clone();
+
+    // 1. Register Main Toggle Shortcut
+    if main_enabled {
+        if let Ok(shortcut) = main_shortcut_str.parse::<Shortcut>() {
+            let handle = app_handle.clone();
+            app.global_shortcut()
+                .on_shortcut(shortcut, move |_app, _sc, event| {
+                    if event.state == ShortcutState::Pressed {
+                        let h = handle.clone();
+                        let _ = handle.run_on_main_thread(move || {
+                            tauri::async_runtime::block_on(async move {
+                                let _ = window::toggle_overlay(h).await;
+                            });
                         });
-                    });
-                }
-            })?;
+                    }
+                })?;
+        }
+    }
 
-        //INFO: Register the shortcut
-        app.global_shortcut().register(shortcut)?;
+    // 2. Register Snipper Shortcut
+    if snip_enabled {
+        if let Ok(shortcut) = snip_shortcut_str.parse::<Shortcut>() {
+            let handle = app_handle.clone();
+            app.global_shortcut()
+                .on_shortcut(shortcut, move |_app, _sc, event| {
+                    if event.state == ShortcutState::Pressed {
+                        let h = handle.clone();
+                        let _ = handle.run_on_main_thread(move || {
+                            tauri::async_runtime::block_on(async move {
+                                let _ = vision::start_snipping(h).await;
+                            });
+                        });
+                    }
+                })?;
+        }
     }
 
     Ok(())

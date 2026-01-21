@@ -59,11 +59,38 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
             modifier_keys TEXT NOT NULL,
             key TEXT NOT NULL,
             enabled INTEGER NOT NULL DEFAULT 1,
+            snipper_modifier_keys TEXT DEFAULT '[\"Super\",\"Shift\"]',
+            snipper_key TEXT DEFAULT 'S',
+            snipper_enabled INTEGER DEFAULT 1,
             CHECK (id = 1)
         )",
             [],
         )
         .context("Failed to create hotkey_config table")?;
+
+    // Migration: Add snipper columns if they don't exist
+    let mut stmt = connection.prepare("PRAGMA table_info(hotkey_config)")?;
+    let mut has_snipper = false;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == "snipper_key" {
+            has_snipper = true;
+            break;
+        }
+    }
+
+    if !has_snipper {
+        connection.execute("ALTER TABLE hotkey_config ADD COLUMN snipper_modifier_keys TEXT DEFAULT '[\"Super\",\"Shift\"]'", [])?;
+        connection.execute(
+            "ALTER TABLE hotkey_config ADD COLUMN snipper_key TEXT DEFAULT 'S'",
+            [],
+        )?;
+        connection.execute(
+            "ALTER TABLE hotkey_config ADD COLUMN snipper_enabled INTEGER DEFAULT 1",
+            [],
+        )?;
+    }
 
     //INFO: Create api_tokens table - stores encrypted API keys and OAuth tokens
     connection
