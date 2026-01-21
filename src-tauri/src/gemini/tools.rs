@@ -261,6 +261,69 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                 })),
             },
             GeminiFunctionDeclaration {
+                name: "grep_file".to_string(),
+                description: "Searches for a pattern in a file and returns matching lines with line numbers.".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Absolute path to the file." },
+                        "pattern": { "type": "string", "description": "The string to search for (case-insensitive)." }
+                    },
+                    "required": ["path", "pattern"]
+                })),
+            },
+            GeminiFunctionDeclaration {
+                name: "edit_file_line".to_string(),
+                description: "Replaces a specific line in a file by line number (1-indexed).".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Absolute path to the file." },
+                        "line_number": { "type": "integer", "description": "The 1-based line number to replace." },
+                        "new_content": { "type": "string", "description": "The new content for that line." }
+                    },
+                    "required": ["path", "line_number", "new_content"]
+                })),
+            },
+            GeminiFunctionDeclaration {
+                name: "insert_at_line".to_string(),
+                description: "Inserts a new line at a specific line number (1-indexed). Everything else shifts down.".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Absolute path to the file." },
+                        "line_number": { "type": "integer", "description": "The 1-based line number to insert at." },
+                        "content": { "type": "string", "description": "The content to insert." }
+                    },
+                    "required": ["path", "line_number", "content"]
+                })),
+            },
+            GeminiFunctionDeclaration {
+                name: "delete_file_line".to_string(),
+                description: "Deletes a specific line from a file by line number (1-indexed).".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Absolute path to the file." },
+                        "line_number": { "type": "integer", "description": "The 1-based line number to delete." }
+                    },
+                    "required": ["path", "line_number"]
+                })),
+            },
+            GeminiFunctionDeclaration {
+                name: "read_file_lines".to_string(),
+                description: "Reads a specific range of lines from a file (1-indexed). Use this to verify context before editing.".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Absolute path to the file." },
+                        "start_line": { "type": "integer", "description": "The first line to read." },
+                        "end_line": { "type": "integer", "description": "The last line to read." }
+                    },
+                    "required": ["path", "start_line", "end_line"]
+                })),
+            },
+            GeminiFunctionDeclaration {
                 name: "take_screenshot".to_string(),
                 description: "Captures a screenshot of the user's primary screen so you can 'see' what they are doing. Call this when they say 'look at my screen' or 'what am I doing'.".to_string(),
                 parameters: None,
@@ -388,6 +451,135 @@ pub fn execute_tool_sync(
                 .collect();
 
             json!({ "reminders": reminders })
+        }
+        "grep_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let pattern = args
+                .get("pattern")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+            match fs::read_to_string(path) {
+                Ok(content) => {
+                    let matches: Vec<serde_json::Value> = content
+                        .lines()
+                        .enumerate()
+                        .filter(|(_, line)| line.to_lowercase().contains(&pattern))
+                        .map(|(i, line)| json!({ "line": i + 1, "content": line }))
+                        .collect();
+                    json!({ "matches": matches })
+                }
+                Err(e) => json!({ "error": format!("Failed to read file for grep: {}", e) }),
+            }
+        }
+        "edit_file_line" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let line_number = args
+                .get("line_number")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            let new_content = args
+                .get("new_content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if line_number == 0 {
+                return json!({ "error": "Line number must be >= 1" });
+            }
+
+            match fs::read_to_string(path) {
+                Ok(content) => {
+                    let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                    if line_number > lines.len() {
+                        return json!({ "error": format!("File only has {} lines", lines.len()) });
+                    }
+                    lines[line_number - 1] = new_content.to_string();
+                    match fs::write(path, lines.join("\n")) {
+                        Ok(_) => {
+                            json!({ "status": "success", "message": format!("Line {} updated", line_number) })
+                        }
+                        Err(e) => json!({ "error": format!("Failed to write file: {}", e) }),
+                    }
+                }
+                Err(e) => json!({ "error": format!("Failed to read file: {}", e) }),
+            }
+        }
+        "insert_at_line" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let line_number = args
+                .get("line_number")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            let content_to_insert = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+
+            if line_number == 0 {
+                return json!({ "error": "Line number must be >= 1" });
+            }
+
+            match fs::read_to_string(path) {
+                Ok(content) => {
+                    let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                    let idx = (line_number - 1).min(lines.len());
+                    lines.insert(idx, content_to_insert.to_string());
+                    match fs::write(path, lines.join("\n")) {
+                        Ok(_) => {
+                            json!({ "status": "success", "message": format!("Inserted at line {}", line_number) })
+                        }
+                        Err(e) => json!({ "error": format!("Failed to write file: {}", e) }),
+                    }
+                }
+                Err(e) => json!({ "error": format!("Failed to read file: {}", e) }),
+            }
+        }
+        "delete_file_line" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let line_number = args
+                .get("line_number")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+
+            if line_number == 0 {
+                return json!({ "error": "Line number must be >= 1" });
+            }
+
+            match fs::read_to_string(path) {
+                Ok(content) => {
+                    let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                    if line_number > lines.len() {
+                        return json!({ "error": format!("File only has {} lines", lines.len()) });
+                    }
+                    lines.remove(line_number - 1);
+                    match fs::write(path, lines.join("\n")) {
+                        Ok(_) => {
+                            json!({ "status": "success", "message": format!("Line {} deleted", line_number) })
+                        }
+                        Err(e) => json!({ "error": format!("Failed to write file: {}", e) }),
+                    }
+                }
+                Err(e) => json!({ "error": format!("Failed to read file: {}", e) }),
+            }
+        }
+        "read_file_lines" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let start = args.get("start_line").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+            let end = args.get("end_line").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+
+            if start == 0 || end < start {
+                return json!({ "error": "Invalid line range" });
+            }
+
+            match fs::read_to_string(path) {
+                Ok(content) => {
+                    let lines: Vec<String> = content
+                        .lines()
+                        .enumerate()
+                        .filter(|(i, _)| i + 1 >= start && i + 1 <= end)
+                        .map(|(_, s)| s.to_string())
+                        .collect();
+                    json!({ "lines": lines, "total_lines": content.lines().count() })
+                }
+                Err(e) => json!({ "error": format!("Failed to read file: {}", e) }),
+            }
         }
         "search_web" => {
             let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");

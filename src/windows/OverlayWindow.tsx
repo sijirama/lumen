@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, Sparkles, X, Loader2, Camera, FileText, Calendar, Home } from 'lucide-react';
+import { Send, Sparkles, X, Loader2, FileText, Scan, CalendarDays, LayoutDashboard } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 //INFO: Chat message type
@@ -335,16 +335,16 @@ function OverlayWindow() {
                 {/* Floating Action Bar */}
                 <div className="floating-action-bar">
                     <button
-                        className={`action-button ${isCapturing ? 'loading' : ''}`}
+                        className={`action-button camera-btn ${isCapturing ? 'loading' : ''}`}
                         onClick={handleCaptureScreen}
                         disabled={isLoading || isCapturing}
                         title="Capture screen"
                     >
-                        {isCapturing ? <Loader2 size={18} className="loading-spinner" /> : <Camera size={20} />}
+                        {isCapturing ? <Loader2 size={18} className="loading-spinner" /> : <Scan size={18} />}
                     </button>
 
                     <button className="action-button calendar-btn">
-                        <Calendar size={18} />
+                        <CalendarDays size={16} />
                         <span>Calendar</span>
                     </button>
 
@@ -353,7 +353,7 @@ function OverlayWindow() {
                         onClick={() => invoke('show_main_window')}
                         title="Go to Home"
                     >
-                        <Home size={18} />
+                        <LayoutDashboard size={18} />
                     </button>
                 </div>
 

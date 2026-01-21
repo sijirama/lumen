@@ -161,6 +161,8 @@ pub async fn send_chat_message(
     let mut current_messages = gemini_messages;
     let mut final_response_text = String::new();
 
+    let mut tools_were_called = false;
+
     //INFO: Tool execution loop (max 5 turns to prevent infinite loops)
     for _ in 0..5 {
         let response_parts = client
@@ -173,7 +175,6 @@ pub async fn send_chat_message(
             .map_err(|e| format!("Failed to get AI response: {}", e))?;
 
         //INFO: Record the model's response in history for the next loop turn
-        // We clean up redundant text turns in current_messages to prevent robotic repetition
         let mut clean_response_parts = Vec::new();
         for part in &response_parts {
             if let Some(text) = &part.text {
@@ -195,12 +196,9 @@ pub async fn send_chat_message(
 
         for part in response_parts {
             if let Some(text) = part.text {
-                // Deduplicate consecutive text turns if they are identical
                 if !final_response_text.ends_with(&text) {
-                    //INFO: Emit event for "double texting" / streaming behavior
                     let _ = app_handle.emit("assistant-reply-turn", text.clone());
 
-                    //INFO: Append text to final response
                     if !final_response_text.is_empty() {
                         final_response_text.push_str("\n\n");
                     }
@@ -209,6 +207,7 @@ pub async fn send_chat_message(
             }
             if let Some(call) = part.function_call {
                 has_function_calls = true;
+                tools_were_called = true;
                 if call.name == "get_weather"
                     || call.name == "get_google_calendar_events"
                     || call.name == "get_unread_emails"
@@ -243,7 +242,6 @@ pub async fn send_chat_message(
         }
 
         if has_function_calls {
-            // Check for screenshots in responses to handle multimodality
             let mut screenshot_data = None;
             for resp in &mut function_responses {
                 if let Some(f_resp) = &mut resp.function_response {
@@ -263,7 +261,6 @@ pub async fn send_chat_message(
                 }
             }
 
-            //INFO: Push function responses to history and continue loop
             current_messages.push(crate::gemini::client::GeminiContent {
                 role: Some("function".to_string()),
                 parts: function_responses,
@@ -292,13 +289,16 @@ pub async fn send_chat_message(
             }
             continue;
         } else {
-            //INFO: No more function calls, we are done
             break;
         }
     }
 
     if final_response_text.is_empty() {
-        return Err("AI failed to provide a text response after tool execution".to_string());
+        if tools_were_called {
+            final_response_text = "Done! ✨".to_string();
+        } else {
+            return Err("AI failed to provide a text response after tool execution".to_string());
+        }
     }
 
     //INFO: Save both messages to the database
@@ -493,8 +493,10 @@ fn build_chat_context(database: &State<Database>) -> Result<Option<String>, Stri
                                     content
                                 };
                                 context_parts.push(format!(
-                                    "Today's daily note ({}):\n{}",
-                                    daily_note_name, truncated_content
+                                    "Today's daily note (NAME: {}, PATH: {}):\n{}",
+                                    daily_note_name,
+                                    daily_note_path.to_string_lossy(),
+                                    truncated_content
                                 ));
                             }
                         }

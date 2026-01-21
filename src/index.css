@@ -487,6 +487,12 @@ input:checked+.slider:before {
   color: var(--color-text-tertiary);
 }
 
+.briefing-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
 .empty-state {
   text-align: center;
   padding: var(--spacing-12);
@@ -560,8 +566,8 @@ input:checked+.slider:before {
 }
 
 .briefing-content {
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 0.8rem;
+  line-height: 1.5;
   color: var(--color-text-primary);
 }
 
@@ -847,9 +853,9 @@ html.overlay-window {
 
 .chat-message {
   max-width: 85%;
-  padding: var(--spacing-3) var(--spacing-4);
+  padding: var(--spacing-2) var(--spacing-4);
   border-radius: var(--radius-lg);
-  font-size: var(--font-size-xs);
+  font-size: 0.8rem;
   line-height: 1.5;
   word-break: break-word;
   overflow-wrap: anywhere;
@@ -897,12 +903,12 @@ html.overlay-window {
 .markdown-content {
   max-width: 100%;
   overflow-x: hidden;
-  font-size: var(--font-size-sm);
-  line-height: 1.6;
+  font-size: 0.8rem;
+  line-height: 1.4;
 }
 
 .markdown-content p {
-  margin-bottom: 1.25rem;
+  margin-bottom: 0.5rem;
 }
 
 .markdown-content p:last-child {
@@ -1045,13 +1051,13 @@ html.overlay-window {
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-lg);
   font-family: var(--font-family);
-  font-size: var(--font-size-sm);
+  font-size: 0.8rem;
   color: var(--color-text-primary);
   outline: none;
   resize: none;
   min-height: 40px;
   max-height: 100px;
-  line-height: 1.4;
+  line-height: 1.5;
   overflow-y: auto;
   box-sizing: border-box;
   transition: all 0.2s ease;
@@ -1347,7 +1353,6 @@ select.input {
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 12px;
 }
 
 .typing-dot {

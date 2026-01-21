@@ -202,7 +202,15 @@ function Dashboard({ userName }: DashboardProps) {
                         disabled={refreshing}
                         title="Refresh Briefing"
                     >
-                        <RefreshCw size={18} className={refreshing ? 'loading-spinner' : ''} />
+                        {refreshing ? (
+                            <div className="typing-indicator" style={{ gap: '3px' }}>
+                                <div className="typing-dot" style={{ width: '4px', height: '4px' }}></div>
+                                <div className="typing-dot" style={{ width: '4px', height: '4px' }}></div>
+                                <div className="typing-dot" style={{ width: '4px', height: '4px' }}></div>
+                            </div>
+                        ) : (
+                            <RefreshCw size={18} />
+                        )}
                     </button>
                 </div>
             </div>

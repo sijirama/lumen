@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GoogleCalendarEvent {
     pub id: String,
-    pub summary: String,
+    pub summary: Option<String>,
     pub description: Option<String>,
     pub start: GoogleDateTime,
     pub end: GoogleDateTime,
@@ -39,15 +39,20 @@ pub async fn fetch_google_calendar_events(
         tokens = refresh_google_tokens(database, &tokens).await?;
     }
 
-    let url = format!(
-        "https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={}&timeMax={}&singleEvents=true&orderBy=startTime",
-        time_min, time_max
-    );
+    let url = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+
+    let params = [
+        ("timeMin", time_min),
+        ("timeMax", time_max),
+        ("singleEvents", "true"),
+        ("orderBy", "startTime"),
+    ];
 
     let client = reqwest::Client::new();
     let response = client
-        .get(&url)
+        .get(url)
         .header(AUTHORIZATION, format!("Bearer {}", tokens.access_token))
+        .query(&params)
         .send()
         .await?;
 
@@ -55,14 +60,27 @@ pub async fn fetch_google_calendar_events(
         // Try refresh once more even if we thought it was valid
         tokens = refresh_google_tokens(database, &tokens).await?;
         let response = client
-            .get(&url)
+            .get(url)
             .header(AUTHORIZATION, format!("Bearer {}", tokens.access_token))
+            .query(&params)
             .send()
             .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(anyhow!(
+                "Google Calendar API error after refresh: {}",
+                error_text
+            ));
+        }
 
         let data: serde_json::Value = response.json().await?;
         parse_google_events(data)
     } else {
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(anyhow!("Google Calendar API error: {}", error_text));
+        }
         let data: serde_json::Value = response.json().await?;
         parse_google_events(data)
     }

@@ -208,7 +208,8 @@ pub async fn refresh_dashboard_briefing(
                             .as_deref()
                             .or(e.start.date.as_deref())
                             .unwrap_or("unknown");
-                        e_str.push_str(&format!("- {} (starts at {})\n", e.summary, start));
+                        let summary = e.summary.as_deref().unwrap_or("(No Title)");
+                        e_str.push_str(&format!("- {} (starts at {})\n", summary, start));
                     }
                     live_data.push(e_str);
                 }
