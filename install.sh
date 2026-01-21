@@ -178,8 +178,19 @@ EOF
 
 chmod +x "$DESKTOP_DIR/lumen.desktop"
 
-# Copy to Autostart so it boots with the OS
-cp "$DESKTOP_DIR/lumen.desktop" "$AUTOSTART_DIR/lumen.desktop"
+# Copy to Autostart so it boots with the OS (with --minimized flag)
+cat <<EOF > "$AUTOSTART_DIR/lumen.desktop"
+[Desktop Entry]
+Name=Lumen
+Comment=Your AI-powered desktop sidekick
+Exec=$INSTALL_DIR/$BINARY_NAME --minimized
+Icon=$ICON_DIR/lumen.png
+Terminal=false
+Type=Application
+Categories=Utility;Contextual;AI;
+Keywords=ai;chat;lumen;assistant;
+StartupNotify=false
+EOF
 chmod +x "$AUTOSTART_DIR/lumen.desktop"
 
 # Refresh desktop database so icon appears immediately (if tool exists)
