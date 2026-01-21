@@ -142,6 +142,20 @@ function OverlayWindow() {
         }
     }, [messages]);
 
+    //INFO: Handle dynamic window resizing for different views (Atomic Rust Command)
+    useEffect(() => {
+        async function updateWindowSize() {
+            try {
+                // Call the authoritative Rust command to resize and reposition
+                await invoke('resize_overlay', { view: currentView });
+            } catch (err) {
+                console.error('Failed to update window size:', err);
+            }
+        }
+
+        updateWindowSize();
+    }, [currentView]);
+
     //INFO: Auto-resize textarea logic
     const adjustInputHeight = () => {
         if (inputRef.current) {

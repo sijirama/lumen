@@ -86,6 +86,55 @@ pub async fn is_overlay_visible(app: tauri::AppHandle) -> Result<bool, String> {
     }
 }
 
+//INFO: Resizes and re-positions the overlay based on the view
+#[tauri::command]
+pub async fn resize_overlay(app: tauri::AppHandle, view: String) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("overlay") {
+        let (width, height) = if view == "calendar" {
+            (400.0, 850.0)
+        } else {
+            (400.0, 520.0)
+        };
+
+        // 1. Set Size
+        window
+            .set_size(tauri::LogicalSize::new(width, height))
+            .map_err(|e| format!("Failed to set size: {}", e))?;
+
+        // 2. Small sleep to let WM catch up (critical for Linux)
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        // 3. Re-position to keep bottom-left fixed
+        if let Ok(Some(monitor)) = window.primary_monitor() {
+            let monitor_size = monitor.size();
+            let monitor_position = monitor.position();
+            let window_size = window
+                .outer_size()
+                .map_err(|e| format!("Failed to get window size: {}", e))?;
+
+            let padding = 4;
+            let x_position = monitor_position.x + padding;
+            let y_position = monitor_position.y + (monitor_size.height as i32)
+                - (window_size.height as i32)
+                - padding;
+
+            window
+                .set_position(tauri::PhysicalPosition::new(x_position, y_position))
+                .map_err(|e| format!("Failed to set position: {}", e))?;
+        }
+    }
+    Ok(())
+}
+
+//INFO: Command wrapper for positioning the overlay
+#[tauri::command]
+pub async fn position_overlay_bottom_left_command(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("overlay") {
+        position_overlay_bottom_left(&window)?;
+    }
+    Ok(())
+}
+
 //INFO: Positions the overlay window at the bottom-left of the screen
 pub fn position_overlay_bottom_left(window: &WebviewWindow) -> Result<(), String> {
     //INFO: Get the primary monitor's dimensions

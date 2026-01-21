@@ -1,116 +1,166 @@
-import React from 'react';
-import { ChevronLeft, ChevronRight, Video, MapPin, Clock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+import {
+    format,
+    addMonths,
+    subMonths,
+    startOfMonth,
+    endOfMonth,
+    startOfWeek,
+    endOfWeek,
+    isSameMonth,
+    isSameDay,
+    eachDayOfInterval
+} from 'date-fns';
 
 interface CalendarEvent {
     id: string;
-    title: string;
-    start: string;
-    end: string;
+    summary: string;
+    description?: string;
     location?: string;
-    color: string;
-    type?: 'video' | 'physical';
+    start: { dateTime?: string; date?: string };
+    end: { dateTime?: string; date?: string };
 }
 
 const CalendarView: React.FC = () => {
-    // Mock data based on the sleek design in the screenshot
-    const events: CalendarEvent[] = [
-        { id: '1', title: 'Christmas Eve', start: '12/24/25', end: 'All day', color: '#fce4ec', type: 'physical' },
-        { id: '2', title: 'Jensen OOO', start: '12/24/25', end: 'All day', color: '#fff3e0', type: 'physical' },
-        { id: '3', title: 'Paul WFH', start: '12/24/25', end: 'All day', color: '#efebe9', type: 'physical' },
-        { id: '4', title: 'Richard comes back to Singapore', start: '12/24/25', end: 'All day', color: '#e3f2fd', type: 'physical' },
-        { id: '5', title: 'Ronith OOO', start: '12/24/25', end: 'All day', color: '#e8f5e9', type: 'physical' },
-        { id: '6', title: 'Flight to Dubai (EK 226)', start: '12:00 AM', end: '7:25 AM', color: '#f1f8e9', type: 'physical' },
-        { id: '7', title: 'Flight: San Francisco to Dubai', start: '12:00 AM', end: '7:25 AM', color: '#f1f8e9', type: 'physical' },
-    ];
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const [events, setEvents] = useState<CalendarEvent[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
 
-    const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-    const currentMonth = 'December 2025';
+    useEffect(() => {
+        fetchEvents();
+    }, [currentDate]);
 
-    // Quick grid for Dec 2025 based on image
-    const dates = [
-        '', '', 1, 2, 3, 4, 5, 6,
-        7, 8, 9, 10, 11, 12, 13,
-        14, 15, 16, 17, 18, 19, 20,
-        21, 22, 23, 24, 25, 26, 27,
-        28, 29, 30, 31, '', '', ''
-    ];
+    const fetchEvents = async () => {
+        setIsLoading(true);
+        try {
+            const start = startOfMonth(currentDate).toISOString();
+            const end = endOfMonth(currentDate).toISOString();
+            const data = await invoke<CalendarEvent[]>('get_calendar_events_for_range', {
+                startIso: start,
+                endIso: end
+            });
+            setEvents(data);
+        } catch (err) {
+            console.error('Failed to fetch calendar events:', err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const nextMonth = () => setCurrentDate(addMonths(currentDate, 1));
+    const prevMonth = () => setCurrentDate(subMonths(currentDate, 1));
+    const goToToday = () => setCurrentDate(new Date());
+
+    // Calendar Grid Logic
+    const monthStart = startOfMonth(currentDate);
+    const monthEnd = endOfMonth(currentDate);
+    const startDate = startOfWeek(monthStart);
+    const endDate = endOfWeek(monthEnd);
+
+    const days = eachDayOfInterval({ start: startDate, end: endDate });
+
+    const groupedEvents = events.reduce((acc: any, event) => {
+        const dateKey = event.start.dateTime
+            ? format(new Date(event.start.dateTime), 'yyyy-MM-dd')
+            : event.start.date;
+        if (!dateKey) return acc;
+        if (!acc[dateKey]) acc[dateKey] = [];
+        acc[dateKey].push(event);
+        return acc;
+    }, {});
+
+    const timelineDates = Object.keys(groupedEvents).sort();
 
     return (
         <div className="calendar-view animate-fade-in">
-            {/* Calendar Header */}
+            {/* Header */}
             <div className="calendar-header">
                 <div className="calendar-month-nav">
-                    <h2>{currentMonth}</h2>
+                    <h2>{format(currentDate, 'MMMM yyyy')}</h2>
                     <div className="calendar-nav-controls">
-                        <button className="nav-btn today-btn">Today</button>
+                        <button className="nav-btn today-btn" onClick={goToToday}>Today</button>
                         <div className="nav-arrows">
-                            <ChevronLeft size={16} />
-                            <ChevronRight size={16} />
+                            <button onClick={prevMonth} className="icon-btn"><ChevronLeft size={16} /></button>
+                            <button onClick={nextMonth} className="icon-btn"><ChevronRight size={16} /></button>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Calendar Grid */}
+            {/* Grid */}
             <div className="calendar-grid-container">
                 <div className="calendar-days-row">
-                    {days.map((day, i) => (
+                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
                         <div key={i} className="calendar-day-label">{day}</div>
                     ))}
                 </div>
                 <div className="calendar-dates-grid">
-                    {dates.map((date, i) => (
-                        <div key={i} className={`calendar-date-cell ${date === 24 || date === 25 ? 'has-event' : ''} ${date === '' ? 'empty' : ''}`}>
-                            <span className="date-number">{date}</span>
-                            {date === 25 && <div className="event-dot" />}
-                        </div>
-                    ))}
+                    {days.map((day, i) => {
+                        const dateKey = format(day, 'yyyy-MM-dd');
+                        const hasEvents = groupedEvents[dateKey]?.length > 0;
+                        const isToday = isSameDay(day, new Date());
+
+                        return (
+                            <div
+                                key={i}
+                                className={`calendar-date-cell ${!isSameMonth(day, monthStart) ? 'out-of-month' : ''} ${isToday ? 'is-today' : ''}`}
+                            >
+                                <span className="date-number">{format(day, 'd')}</span>
+                                {hasEvents && <div className="event-dot" />}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
 
-            {/* Event Timeline */}
+            {/* Timeline */}
             <div className="calendar-timeline">
-                <div className="timeline-day-section">
-                    <h3 className="timeline-date-sticky">Wednesday 12/24/25</h3>
-                    <div className="timeline-events-list">
-                        <div className="pills-row">
-                            <span className="event-pill" style={{ background: '#FCE7F3', color: '#9D174D' }}>Christmas Eve</span>
-                            <span className="event-pill" style={{ background: '#FFEDD5', color: '#9A3412' }}>Jensen OOO</span>
-                            <span className="event-pill" style={{ background: '#f5f5f5', color: '#404040' }}>Paul WFH</span>
-                        </div>
-                        <div className="full-width-events">
-                            <div className="event-item-block" style={{ background: '#E0F2FE', borderLeft: '4px solid #0EA5E9' }}>
-                                <span className="event-item-title" style={{ color: '#0369A1' }}>Richard comes back to Singapore</span>
-                            </div>
-                            <div className="event-item-block" style={{ background: '#E0F2FE', borderLeft: '4px solid #0EA5E9' }}>
-                                <span className="event-item-title" style={{ color: '#0369A1' }}>Ronith OOO</span>
-                            </div>
-                            <div className="event-item-block complex" style={{ background: '#DCFCE7', borderLeft: '4px solid #22C55E' }}>
-                                <div className="event-time">12:00 AM — 7:25 AM</div>
-                                <span className="event-item-title" style={{ color: '#15803D' }}>Flight to Dubai (EK 226)</span>
-                            </div>
-                            <div className="event-item-block complex" style={{ background: '#DCFCE7', borderLeft: '4px solid #22C55E' }}>
-                                <div className="event-time">12:00 AM — 7:25 AM</div>
-                                <span className="event-item-title" style={{ color: '#15803D' }}>Flight: San Francisco to Dubai</span>
-                            </div>
-                        </div>
+                {isLoading && events.length === 0 ? (
+                    <div className="calendar-loading">
+                        <Loader2 className="animate-spin" size={20} />
                     </div>
-                </div>
+                ) : timelineDates.length === 0 ? (
+                    <div className="no-events">No events scheduled.</div>
+                ) : (
+                    timelineDates.map(dateKey => (
+                        <div key={dateKey} className="timeline-day-section">
+                            <h3 className="timeline-date-sticky">
+                                {format(new Date(dateKey), 'EEEE MM/dd/yy')}
+                            </h3>
+                            <div className="timeline-events-list">
+                                {groupedEvents[dateKey].map((event: CalendarEvent) => {
+                                    const timeStr = event.start.dateTime
+                                        ? format(new Date(event.start.dateTime), 'h:mm a')
+                                        : 'All day';
 
-                <div className="timeline-day-section">
-                    <h3 className="timeline-date-sticky">Thursday 12/25/25</h3>
-                    <div className="timeline-events-list">
-                        <div className="pills-row">
-                            <span className="event-pill" style={{ background: '#FCE7F3', color: '#9D174D' }}>Christmas Day</span>
-                            <span className="event-pill" style={{ background: '#FFEDD5', color: '#9A3412' }}>Jensen OOO</span>
+                                    const colors = [
+                                        { bg: '#FCE7F3', text: '#9D174D' }, // Pink
+                                        { bg: '#FFEDD5', text: '#9A3412' }, // Orange
+                                        { bg: '#E0F2FE', text: '#0369A1' }, // Blue
+                                        { bg: '#DCFCE7', text: '#15803D' }, // Green
+                                        { bg: '#F3E8FF', text: '#6B21A8' }, // Purple
+                                        { bg: '#F1F5F9', text: '#334155' }  // Slate
+                                    ];
+                                    const colorIndex = Math.abs(event.summary.split('').reduce((a, b) => a + b.charCodeAt(0), 0));
+                                    const style = colors[colorIndex % colors.length];
+
+                                    return (
+                                        <div
+                                            key={event.id}
+                                            className="event-pill-full"
+                                            style={{ backgroundColor: style.bg, color: style.text }}
+                                        >
+                                            <span className="event-pill-time">{timeStr}</span>
+                                            <span className="event-pill-title">{event.summary}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
-                        <div className="pills-row">
-                            <span className="event-pill" style={{ background: '#E0F2FE', color: '#0369A1' }}>Niso's Birthday</span>
-                            <span className="event-pill" style={{ background: '#f5f5f5', color: '#404040' }}>Paul WFH</span>
-                            <span className="event-pill" style={{ background: '#DCFCE7', color: '#15803D' }}>Ronith OOO</span>
-                        </div>
-                    </div>
-                </div>
+                    ))
+                )}
             </div>
 
             <style>{`
@@ -118,15 +168,16 @@ const CalendarView: React.FC = () => {
                     flex: 1;
                     display: flex;
                     flex-direction: column;
-                    gap: var(--spacing-4);
+                    gap: var(--spacing-2);
                     height: 100%;
                     overflow-y: auto;
                     scrollbar-width: none;
+                    padding: 0 var(--spacing-1); /* Minimized X padding */
                 }
                 .calendar-view::-webkit-scrollbar { display: none; }
 
                 .calendar-header {
-                    padding: 0 var(--spacing-2);
+                    margin-bottom: var(--spacing-1);
                 }
 
                 .calendar-month-nav {
@@ -136,7 +187,7 @@ const CalendarView: React.FC = () => {
                 }
 
                 .calendar-month-nav h2 {
-                    font-size: 1.1rem;
+                    font-size: 0.95rem;
                     font-weight: 700;
                     color: var(--color-text-primary);
                 }
@@ -148,141 +199,136 @@ const CalendarView: React.FC = () => {
                 }
 
                 .nav-btn {
-                    padding: 4px 10px;
+                    padding: 2px 8px;
                     border-radius: var(--radius-full);
-                    border: 1px solid var(--color-border);
+                    border: 1px solid var(--color-border-light);
                     background: white;
-                    font-size: 0.75rem;
-                    font-weight: 500;
+                    font-size: 0.65rem;
+                    font-weight: 600;
                     cursor: pointer;
+                }
+                
+                .icon-btn {
+                    background: none;
+                    border: none;
+                    color: var(--color-text-tertiary);
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    padding: 2px;
                 }
 
                 .nav-arrows {
                     display: flex;
                     gap: var(--spacing-1);
-                    color: var(--color-text-tertiary);
-                    cursor: pointer;
                 }
 
                 .calendar-grid-container {
-                    padding: var(--spacing-2);
+                    padding: 0;
+                    margin-bottom: var(--spacing-1);
                 }
 
                 .calendar-days-row {
                     display: grid;
                     grid-template-columns: repeat(7, 1fr);
-                    margin-bottom: var(--spacing-2);
+                    margin-bottom: var(--spacing-1);
                 }
 
                 .calendar-day-label {
                     text-align: center;
-                    font-size: 0.7rem;
-                    font-weight: 600;
+                    font-size: 0.6rem;
+                    font-weight: 700;
                     color: var(--color-text-tertiary);
-                    text-transform: uppercase;
                 }
 
                 .calendar-dates-grid {
                     display: grid;
                     grid-template-columns: repeat(7, 1fr);
-                    gap: 2px;
+                    gap: 1px;
                 }
 
                 .calendar-date-cell {
-                    height: 38px;
+                    height: 32px;
                     display: flex;
                     flex-direction: column;
                     align-items: center;
                     justify-content: center;
                     position: relative;
-                    font-size: 0.85rem;
-                    font-weight: 400;
+                    font-size: 0.75rem;
                     border-radius: var(--radius-md);
                     cursor: pointer;
                     color: var(--color-text-primary);
-                    transition: background 0.2s;
                 }
 
-                .calendar-date-cell:hover:not(.empty) {
-                    background: var(--color-bg-hover);
+                .calendar-date-cell.is-today {
+                    background: var(--color-accent-light);
+                    color: var(--color-accent);
+                    font-weight: 700;
                 }
 
-                .calendar-date-cell.empty { cursor: default; }
-
-                .calendar-date-cell.has-event {
-                    font-weight: 600;
+                .calendar-date-cell.out-of-month {
+                    opacity: 0.2;
                 }
 
                 .event-dot {
-                    width: 4px;
-                    height: 4px;
+                    width: 3px;
+                    height: 3px;
                     background: var(--color-accent);
                     border-radius: 50%;
                     position: absolute;
-                    bottom: 6px;
+                    bottom: 3px;
                 }
 
                 .calendar-timeline {
                     display: flex;
                     flex-direction: column;
-                    gap: var(--spacing-6);
-                    padding: 0 var(--spacing-2);
+                    gap: var(--spacing-3);
+                    margin-top: 0; /* Minimized margin from calendar */
                 }
 
                 .timeline-date-sticky {
-                    font-size: 0.95rem;
+                    font-size: 0.8rem;
                     font-weight: 600;
-                    margin-bottom: var(--spacing-3);
-                    color: var(--color-text-primary);
+                    margin-bottom: var(--spacing-1);
+                    color: var(--color-text-tertiary);
+                    background: var(--color-bg-primary);
+                    padding: 2px 0;
                 }
 
                 .timeline-events-list {
                     display: flex;
                     flex-direction: column;
-                    gap: var(--spacing-2);
+                    gap: var(--spacing-1);
                 }
 
-                .pills-row {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: var(--spacing-2);
-                    margin-bottom: var(--spacing-1);
-                }
-
-                .event-pill {
-                    padding: 4px 12px;
-                    border-radius: var(--radius-lg);
-                    font-size: 0.75rem;
-                    font-weight: 500;
-                }
-
-                .full-width-events {
-                    display: flex;
-                    flex-direction: column;
-                    gap: var(--spacing-2);
-                }
-
-                .event-item-block {
-                    padding: 10px 12px;
+                .event-pill-full {
+                    padding: 6px 10px;
                     border-radius: var(--radius-md);
-                    font-size: 0.85rem;
+                    font-size: 0.7rem; /* Reduced font size */
+                    font-weight: 500;
                     display: flex;
                     flex-direction: column;
-                    gap: 2px;
+                    gap: 0;
+                    border: 1px solid rgba(0,0,0,0.02);
                 }
 
-                .event-item-block.complex {
-                    padding: 12px;
-                }
-
-                .event-time {
-                    font-size: 0.7rem;
-                    opacity: 0.8;
-                    margin-bottom: 2px;
-                }
-
-                .event-item-title {
+                .event-pill-time {
+                    font-size: 0.6rem;
+                    opacity: 0.7;
                     font-weight: 600;
+                    margin-bottom: -1px;
+                }
+
+                .event-pill-title {
+                    line-height: 1.1;
+                    font-weight: 600;
+                }
+
+                .calendar-loading, .no-events {
+                    padding: var(--spacing-6);
+                    text-align: center;
+                    color: var(--color-text-tertiary);
+                    font-size: 0.75rem;
                 }
             `}</style>
         </div>

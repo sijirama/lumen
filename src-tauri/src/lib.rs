@@ -9,7 +9,7 @@ pub mod gemini;
 pub mod integrations;
 pub mod oauth;
 
-use commands::{auth, chat, dashboard, settings, setup, vision, window};
+use commands::{auth, calendar, chat, dashboard, settings, setup, vision, window};
 use database::{initialize_database, Database};
 use tauri::Manager;
 
@@ -120,6 +120,8 @@ pub fn run() {
             window::hide_overlay,
             window::toggle_overlay,
             window::is_overlay_visible,
+            window::position_overlay_bottom_left_command,
+            window::resize_overlay,
             window::show_main_window,
             window::hide_main_window,
             window::open_path,
@@ -135,6 +137,7 @@ pub fn run() {
             vision::start_snipping,
             vision::capture_region,
             vision::close_snipper,
+            calendar::get_calendar_events_for_range,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
