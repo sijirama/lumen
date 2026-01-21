@@ -34,6 +34,38 @@ echo -e "${NC}"
 
 echo -e "${BLUE}Starting the Lumen setup... No cap, this will be quick.${NC}"
 
+# ============================================================================
+# Check for existing installation (Update Mode)
+# ============================================================================
+EXISTING_BINARY="$INSTALL_DIR/$BINARY_NAME"
+
+if [ -f "$EXISTING_BINARY" ]; then
+    echo -e "${YELLOW}🔄 Existing Lumen installation detected at $EXISTING_BINARY${NC}"
+    
+    # Check if Lumen is currently running and kill it
+    if pgrep -x "$BINARY_NAME" > /dev/null 2>&1; then
+        echo -e "${YELLOW}⚠️  Lumen is currently running. Stopping it...${NC}"
+        pkill -x "$BINARY_NAME" 2>/dev/null || true
+        # Give it a moment to fully terminate
+        sleep 1
+        # Force kill if still running
+        if pgrep -x "$BINARY_NAME" > /dev/null 2>&1; then
+            echo -e "${YELLOW}   Force killing stubborn process...${NC}"
+            pkill -9 -x "$BINARY_NAME" 2>/dev/null || true
+            sleep 1
+        fi
+        echo -e "${GREEN}   ✓ Lumen process stopped.${NC}"
+    fi
+    
+    # Remove the old binary
+    echo -e "${YELLOW}🗑  Removing old Lumen binary...${NC}"
+    sudo rm -f "$EXISTING_BINARY"
+    echo -e "${GREEN}   ✓ Old installation removed. Ready for fresh install!${NC}"
+    echo ""
+else
+    echo -e "${BLUE}📦 Fresh installation detected. Let's get you set up!${NC}"
+fi
+
 # 1. OS & Arch Detection
 OS=$(uname -s)
 ARCH=$(uname -m)
