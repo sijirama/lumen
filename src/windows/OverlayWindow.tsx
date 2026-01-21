@@ -163,40 +163,27 @@ function OverlayWindow() {
     }
 
     //INFO: Listen for snipped images from the snipper window
-    // useEffect(() => {
-    //     let unlisten: (() => void) | null = null;
-    //     async function setupSnipListener() {
-    //          // @ts-ignore
-    //         const { listen } = await import('@tauri-apps/api/event');
-    //         unlisten = await listen('snipped-image', (event: any) => {
-    //             setCapturedImage(event.payload);
-    //             // Ensure overlay is visible (should be handled by backend but double check)
-    //         });
-    //     }
-    //     setupSnipListener();
-    //     return () => {
-    //         if (unlisten) unlisten();
-    //     };
-    // }, []);
+    useEffect(() => {
+        let unlisten: (() => void) | null = null;
+        async function setupSnipListener() {
+            // @ts-ignore
+            const { listen } = await import('@tauri-apps/api/event');
+            unlisten = await listen('snipped-image', (event: any) => {
+                setCapturedImage(event.payload);
+                // Ensure overlay is visible (should be handled by backend but double check)
+            });
+        }
+        setupSnipListener();
+        return () => {
+            if (unlisten) unlisten();
+        };
+    }, []);
 
     async function handleCaptureScreen() {
         try {
-            setIsCapturing(true);
-            // Hide the overlay temporarily to capture the screen underneath
-            await invoke('hide_overlay');
-            // Small delay to ensure window is hidden
-            await new Promise(r => setTimeout(r, 200));
-
-            // Use the direct full screen capture for stability
-            const b64 = await invoke<string>('capture_primary_screen');
-            setCapturedImage(b64);
-
-            await invoke('show_overlay');
+            await invoke('start_snipping');
         } catch (err) {
-            console.error('Failed to capture screen:', err);
-            await invoke('show_overlay');
-        } finally {
-            setIsCapturing(false);
+            console.error('Failed to start snipping:', err);
         }
     }
 
