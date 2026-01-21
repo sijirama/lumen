@@ -19,6 +19,11 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# Desktop Integration Paths
+ICON_DIR="$HOME/.local/share/icons"
+DESKTOP_DIR="$HOME/.local/share/applications"
+ICON_URL="https://raw.githubusercontent.com/$REPO/main/src-tauri/icons/128x128.png"
+
 echo -e "${BLUE}"
 echo "   __                                "
 echo "  / /_  __ ____ ___  ___  ____       "
@@ -103,6 +108,40 @@ sudo mv /tmp/lumen_temp "$INSTALL_DIR/$BINARY_NAME"
 sudo chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
 echo -e "${GREEN}🎉 Lumen is successfully installed!${NC}"
+
+# 5. Desktop Integration
+echo -e "${BLUE}🖥 Integrating with your desktop launcher...${NC}"
+mkdir -p "$ICON_DIR"
+mkdir -p "$DESKTOP_DIR"
+
+# Download or Copy icon
+if [ -f "./public/logo.png" ]; then
+    echo "Found local logo.png, using that."
+    cp "./public/logo.png" "$ICON_DIR/lumen.png"
+elif [ -f "./src-tauri/icons/128x128.png" ]; then
+    echo "Found local tauri icons, using that."
+    cp "./src-tauri/icons/128x128.png" "$ICON_DIR/lumen.png"
+else
+    echo "Downloading icon from GitHub..."
+    curl -s -L -o "$ICON_DIR/lumen.png" "$ICON_URL"
+fi
+
+# Create Desktop Entry
+cat <<EOF > "$DESKTOP_DIR/lumen.desktop"
+[Desktop Entry]
+Name=Lumen
+Comment=Your AI-powered desktop sidekick
+Exec=$BINARY_NAME
+Icon=$ICON_DIR/lumen.png
+Terminal=false
+Type=Application
+Categories=Utility;Contextual;AI;
+Keywords=ai;chat;lumen;assistant;
+EOF
+
+chmod +x "$DESKTOP_DIR/lumen.desktop"
+echo -e "${GREEN}✅ Desktop entry created. You can now find Lumen in your applications menu! ✨${NC}"
+
 echo -e "${BLUE}What else we cookin' up today? Let's check some vibes...${NC}"
 
 # 5. Run it immediately

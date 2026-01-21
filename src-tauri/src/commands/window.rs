@@ -13,6 +13,8 @@ pub async fn show_overlay(app: tauri::AppHandle) -> Result<(), String> {
             .show()
             .map_err(|e| format!("Failed to show overlay: {}", e))?;
 
+        //INFO: Make it visible on all workspaces (Sticky)
+        let _ = overlay_window.set_visible_on_all_workspaces(true);
         let _ = position_overlay_bottom_left(&overlay_window);
         overlay_window
             .set_focus()
@@ -56,6 +58,9 @@ pub async fn toggle_overlay(app: tauri::AppHandle) -> Result<bool, String> {
                 .show()
                 .map_err(|e| format!("Failed to show overlay: {}", e))?;
 
+            //INFO: Make it visible on all workspaces (Sticky)
+            let _ = overlay_window.set_visible_on_all_workspaces(true);
+
             //INFO: Then position it (ignore errors to prevent crash)
             let _ = position_overlay_bottom_left(&overlay_window);
 
@@ -82,7 +87,7 @@ pub async fn is_overlay_visible(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 //INFO: Positions the overlay window at the bottom-left of the screen
-fn position_overlay_bottom_left(window: &WebviewWindow) -> Result<(), String> {
+pub fn position_overlay_bottom_left(window: &WebviewWindow) -> Result<(), String> {
     //INFO: Get the primary monitor's dimensions
     if let Ok(Some(monitor)) = window.primary_monitor() {
         let monitor_size = monitor.size();
@@ -145,55 +150,4 @@ pub async fn open_path(app: tauri::AppHandle, path: String) -> Result<(), String
     app.opener()
         .open_path(path, None::<String>)
         .map_err(|e| e.to_string())
-}
-
-//INFO: Shows the ghost widget
-#[tauri::command]
-pub async fn show_widget(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(widget_window) = app.get_webview_window("widget") {
-        widget_window
-            .show()
-            .map_err(|e| format!("Failed to show widget: {}", e))?;
-
-        let _ = position_widget_top_right(&widget_window);
-        Ok(())
-    } else {
-        Err("Widget window not found".to_string())
-    }
-}
-
-//INFO: Hides the ghost widget
-#[tauri::command]
-pub async fn hide_widget(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(widget_window) = app.get_webview_window("widget") {
-        widget_window
-            .hide()
-            .map_err(|e| format!("Failed to hide widget: {}", e))?;
-        Ok(())
-    } else {
-        Err("Widget window not found".to_string())
-    }
-}
-
-//INFO: Positions the widget at the top-right of the screen
-fn position_widget_top_right(window: &WebviewWindow) -> Result<(), String> {
-    if let Ok(Some(monitor)) = window.primary_monitor() {
-        let monitor_size = monitor.size();
-        let monitor_position = monitor.position();
-
-        let window_size = window
-            .outer_size()
-            .map_err(|e| format!("Failed to get window size: {}", e))?;
-
-        let padding = 12;
-        let x_position =
-            monitor_position.x + (monitor_size.width as i32) - (window_size.width as i32) - padding;
-        let y_position = monitor_position.y + padding;
-
-        window
-            .set_position(tauri::PhysicalPosition::new(x_position, y_position))
-            .map_err(|e| format!("Failed to set position: {}", e))?;
-    }
-
-    Ok(())
 }

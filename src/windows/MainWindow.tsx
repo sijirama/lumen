@@ -2,7 +2,7 @@
 //NOTE: Clean, minimalistic design with navigation in header
 
 import { useState } from 'react';
-import { Settings, Plug, Sparkles } from 'lucide-react';
+import { Settings, Plug } from 'lucide-react';
 import Dashboard from '../pages/Dashboard';
 import SettingsPage from '../pages/Settings';
 import IntegrationsPage from '../pages/Integrations';
@@ -34,13 +34,13 @@ function MainWindow({ userName }: MainWindowProps) {
     };
 
     return (
-        <div className="app-layout">
+        <div className="app-layout with-app-bg">
             {/* INFO: Minimal header with logo and tiny nav links */}
             <header className="app-header">
                 <div className="header-container">
                     <div className="app-logo">
-                        <div className="app-logo-icon">
-                            <Sparkles size={16} />
+                        <div className="app-logo-icon" style={{ background: 'transparent' }}>
+                            <img src="/logo.png" alt="Lumen Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                         </div>
                         <span>Lumen</span>
                     </div>

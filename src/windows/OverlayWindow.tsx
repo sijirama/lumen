@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, Sparkles, X, Loader2, FileText, Scan, CalendarDays, LayoutDashboard } from 'lucide-react';
+import { Send, X, Loader2, FileText, Scan, CalendarDays, LayoutDashboard } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 //INFO: Chat message type
@@ -25,9 +25,9 @@ function OverlayWindow() {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isCapturing, setIsCapturing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
-    const [isCapturing, setIsCapturing] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -162,6 +162,23 @@ function OverlayWindow() {
         }
     }
 
+    //INFO: Listen for snipped images from the snipper window
+    // useEffect(() => {
+    //     let unlisten: (() => void) | null = null;
+    //     async function setupSnipListener() {
+    //          // @ts-ignore
+    //         const { listen } = await import('@tauri-apps/api/event');
+    //         unlisten = await listen('snipped-image', (event: any) => {
+    //             setCapturedImage(event.payload);
+    //             // Ensure overlay is visible (should be handled by backend but double check)
+    //         });
+    //     }
+    //     setupSnipListener();
+    //     return () => {
+    //         if (unlisten) unlisten();
+    //     };
+    // }, []);
+
     async function handleCaptureScreen() {
         try {
             setIsCapturing(true);
@@ -169,8 +186,11 @@ function OverlayWindow() {
             await invoke('hide_overlay');
             // Small delay to ensure window is hidden
             await new Promise(r => setTimeout(r, 200));
+
+            // Use the direct full screen capture for stability
             const b64 = await invoke<string>('capture_primary_screen');
             setCapturedImage(b64);
+
             await invoke('show_overlay');
         } catch (err) {
             console.error('Failed to capture screen:', err);
@@ -253,7 +273,7 @@ function OverlayWindow() {
                     <div className="chat-messages">
                         {messages.length === 0 && !isLoading && (
                             <div className="welcome-message">
-                                <Sparkles size={24} style={{ opacity: 0.3, marginBottom: 'var(--spacing-3)' }} />
+                                <img src="/logo.png" alt="Lumen Logo" style={{ width: '48px', height: '48px', marginBottom: 'var(--spacing-3)', opacity: 0.8 }} />
                                 <p>Hi! I'm Lumen.</p>
                                 <p style={{ fontSize: 'var(--font-size-sm)' }}>Ask me anything.</p>
                             </div>

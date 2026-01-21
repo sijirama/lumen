@@ -2,7 +2,7 @@
 //NOTE: Clean, simple onboarding flow
 
 import { useState } from 'react';
-import { Sparkles, ChevronRight, ChevronLeft, Check, User, Keyboard, Key, Plug } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Check, User, Keyboard, Key, Plug } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 
@@ -99,7 +99,9 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
             case 'welcome':
                 return (
                     <div className="setup-header">
-                        <div className="setup-icon"><Sparkles size={24} /></div>
+                        <div className="setup-icon" style={{ background: 'transparent' }}>
+                            <img src="/logo.png" alt="Lumen Logo" style={{ width: '48px', height: '48px', objectFit: 'contain' }} />
+                        </div>
                         <h2 className="setup-title">Welcome to Lumen</h2>
                         <p className="setup-subtitle">Your minimal AI assistant. Let's set you up.</p>
                     </div>
@@ -236,7 +238,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
     }
 
     return (
-        <div className="setup-container">
+        <div className="setup-container with-app-bg">
             <div className="setup-card">
                 {/* Progress */}
                 <div className="setup-progress">

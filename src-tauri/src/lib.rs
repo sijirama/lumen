@@ -71,20 +71,6 @@ pub fn run() {
                 }
             }
 
-            // Restore widget if enabled
-            let connection = db_clone.connection.lock();
-            let widget_enabled =
-                crate::database::queries::get_setting(&connection, "widget_enabled")
-                    .map(|v| v == Some("true".to_string()))
-                    .unwrap_or(false);
-
-            if widget_enabled {
-                let app_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = commands::window::show_widget(app_handle).await;
-                });
-            }
-
             Ok(())
         })
         //INFO: Handle window events to prevent app from closing when windows are closed
@@ -131,8 +117,6 @@ pub fn run() {
             window::show_main_window,
             window::hide_main_window,
             window::open_path,
-            window::show_widget,
-            window::hide_widget,
             // Dashboard commands
             dashboard::get_dashboard_briefing,
             dashboard::refresh_dashboard_briefing,
@@ -142,6 +126,9 @@ pub fn run() {
             auth::start_google_auth,
             // Vision commands
             vision::capture_primary_screen,
+            vision::start_snipping,
+            vision::capture_region,
+            vision::close_snipper,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

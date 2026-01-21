@@ -12,6 +12,8 @@ INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="lumen"
 CONFIG_DIR="$HOME/.config/lumen"
 DB_PATH="$HOME/.local/share/com.sijirama.lumen"
+DESKTOP_FILE="$HOME/.local/share/applications/lumen.desktop"
+ICON_FILE="$HOME/.local/share/icons/lumen.png"
 
 # Colors
 RED='\033[0;31m'
@@ -34,6 +36,17 @@ if [ -f "$INSTALL_DIR/$BINARY_NAME" ]; then
     echo -e "${BLUE}✅ Binary removed.${NC}"
 else
     echo -e "${YELLOW}Binary wasn't found in $INSTALL_DIR. Maybe it's playing hide and seek?${NC}"
+fi
+
+# 2.1 Remove Desktop Integration
+if [ -f "$DESKTOP_FILE" ]; then
+    echo -e "${BLUE}🗑 Removing desktop entry...${NC}"
+    rm "$DESKTOP_FILE"
+fi
+
+if [ -f "$ICON_FILE" ]; then
+    echo -e "${BLUE}🗑 Removing icon...${NC}"
+    rm "$ICON_FILE"
 fi
 
 # 3. Clean up data (Optional but recommended for full wipe)

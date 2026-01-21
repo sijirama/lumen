@@ -40,23 +40,22 @@
         "focus": true
       },
       {
-        "label": "widget",
-        "title": "Lumen Widget",
-        "url": "/?window=widget",
-        "width": 260,
-        "height": 80,
+        "label": "snipper",
+        "title": "Lumen Snipper",
+        "url": "/?window=snipper",
+        "fullscreen": true,
         "resizable": false,
         "visible": false,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "focus": false
+        "focus": true
       }
     ],
     "trayIcon": {
       "iconPath": "icons/32x32.png",
-      "iconAsTemplate": true
+      "iconAsTemplate": false
     },
     "security": {
       "csp": null

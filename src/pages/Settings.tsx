@@ -31,7 +31,6 @@ function SettingsPage() {
     const [geminiKeyConfigured, setGeminiKeyConfigured] = useState(false);
     const [databasePath, setDatabasePath] = useState('');
     const [autostartEnabled, setAutostartEnabled] = useState(false);
-    const [widgetEnabled, setWidgetEnabled] = useState(false);
 
     //INFO: UI state
     const [saving, setSaving] = useState(false);
@@ -73,27 +72,8 @@ function SettingsPage() {
 
             const isAutostart = await isEnabled();
             setAutostartEnabled(isAutostart);
-
-            const isWidget = await invoke<string | null>('get_app_setting', { key: 'widget_enabled' });
-            setWidgetEnabled(isWidget === 'true');
         } catch (err) {
             setError(`Failed to load settings: ${err}`);
-        }
-    }
-
-    async function toggleWidget() {
-        const newState = !widgetEnabled;
-        try {
-            await invoke('save_app_setting', { key: 'widget_enabled', value: newState ? 'true' : 'false' });
-            if (newState) {
-                await invoke('show_widget');
-            } else {
-                await invoke('hide_widget');
-            }
-            setWidgetEnabled(newState);
-            setSuccess(newState ? 'Ghost Widget enabled' : 'Ghost Widget disabled');
-        } catch (err) {
-            setError(`Failed to update widget: ${err}`);
         }
     }
 
@@ -187,20 +167,6 @@ function SettingsPage() {
                         </label>
                     </div>
 
-                    <div className="settings-row">
-                        <div className="settings-row-info">
-                            <span className="settings-row-title">Ghost Widget</span>
-                            <span className="settings-row-description">Show a subtle, floating glance widget to the desktop.</span>
-                        </div>
-                        <label className="switch">
-                            <input
-                                type="checkbox"
-                                checked={widgetEnabled}
-                                onChange={toggleWidget}
-                            />
-                            <span className="slider"></span>
-                        </label>
-                    </div>
                 </div>
             </section>
 
