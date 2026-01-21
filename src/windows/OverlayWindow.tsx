@@ -4,8 +4,9 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, X, Loader2, FileText, Scan, CalendarDays, LayoutDashboard } from 'lucide-react';
+import { Send, X, Loader2, FileText, Scan, CalendarDays, LayoutDashboard, MessageSquare } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import CalendarView from '../components/CalendarView';
 
 //INFO: Chat message type
 interface ChatMessage {
@@ -28,6 +29,7 @@ function OverlayWindow() {
     const [isCapturing, setIsCapturing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
+    const [currentView, setCurrentView] = useState<'chat' | 'calendar'>('chat');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -258,99 +260,103 @@ function OverlayWindow() {
     return (
         <div className="overlay-container">
             <div className="overlay-panel">
-                {/* Messages */}
+                {/* Messages / Calendar */}
                 <div className="overlay-content">
-                    <div className="chat-messages">
-                        {messages.length === 0 && !isLoading && (
-                            <div className="welcome-message">
-                                <img src="/logo.png" alt="Lumen Logo" style={{ width: '48px', height: '48px', marginBottom: 'var(--spacing-3)', opacity: 0.8 }} />
-                                <p>Hi! I'm Lumen.</p>
-                                <p style={{ fontSize: 'var(--font-size-sm)' }}>Ask me anything.</p>
-                            </div>
-                        )}
+                    {currentView === 'chat' ? (
+                        <div className="chat-messages">
+                            {messages.length === 0 && !isLoading && (
+                                <div className="welcome-message">
+                                    <img src="/logo.png" alt="Lumen Logo" style={{ width: '48px', height: '48px', marginBottom: 'var(--spacing-3)', opacity: 0.8 }} />
+                                    <p>Hi! I'm Lumen.</p>
+                                    <p style={{ fontSize: 'var(--font-size-sm)' }}>Ask me anything.</p>
+                                </div>
+                            )}
 
-                        {messages.map((message, index) => (
-                            <div key={message.id || index} className={`chat-message ${message.role}`}>
-                                {message.image_data && (
-                                    <div className="chat-message-image" style={{ marginBottom: 'var(--spacing-2)' }}>
-                                        <img
-                                            src={`data:image/png;base64,${message.image_data}`}
-                                            alt="Observation"
-                                            style={{
-                                                maxWidth: '100%',
-                                                maxHeight: '200px',
-                                                borderRadius: 'var(--radius-md)',
-                                                border: '1px solid rgba(0,0,0,0.1)'
-                                            }}
-                                        />
-                                    </div>
-                                )}
-                                <div className="markdown-content">
-                                    <ReactMarkdown
-                                        remarkPlugins={[remarkGfm]}
-                                        components={{
-                                            code: ({ node, ...props }: any) => {
-                                                const { inline, ...rest } = props;
-                                                return (
-                                                    <code
-                                                        className={inline ? 'inline-code' : 'block-code'}
-                                                        {...rest}
-                                                    />
-                                                );
-                                            },
-                                            a: ({ node, ...props }) => {
-                                                const href = props.href || '';
-                                                if (href.startsWith('lumen://open')) {
+                            {messages.map((message, index) => (
+                                <div key={message.id || index} className={`chat-message ${message.role}`}>
+                                    {message.image_data && (
+                                        <div className="chat-message-image" style={{ marginBottom: 'var(--spacing-2)' }}>
+                                            <img
+                                                src={`data:image/png;base64,${message.image_data}`}
+                                                alt="Observation"
+                                                style={{
+                                                    maxWidth: '100%',
+                                                    maxHeight: '200px',
+                                                    borderRadius: 'var(--radius-md)',
+                                                    border: '1px solid rgba(0,0,0,0.1)'
+                                                }}
+                                            />
+                                        </div>
+                                    )}
+                                    <div className="markdown-content">
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkGfm]}
+                                            components={{
+                                                code: ({ node, ...props }: any) => {
+                                                    const { inline, ...rest } = props;
                                                     return (
-                                                        <a
-                                                            {...props}
-                                                            href="#"
-                                                            onClick={(e) => {
-                                                                e.preventDefault();
-                                                                try {
-                                                                    const url = new URL(href);
-                                                                    const rawPath = url.searchParams.get('path');
-                                                                    if (rawPath) {
-                                                                        const path = decodeURIComponent(rawPath);
-                                                                        invoke('open_path', { path });
-                                                                    }
-                                                                } catch (err) {
-                                                                    console.error('Failed to parse lumen link', err);
-                                                                }
-                                                            }}
-                                                            className="lumen-pill"
-                                                        >
-                                                            <span className="lumen-pill-icon">
-                                                                <FileText size={12} />
-                                                            </span>
-                                                            {props.children}
-                                                        </a>
+                                                        <code
+                                                            className={inline ? 'inline-code' : 'block-code'}
+                                                            {...rest}
+                                                        />
                                                     );
+                                                },
+                                                a: ({ node, ...props }) => {
+                                                    const href = props.href || '';
+                                                    if (href.startsWith('lumen://open')) {
+                                                        return (
+                                                            <a
+                                                                {...props}
+                                                                href="#"
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    try {
+                                                                        const url = new URL(href);
+                                                                        const rawPath = url.searchParams.get('path');
+                                                                        if (rawPath) {
+                                                                            const path = decodeURIComponent(rawPath);
+                                                                            invoke('open_path', { path });
+                                                                        }
+                                                                    } catch (err) {
+                                                                        console.error('Failed to parse lumen link', err);
+                                                                    }
+                                                                }}
+                                                                className="lumen-pill"
+                                                            >
+                                                                <span className="lumen-pill-icon">
+                                                                    <FileText size={12} />
+                                                                </span>
+                                                                {props.children}
+                                                            </a>
+                                                        );
+                                                    }
+                                                    return <a {...props} target="_blank" rel="noopener noreferrer" />;
                                                 }
-                                                return <a {...props} target="_blank" rel="noopener noreferrer" />;
-                                            }
-                                        }}
-                                    >
-                                        {message.content}
-                                    </ReactMarkdown>
+                                            }}
+                                        >
+                                            {message.content}
+                                        </ReactMarkdown>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            ))}
 
-                        {isLoading && (
-                            <div className="chat-message assistant">
-                                <div className="typing-indicator">
-                                    <div className="typing-dot"></div>
-                                    <div className="typing-dot"></div>
-                                    <div className="typing-dot"></div>
+                            {isLoading && (
+                                <div className="chat-message assistant">
+                                    <div className="typing-indicator">
+                                        <div className="typing-dot"></div>
+                                        <div className="typing-dot"></div>
+                                        <div className="typing-dot"></div>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
-                        {error && <div className="error-message">{error}</div>}
+                            {error && <div className="error-message">{error}</div>}
 
-                        <div ref={messagesEndRef} />
-                    </div>
+                            <div ref={messagesEndRef} />
+                        </div>
+                    ) : (
+                        <CalendarView />
+                    )}
                 </div>
 
                 {/* Floating Action Bar */}
@@ -364,9 +370,21 @@ function OverlayWindow() {
                         {isCapturing ? <Loader2 size={18} className="loading-spinner" /> : <Scan size={18} />}
                     </button>
 
-                    <button className="action-button calendar-btn">
-                        <CalendarDays size={16} />
-                        <span>Calendar</span>
+                    <button
+                        className={`action-button ${currentView === 'calendar' ? 'active' : ''} calendar-btn`}
+                        onClick={() => setCurrentView(currentView === 'chat' ? 'calendar' : 'chat')}
+                    >
+                        {currentView === 'chat' ? (
+                            <>
+                                <CalendarDays size={16} />
+                                <span>Calendar</span>
+                            </>
+                        ) : (
+                            <>
+                                <MessageSquare size={16} />
+                                <span>Chat</span>
+                            </>
+                        )}
                     </button>
 
                     <button
@@ -378,7 +396,7 @@ function OverlayWindow() {
                     </button>
                 </div>
 
-                {/* Input */}
+                {/* Input Area (Persistent) */}
                 <div className="overlay-footer">
                     {capturedImage && (
                         <div className="image-preview-container" style={{
