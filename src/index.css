@@ -1060,7 +1060,7 @@ html.overlay-window {
   line-height: 1.5;
   overflow-y: auto;
   box-sizing: border-box;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
 }
 
 .chat-input:focus {

@@ -36,12 +36,18 @@ function OverlayWindow() {
         document.body.classList.add('overlay-window');
         document.documentElement.classList.add('overlay-window');
 
-        //INFO: Focus input when window is mounted
-        inputRef.current?.focus();
+        //INFO: Focus and resize input when window is mounted
+        requestAnimationFrame(() => {
+            adjustInputHeight();
+            inputRef.current?.focus();
+        });
+        // Second pass after a short delay to catch any late layout shifts
+        const timer = setTimeout(adjustInputHeight, 100);
 
         return () => {
             document.body.classList.remove('overlay-window');
             document.documentElement.classList.remove('overlay-window');
+            clearTimeout(timer);
         };
     }, []);
 
@@ -102,6 +108,7 @@ function OverlayWindow() {
             const { listen } = await import('@tauri-apps/api/event');
             unlisten = await listen('tauri://focus', () => {
                 inputRef.current?.focus();
+                adjustInputHeight();
                 // When window "comes up", ensure we are at the bottom
                 scrollToBottom(true);
             });
@@ -133,13 +140,17 @@ function OverlayWindow() {
         }
     }, [messages]);
 
-    //INFO: Auto-resize textarea
-    useEffect(() => {
+    //INFO: Auto-resize textarea logic
+    const adjustInputHeight = () => {
         if (inputRef.current) {
             inputRef.current.style.height = 'auto';
             const newHeight = Math.min(inputRef.current.scrollHeight, 100);
             inputRef.current.style.height = `${newHeight}px`;
         }
+    };
+
+    useEffect(() => {
+        adjustInputHeight();
     }, [inputValue]);
 
     async function loadChatHistory() {
