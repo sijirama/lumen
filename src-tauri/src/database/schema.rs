@@ -226,6 +226,19 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
         )
         .context("Failed to create notifications table")?;
 
+    //INFO: Create clipboard_history table
+    connection
+        .execute(
+            "CREATE TABLE IF NOT EXISTS clipboard_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            type TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )",
+            [],
+        )
+        .context("Failed to create clipboard_history table")?;
+
     Ok(())
 }
 

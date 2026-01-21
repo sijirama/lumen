@@ -146,3 +146,54 @@ pub async fn open_path(app: tauri::AppHandle, path: String) -> Result<(), String
         .open_path(path, None::<String>)
         .map_err(|e| e.to_string())
 }
+
+//INFO: Shows the ghost widget
+#[tauri::command]
+pub async fn show_widget(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(widget_window) = app.get_webview_window("widget") {
+        widget_window
+            .show()
+            .map_err(|e| format!("Failed to show widget: {}", e))?;
+
+        let _ = position_widget_top_right(&widget_window);
+        Ok(())
+    } else {
+        Err("Widget window not found".to_string())
+    }
+}
+
+//INFO: Hides the ghost widget
+#[tauri::command]
+pub async fn hide_widget(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(widget_window) = app.get_webview_window("widget") {
+        widget_window
+            .hide()
+            .map_err(|e| format!("Failed to hide widget: {}", e))?;
+        Ok(())
+    } else {
+        Err("Widget window not found".to_string())
+    }
+}
+
+//INFO: Positions the widget at the top-right of the screen
+fn position_widget_top_right(window: &WebviewWindow) -> Result<(), String> {
+    if let Ok(Some(monitor)) = window.primary_monitor() {
+        let monitor_size = monitor.size();
+        let monitor_position = monitor.position();
+
+        let window_size = window
+            .outer_size()
+            .map_err(|e| format!("Failed to get window size: {}", e))?;
+
+        let padding = 12;
+        let x_position =
+            monitor_position.x + (monitor_size.width as i32) - (window_size.width as i32) - padding;
+        let y_position = monitor_position.y + padding;
+
+        window
+            .set_position(tauri::PhysicalPosition::new(x_position, y_position))
+            .map_err(|e| format!("Failed to set position: {}", e))?;
+    }
+
+    Ok(())
+}

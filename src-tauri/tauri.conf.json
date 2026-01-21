@@ -38,6 +38,20 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "focus": true
+      },
+      {
+        "label": "widget",
+        "title": "Lumen Widget",
+        "url": "/?window=widget",
+        "width": 260,
+        "height": 80,
+        "resizable": false,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false
       }
     ],
     "trayIcon": {

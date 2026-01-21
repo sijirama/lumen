@@ -10,15 +10,17 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::time::sleep;
 
 pub async fn start_proactive_agent(app_handle: tauri::AppHandle, database: Database) {
-    println!("🚀 Proactive Agent: Starting background loop...");
+    println!("✨ Proactive Agent: Heartbeat initialized. Checking every 30 minutes.");
 
     loop {
-        // Run every 5 minutes
-        sleep(Duration::from_secs(300)).await;
-
+        println!("🔍 Proactive Agent: Waking up to check for updates...");
         if let Err(e) = check_for_updates(&app_handle, &database).await {
             eprintln!("❌ Proactive Agent Error: {}", e);
         }
+        println!("😴 Proactive Agent: Done. Going back to sleep for 30m.");
+
+        // Run every 30 minutes
+        sleep(Duration::from_secs(1800)).await;
     }
 }
 

@@ -328,6 +328,23 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                 description: "Captures a screenshot of the user's primary screen so you can 'see' what they are doing. Call this when they say 'look at my screen' or 'what am I doing'.".to_string(),
                 parameters: None,
             },
+            GeminiFunctionDeclaration {
+                name: "search_clipboard".to_string(),
+                description: "Searches the user's historical clipboard (copy history) for a keyword or recent items. Use this to find things they copied recently like links, snippets, or text.".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The keyword to search for in clipboard history. Leave empty to get the most recent items."
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of items to return (default 5)."
+                        }
+                    }
+                })),
+            },
         ],
     }]
 }
@@ -590,6 +607,15 @@ pub fn execute_tool_sync(
                     { "title": "Lumen AI Assistant", "snippet": "Lumen is a desktop AI assistant designed for productivity." }
                 ]
             })
+        }
+        "search_clipboard" => {
+            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as u32;
+
+            match crate::database::queries::search_clipboard_history(db_connection, query, limit) {
+                Ok(items) => json!({ "items": items }),
+                Err(e) => json!({ "error": format!("Failed to search clipboard: {}", e) }),
+            }
         }
         _ => json!({ "error": format!("Unknown synchronous tool: {}", name) }),
     }

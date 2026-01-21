@@ -8,6 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 //INFO: Import window components
 import MainWindow from './windows/MainWindow';
 import OverlayWindow from './windows/OverlayWindow';
+import WidgetWindow from './windows/WidgetWindow';
 import SetupWizard from './components/setup/SetupWizard';
 
 //INFO: Type for setup status response from backend
@@ -30,8 +31,9 @@ function App() {
   //INFO: Get URL search params to detect overlay window
   const [searchParams] = useSearchParams();
 
-  //INFO: Check if this is the overlay window based on URL parameter
+  //INFO: Check which window is being rendered
   const isOverlay = searchParams.get('window') === 'overlay';
+  const isWidget = searchParams.get('window') === 'widget';
 
   //INFO: Check setup status on app load
   useEffect(() => {
@@ -77,6 +79,11 @@ function App() {
   //INFO: If this is the overlay window, always show overlay
   if (isOverlay) {
     return <OverlayWindow />;
+  }
+
+  //INFO: If this is the widget window, always show widget
+  if (isWidget) {
+    return <WidgetWindow />;
   }
 
   //INFO: If setup is not complete, show setup wizard

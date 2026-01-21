@@ -615,3 +615,47 @@ pub fn record_notification(
     ).context("Failed to record notification")?;
     Ok(())
 }
+
+// INFO: Saves a clipboard item to history
+pub fn save_clipboard_item(
+    connection: &Connection,
+    content: &str,
+    content_type: &str,
+) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    connection
+        .execute(
+            "INSERT INTO clipboard_history (content, type, created_at) VALUES (?1, ?2, ?3)",
+            params![content, content_type, now],
+        )
+        .context("Failed to save clipboard item")?;
+    Ok(())
+}
+
+// INFO: Searches the clipboard history for a specific query
+pub fn search_clipboard_history(
+    connection: &Connection,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<serde_json::Value>> {
+    let mut stmt = connection.prepare(
+        "SELECT content, created_at FROM clipboard_history 
+         WHERE content LIKE ?1 
+         ORDER BY created_at DESC 
+         LIMIT ?2",
+    )?;
+
+    let pattern = format!("%{}%", query);
+    let rows = stmt.query_map(params![pattern, limit], |row| {
+        Ok(serde_json::json!({
+            "content": row.get::<_, String>(0)?,
+            "timestamp": row.get::<_, String>(1)?
+        }))
+    })?;
+
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row?);
+    }
+    Ok(results)
+}

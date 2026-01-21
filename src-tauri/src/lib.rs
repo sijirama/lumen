@@ -44,8 +44,15 @@ pub fn run() {
 
             // Start proactive background agent
             let app_handle = app.handle().clone();
+            let db_proactive = db_clone.clone();
             tauri::async_runtime::spawn(async move {
-                agent::proactive::start_proactive_agent(app_handle, db_clone).await;
+                agent::proactive::start_proactive_agent(app_handle, db_proactive).await;
+            });
+
+            // Start clipboard manager
+            let db_clipboard = db_clone.clone();
+            tauri::async_runtime::spawn(async move {
+                agent::clipboard::start_clipboard_manager(db_clipboard).await;
             });
 
             //INFO: Setup global hotkey listener
@@ -62,6 +69,20 @@ pub fn run() {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
                 }
+            }
+
+            // Restore widget if enabled
+            let connection = db_clone.connection.lock();
+            let widget_enabled =
+                crate::database::queries::get_setting(&connection, "widget_enabled")
+                    .map(|v| v == Some("true".to_string()))
+                    .unwrap_or(false);
+
+            if widget_enabled {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = commands::window::show_widget(app_handle).await;
+                });
             }
 
             Ok(())
@@ -110,6 +131,8 @@ pub fn run() {
             window::show_main_window,
             window::hide_main_window,
             window::open_path,
+            window::show_widget,
+            window::hide_widget,
             // Dashboard commands
             dashboard::get_dashboard_briefing,
             dashboard::refresh_dashboard_briefing,
