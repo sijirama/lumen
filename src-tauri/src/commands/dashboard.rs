@@ -4,7 +4,7 @@
 use crate::database::{queries, Database};
 use crate::gemini::client::{GeminiClient, GeminiContent, GeminiPart};
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{Duration, Local};
+use chrono::{Duration, Local, Timelike};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -30,10 +30,27 @@ pub async fn get_dashboard_briefing(
         queries::get_latest_briefing_summary(&connection).map_err(|e| e.to_string())?
     };
 
-    // Calculate current hash (this is async)
-    let current_hash = calculate_briefing_hash(&database).await?;
-
     if let Some(summary) = latest {
+        let now = Local::now();
+        let created_at = chrono::DateTime::parse_from_rfc3339(&summary.created_at)
+            .map(|dt| dt.with_timezone(&Local))
+            .unwrap_or(now);
+
+        // Define periods: Morning (5-12), Afternoon (12-17), Evening (17-21), Night (21-5)
+        let get_period = |h: u32| match h {
+            5..=11 => 0,  // Morning
+            12..=16 => 1, // Afternoon
+            17..=20 => 2, // Evening
+            _ => 3,       // Night
+        };
+
+        let current_period = get_period(now.hour());
+        let last_period = get_period(created_at.hour());
+        let is_different_day = now.date_naive() != created_at.date_naive();
+
+        // Stale ONLY if it's a new period or a different day
+        let is_stale = is_different_day || current_period != last_period;
+
         let b64_audio = summary
             .audio_data
             .map(|data| general_purpose::STANDARD.encode(data));
@@ -41,7 +58,7 @@ pub async fn get_dashboard_briefing(
         Ok(Some(DashboardBriefing {
             content: summary.content,
             created_at: summary.created_at,
-            is_stale: summary.data_hash != current_hash,
+            is_stale,
             audio_data: b64_audio,
         }))
     } else {
@@ -215,21 +232,14 @@ pub async fn refresh_dashboard_briefing(
                 }
             }
 
-            // Fetch Emails (Use precise Unix timestamp for "today" to avoid timezone issues)
-            let start_of_day = Local::now()
-                .date_naive()
-                .and_hms_opt(0, 0, 0)
-                .unwrap()
-                .and_local_timezone(Local)
-                .unwrap()
-                .timestamp();
-
-            let today_query = format!("after:{}", start_of_day);
+            // Fetch Emails (Search last 24 hours to ensure we don't miss anything)
+            let last_24h = (Local::now() - Duration::hours(24)).timestamp();
+            let query = format!("after:{}", last_24h);
 
             match crate::integrations::google_gmail::fetch_recent_emails_with_query(
                 &database,
-                10,
-                Some(&today_query),
+                15, // Increase limit slightly
+                Some(&query),
             )
             .await
             {

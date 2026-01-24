@@ -67,23 +67,43 @@ function Dashboard({ userName }: DashboardProps) {
 
         // 1. Prefer Gemini TTS Pre-generated Audio
         if (briefing.audio_data) {
-            const audio = new Audio(`data:audio/wav;base64,${briefing.audio_data}`);
-            audioRef.current = audio;
-            audio.onended = () => {
+            try {
+                // Convert base64 to Blob for better stability/performance than Data URI
+                const binaryString = window.atob(briefing.audio_data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                const blob = new Blob([bytes], { type: 'audio/wav' });
+                const url = URL.createObjectURL(blob);
+
+                const audio = new Audio(url);
+                audioRef.current = audio;
+
+                audio.onended = () => {
+                    setIsSpeaking(false);
+                    audioRef.current = null;
+                    URL.revokeObjectURL(url);
+                };
+
+                audio.onerror = (e) => {
+                    console.error("Audio playback error", e);
+                    setIsSpeaking(false);
+                    audioRef.current = null;
+                    URL.revokeObjectURL(url);
+                };
+
+                setIsSpeaking(true);
+                audio.play().catch(e => {
+                    console.error("Failed to play audio:", e);
+                    setIsSpeaking(false);
+                    audioRef.current = null;
+                    URL.revokeObjectURL(url);
+                });
+            } catch (err) {
+                console.error("Failed to process audio data:", err);
                 setIsSpeaking(false);
-                audioRef.current = null;
-            };
-            audio.onerror = () => {
-                console.error("Audio playback error");
-                setIsSpeaking(false);
-                audioRef.current = null;
-            };
-            setIsSpeaking(true);
-            audio.play().catch(e => {
-                console.error("Failed to play audio:", e);
-                setIsSpeaking(false);
-                audioRef.current = null;
-            });
+            }
             return;
         }
 

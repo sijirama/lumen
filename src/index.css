@@ -797,6 +797,8 @@ html.widget-window {
   /* IE and Edge */
 }
 
+/* Removed glassmorphic pseudo-elements */
+
 .overlay-content::-webkit-scrollbar {
   display: none;
   /* Chrome, Safari and Opera */

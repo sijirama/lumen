@@ -83,12 +83,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand 
     }, [events]);
 
     const colors = [
-        { bg: 'rgba(59, 130, 246, 0.12)', text: '#3b82f6', border: 'rgba(59, 130, 246, 0.2)' },
-        { bg: 'rgba(16, 185, 129, 0.12)', text: '#10b981', border: 'rgba(16, 185, 129, 0.2)' },
-        { bg: 'rgba(245, 158, 11, 0.12)', text: '#f59e0b', border: 'rgba(245, 158, 11, 0.2)' },
-        { bg: 'rgba(239, 68, 68, 0.12)', text: '#ef4444', border: 'rgba(239, 68, 68, 0.2)' },
-        { bg: 'rgba(139, 92, 246, 0.12)', text: '#8b5cf6', border: 'rgba(139, 92, 246, 0.2)' },
-        { bg: 'rgba(236, 72, 153, 0.12)', text: '#ec4899', border: 'rgba(236, 72, 153, 0.2)' }
+        { bg: '#e0ecff', text: '#1a73e8', border: '#1a73e8' },
+        { bg: '#e6f4ea', text: '#34a853', border: '#34a853' },
+        { bg: '#fef7e0', text: '#fbbc04', border: '#fbbc04' },
+        { bg: '#fce8e6', text: '#ea4335', border: '#ea4335' },
+        { bg: '#f3e8fd', text: '#9333ea', border: '#9333ea' },
+        { bg: '#feeffa', text: '#db2777', border: '#db2777' }
     ];
 
     const getEventStyle = (title: string) => {
@@ -213,6 +213,9 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand 
                     height: 100%;
                     overflow: hidden;
                     font-family: var(--font-family-sans);
+                    background: var(--color-bg-primary); /* Ensure solid background */
+                    backdrop-filter: none !important;
+                    -webkit-backdrop-filter: none !important;
                 }
 
                 /* Header Styling */
@@ -370,7 +373,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand 
                 }
 
                 .date-cell.today {
-                    background: rgba(167, 139, 250, 0.1); /* Lighter Pastel Violet */
+                    background: rgba(167, 139, 250, 0.2); /* Slightly more opaque */
                 }
                 .date-cell.today .date-val {
                     color: #a78bfa;
@@ -433,8 +436,10 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand 
                     position: relative;
                     overflow: hidden;
                     transition: transform 0.2s;
+                    background: var(--color-bg-secondary); /* Fallback */
+                    border: 1px solid rgba(0,0,0,0.05);
                 }
-                .sexy-pill:hover { transform: scale(1.01); }
+                .sexy-pill:hover { transform: scale(1.01); background: var(--color-bg-elevated); }
 
 
                 .pill-main {
