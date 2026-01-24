@@ -70,10 +70,17 @@ fi
 OS=$(uname -s)
 ARCH=$(uname -m)
 
-if [ "$OS" != "Linux" ]; then
-    echo -e "${RED}Hold up! This script is currently optimized for Linux.${NC}"
+if [ "$OS" != "Linux" ] && [ "$OS" != "Darwin" ]; then
+    echo -e "${RED}Hold up! This script is currently optimized for Linux and macOS.${NC}"
     echo -e "${YELLOW}Please visit https://github.com/$REPO/releases for other platforms.${NC}"
     exit 1
+fi
+
+if [ "$OS" == "Darwin" ]; then
+    echo -e "${BLUE}🍎 macOS detected. Checking for Homebrew...${NC}"
+    if ! command -v brew >/dev/null; then
+        echo -e "${YELLOW}Homebrew is recommended for managing dependencies on macOS.${NC}"
+    fi
 fi
 
 # 2. Dependency Check (Essential for Tauri apps on Linux)
@@ -115,7 +122,13 @@ echo -e "${BLUE}📦 Downloading Lumen $LATEST_RELEASE ($ASSET_NAME)...${NC}"
 
 # Check if online asset exists, else fallback to local check
 if curl --output /dev/null --silent --head --fail "$DOWNLOAD_URL"; then
-    curl -L -o /tmp/lumen_temp "$DOWNLOAD_URL"
+    if [ "$OS" == "Darwin" ]; then
+        ASSET_NAME="Lumen_${VERSION_NUM}_universal.dmg"
+        DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST_RELEASE/$ASSET_NAME"
+        curl -L -o /tmp/lumen_temp.dmg "$DOWNLOAD_URL"
+    else
+        curl -L -o /tmp/lumen_temp "$DOWNLOAD_URL"
+    fi
 else
     echo -e "${YELLOW}Release asset not found online yet. Checking local builds...${NC}"
     # Look for both raw binary and AppImage in target/release
@@ -135,11 +148,18 @@ else
 fi
 
 # Move to bin and make executable
-echo -e "${BLUE}🔧 Installing Lumen to $INSTALL_DIR... (sudo required)${NC}"
-sudo mv /tmp/lumen_temp "$INSTALL_DIR/$BINARY_NAME"
-sudo chmod +x "$INSTALL_DIR/$BINARY_NAME"
-
-echo -e "${GREEN}🎉 Lumen is successfully installed!${NC}"
+if [ "$OS" == "Linux" ]; then
+    echo -e "${BLUE}🔧 Installing Lumen to $INSTALL_DIR... (sudo required)${NC}"
+    sudo mv /tmp/lumen_temp "$INSTALL_DIR/$BINARY_NAME"
+    sudo chmod +x "$INSTALL_DIR/$BINARY_NAME"
+    echo -e "${GREEN}🎉 Lumen is successfully installed!${NC}"
+elif [ "$OS" == "Darwin" ]; then
+    echo -e "${BLUE}🔧 Mounting DMG and installing to Applications...${NC}"
+    hdiutil attach /tmp/lumen_temp.dmg -noprompt -quiet
+    cp -R /Volumes/Lumen/Lumen.app /Applications/
+    hdiutil detach /Volumes/Lumen -quiet
+    echo -e "${GREEN}🎉 Lumen is successfully installed in your Applications folder!${NC}"
+fi
 
 # 5. Desktop Integration & Autostart
 echo -e "${BLUE}🖥 Integrating with your desktop launcher & autostart...${NC}"

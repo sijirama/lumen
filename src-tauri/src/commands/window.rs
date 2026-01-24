@@ -101,8 +101,12 @@ pub async fn resize_overlay(app: tauri::AppHandle, view: String) -> Result<(), S
             .set_size(tauri::LogicalSize::new(width, height))
             .map_err(|e| format!("Failed to set size: {}", e))?;
 
-        // 2. Medium sleep to let WM catch up (critical for Linux stability)
+        // 2. Short sleep to let WM catch up (mostly critical for Linux stability)
+        #[cfg(target_os = "linux")]
         tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+
+        #[cfg(not(target_os = "linux"))]
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         // 3. Re-position to keep bottom-left fixed
         if let Ok(Some(monitor)) = window.primary_monitor() {

@@ -129,6 +129,8 @@ pub async fn capture_region(
 
     let scale_factor = if let Some(snipper) = app.get_webview_window("snipper") {
         snipper.scale_factor().unwrap_or(1.0)
+    } else if let Some(main) = app.get_webview_window("main") {
+        main.scale_factor().unwrap_or(1.0)
     } else {
         1.0
     };
