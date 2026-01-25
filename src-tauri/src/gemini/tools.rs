@@ -345,6 +345,29 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                     }
                 })),
             },
+            GeminiFunctionDeclaration {
+                name: "get_file_metadata".to_string(),
+                description: "Gets metadata (size, last modified, creation time) for a local file.".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Absolute path to the file." }
+                    },
+                    "required": ["path"]
+                })),
+            },
+            GeminiFunctionDeclaration {
+                name: "search_filesystem".to_string(),
+                description: "Recursively searches for files matching a filename or extension in a directory.".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Directory to search in." },
+                        "query": { "type": "string", "description": "The filename or extension to search for (e.g. 'resume.pdf' or '.js')." }
+                    },
+                    "required": ["path", "query"]
+                })),
+            },
         ],
     }]
 }
@@ -359,6 +382,12 @@ pub fn execute_tool_sync(
     match name {
         "read_file" => {
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            // SAFETY: Don't read files larger than 500KB to avoid API context explosion or binary bloat
+            if let Ok(meta) = fs::metadata(path) {
+                if meta.len() > 500_000 {
+                    return json!({ "error": "File is too large to read (limit: 500KB). Use get_file_metadata first or read selective lines." });
+                }
+            }
             match fs::read_to_string(path) {
                 Ok(content) => json!({ "content": content }),
                 Err(e) => json!({ "error": format!("Failed to read file: {}", e) }),
@@ -616,6 +645,54 @@ pub fn execute_tool_sync(
                 Ok(items) => json!({ "items": items }),
                 Err(e) => json!({ "error": format!("Failed to search clipboard: {}", e) }),
             }
+        }
+        "get_file_metadata" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            match fs::metadata(path) {
+                Ok(meta) => {
+                    use std::time::SystemTime;
+                    let format_time = |t: Result<SystemTime, _>| {
+                        t.ok()
+                            .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs())
+                    };
+                    json!({
+                        "size_bytes": meta.len(),
+                        "is_dir": meta.is_dir(),
+                        "modified": format_time(meta.modified()),
+                        "created": format_time(meta.created()),
+                    })
+                }
+                Err(e) => json!({ "error": format!("Failed to get metadata: {}", e) }),
+            }
+        }
+        "search_filesystem" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let query = args
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+
+            if path.is_empty() || query.is_empty() {
+                return json!({ "error": "Path and query required." });
+            }
+
+            let mut results = Vec::new();
+            for entry in WalkDir::new(path)
+                .max_depth(5) // Don't go too deep to avoid performance hits
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                let name = entry.file_name().to_string_lossy().to_lowercase();
+                if name.contains(&query) {
+                    results.push(entry.path().to_string_lossy().into_owned());
+                }
+                if results.len() >= 20 {
+                    break;
+                }
+            }
+            json!({ "matches": results })
         }
         _ => json!({ "error": format!("Unknown synchronous tool: {}", name) }),
     }
