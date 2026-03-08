@@ -117,7 +117,7 @@ pub async fn refresh_dashboard_briefing(
         let mut data = Vec::new();
 
         // Weather
-        if !weather.get("error").is_some() {
+        if weather.get("error").is_none() {
             data.push(format!(
                 "Current Weather in {}:\n{}",
                 location_name, weather

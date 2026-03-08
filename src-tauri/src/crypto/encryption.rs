@@ -51,7 +51,7 @@ pub fn get_or_create_encryption_key() -> Result<[u8; KEY_LENGTH]> {
         }
 
         //INFO: Save key to file
-        std::fs::write(&key_path, &key).context("Failed to write encryption key")?;
+        std::fs::write(&key_path, key).context("Failed to write encryption key")?;
 
         Ok(key)
     }

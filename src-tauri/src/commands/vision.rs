@@ -2,7 +2,7 @@ use base64::{engine::general_purpose, Engine as _};
 use screenshots::Screen;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager};
 
 //INFO: Cache for the screenshot we are snipping
 static LAST_SCREENSHOT: Mutex<Option<screenshots::image::DynamicImage>> = Mutex::new(None);
@@ -112,7 +112,6 @@ pub async fn capture_region(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
-    use screenshots::image::GenericImageView;
     use std::io::Cursor;
 
     // 1. Get cached image

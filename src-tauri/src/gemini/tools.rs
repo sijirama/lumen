@@ -436,7 +436,7 @@ pub fn execute_tool_sync(
             let mut results = Vec::new();
             for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
                 if entry.file_type().is_file()
-                    && entry.path().extension().map_or(false, |ext| ext == "md")
+                    && entry.path().extension().is_some_and(|ext| ext == "md")
                 {
                     if let Ok(content) = fs::read_to_string(entry.path()) {
                         if content.to_lowercase().contains(&query) {
@@ -619,7 +619,7 @@ pub fn execute_tool_sync(
                     let lines: Vec<String> = content
                         .lines()
                         .enumerate()
-                        .filter(|(i, _)| i + 1 >= start && i + 1 <= end)
+                        .filter(|(i, _)| i + 1 >= start && *i < end)
                         .map(|(_, s)| s.to_string())
                         .collect();
                     json!({ "lines": lines, "total_lines": content.lines().count() })

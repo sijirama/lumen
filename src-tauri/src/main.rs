@@ -4,7 +4,7 @@
 fn main() {
     #[cfg(target_os = "linux")]
     unsafe {
-        use std::os::raw::{c_int, c_void};
+        use std::os::raw::c_int;
         // Link to X11 library
         #[link(name = "X11")]
         extern "C" {

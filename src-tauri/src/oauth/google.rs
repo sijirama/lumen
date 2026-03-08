@@ -75,7 +75,7 @@ impl GoogleAuth {
         let server = Server::http("127.0.0.1:18247")
             .map_err(|e| anyhow!("Failed to start local server: {}", e))?;
 
-        for request in server.incoming_requests() {
+        if let Some(request) = server.incoming_requests().next() {
             let url = format!("http://localhost:18247{}", request.url());
             let parsed_url = Url::parse(&url)?;
 

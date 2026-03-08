@@ -410,7 +410,7 @@ fn build_chat_context(database: &State<Database>) -> Result<Option<String>, Stri
     let g_int = get_integration(&connection, "google").ok().flatten();
     status_parts.push(format!(
         "Google Services: {}",
-        if g_int.map_or(false, |i| i.enabled) {
+        if g_int.is_some_and(|i| i.enabled) {
             "ENABLED"
         } else {
             "DISABLED"
@@ -420,7 +420,7 @@ fn build_chat_context(database: &State<Database>) -> Result<Option<String>, Stri
     let o_int = get_integration(&connection, "obsidian").ok().flatten();
     status_parts.push(format!(
         "Obsidian: {}",
-        if o_int.map_or(false, |i| i.enabled) {
+        if o_int.is_some_and(|i| i.enabled) {
             "ENABLED"
         } else {
             "DISABLED"

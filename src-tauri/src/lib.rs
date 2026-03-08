@@ -48,13 +48,6 @@ pub fn run() {
             let db_clone = database.clone();
             app.manage(database);
 
-            // Start proactive background agent
-            let app_handle = app.handle().clone();
-            let db_proactive = db_clone.clone();
-            tauri::async_runtime::spawn(async move {
-                agent::proactive::start_proactive_agent(app_handle, db_proactive).await;
-            });
-
             // Start clipboard manager
             let db_clipboard = db_clone.clone();
             tauri::async_runtime::spawn(async move {

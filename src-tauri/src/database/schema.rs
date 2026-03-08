@@ -23,22 +23,6 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
         )
         .context("Failed to create user_profile table")?;
 
-    // Migration: Add location column if it doesn't exist
-    let mut stmt = connection.prepare("PRAGMA table_info(user_profile)")?;
-    let mut has_location = false;
-    let mut rows = stmt.query([])?;
-    while let Some(row) = rows.next()? {
-        let name: String = row.get(1)?;
-        if name == "location" {
-            has_location = true;
-            break;
-        }
-    }
-
-    if !has_location {
-        connection.execute("ALTER TABLE user_profile ADD COLUMN location TEXT", [])?;
-    }
-
     //INFO: Create settings table - key-value store for app settings
     connection
         .execute(
@@ -68,30 +52,6 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
         )
         .context("Failed to create hotkey_config table")?;
 
-    // Migration: Add snipper columns if they don't exist
-    let mut stmt = connection.prepare("PRAGMA table_info(hotkey_config)")?;
-    let mut has_snipper = false;
-    let mut rows = stmt.query([])?;
-    while let Some(row) = rows.next()? {
-        let name: String = row.get(1)?;
-        if name == "snipper_key" {
-            has_snipper = true;
-            break;
-        }
-    }
-
-    if !has_snipper {
-        connection.execute("ALTER TABLE hotkey_config ADD COLUMN snipper_modifier_keys TEXT DEFAULT '[\"Super\",\"Shift\"]'", [])?;
-        connection.execute(
-            "ALTER TABLE hotkey_config ADD COLUMN snipper_key TEXT DEFAULT 'S'",
-            [],
-        )?;
-        connection.execute(
-            "ALTER TABLE hotkey_config ADD COLUMN snipper_enabled INTEGER DEFAULT 1",
-            [],
-        )?;
-    }
-
     //INFO: Create api_tokens table - stores encrypted API keys and OAuth tokens
     connection
         .execute(
@@ -120,21 +80,6 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
             [],
         )
         .context("Failed to create chat_messages table")?;
-
-    // Migration: Add image_data column if it doesn't exist
-    let mut stmt = connection.prepare("PRAGMA table_info(chat_messages)")?;
-    let mut has_image_data = false;
-    let mut rows = stmt.query([])?;
-    while let Some(row) = rows.next()? {
-        let name: String = row.get(1)?;
-        if name == "image_data" {
-            has_image_data = true;
-            break;
-        }
-    }
-    if !has_image_data {
-        connection.execute("ALTER TABLE chat_messages ADD COLUMN image_data TEXT", [])?;
-    }
 
     //INFO: Create calendar_events table - caches calendar events for offline access
     connection
@@ -193,18 +138,6 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
         )
         .context("Failed to create reminders table")?;
 
-    //INFO: Create web_cache table for fun tools
-    connection
-        .execute(
-            "CREATE TABLE IF NOT EXISTS web_cache (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL,
-            expires_at TEXT NOT NULL
-        )",
-            [],
-        )
-        .context("Failed to create web_cache table")?;
-
     //INFO: Create briefing_summaries table for the dashboard
     connection
         .execute(
@@ -219,39 +152,6 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
             [],
         )
         .context("Failed to create briefing_summaries table")?;
-
-    // Migration: Add audio_data column if it doesn't exist
-    let mut stmt = connection.prepare("PRAGMA table_info(briefing_summaries)")?;
-    let mut has_audio = false;
-    let mut rows = stmt.query([])?;
-    while let Some(row) = rows.next()? {
-        let name: String = row.get(1)?;
-        if name == "audio_data" {
-            has_audio = true;
-            break;
-        }
-    }
-    if !has_audio {
-        connection.execute(
-            "ALTER TABLE briefing_summaries ADD COLUMN audio_data BLOB",
-            [],
-        )?;
-    }
-
-    //INFO: Create notifications table to track proactive pings
-    connection
-        .execute(
-            "CREATE TABLE IF NOT EXISTS notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            external_id TEXT NOT NULL,
-            provider TEXT NOT NULL,
-            title TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            UNIQUE(external_id, provider)
-        )",
-            [],
-        )
-        .context("Failed to create notifications table")?;
 
     //INFO: Create clipboard_history table
     connection
