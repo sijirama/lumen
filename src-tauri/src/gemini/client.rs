@@ -30,7 +30,6 @@ pub fn get_default_system_instruction() -> String {
     )
 }
 
-//INFO: Request structure for Gemini API
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiRequest {
@@ -39,6 +38,17 @@ pub struct GeminiRequest {
     pub system_instruction: Option<GeminiContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<GeminiTool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_config: Option<GenerationConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_mime_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -165,6 +175,7 @@ impl GeminiClient {
         messages: Vec<GeminiContent>,
         system_instruction: Option<&str>,
         tools: Option<Vec<GeminiTool>>,
+        generation_config: Option<GenerationConfig>,
     ) -> Result<Vec<GeminiPart>> {
         //INFO: Build the request payload
         let request = GeminiRequest {
@@ -174,6 +185,7 @@ impl GeminiClient {
                 parts: vec![GeminiPart::text(instruction.to_string())],
             }),
             tools,
+            generation_config,
         };
 
         //INFO: Construct the API URL with the API key
@@ -217,7 +229,7 @@ impl GeminiClient {
             role: Some("user".to_string()),
             parts: vec![GeminiPart::text("Say 'Hello' in one word.".to_string())],
         }];
-        let result = self.send_chat(request, None, None).await;
+        let result = self.send_chat(request, None, None, None).await;
         Ok(result.is_ok())
     }
 }

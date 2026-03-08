@@ -170,6 +170,7 @@ pub async fn send_chat_message(
                 current_messages.clone(),
                 Some(&system_instruction),
                 Some(tools.clone()),
+                None,
             )
             .await
             .map_err(|e| format!("Failed to get AI response: {}", e))?;

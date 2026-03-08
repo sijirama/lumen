@@ -2,6 +2,7 @@
 //NOTE: Handles communication with Google's Gemini API
 
 pub mod client;
+pub mod prompt;
 pub mod tools;
 
 pub use client::GeminiClient;
