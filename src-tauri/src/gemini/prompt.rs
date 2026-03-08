@@ -31,7 +31,7 @@ pub fn get_briefing_system_instruction(greeting_name: &str) -> String {
 pub fn get_email_filter_prompt(emails_json: &str) -> String {
     format!(
         "You are a highly efficient assistant. Below is a list of recent emails (snippets and subjects). 
-        Your task is to identify only the 3-5 most CRITICAL email subjects and snippets for the user to see right now.
+        Your task is to identify only the top 7 most CRITICAL email subjects and snippets for the user to see right now.
         
         STRICT FILTERING RULES:
         - KEEP: Bank statements, financial alerts, server failures, direct work emails from humans, and official account security alerts.

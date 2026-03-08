@@ -165,7 +165,7 @@ pub async fn send_chat_message(
 
     //INFO: Tool execution loop (max 5 turns to prevent infinite loops)
     for _ in 0..5 {
-        let response_parts = client
+        let chat_response = client
             .send_chat(
                 current_messages.clone(),
                 Some(&system_instruction),
@@ -174,6 +174,8 @@ pub async fn send_chat_message(
             )
             .await
             .map_err(|e| format!("Failed to get AI response: {}", e))?;
+
+        let response_parts = chat_response.parts;
 
         //INFO: Record the model's response in history for the next loop turn
         let mut clean_response_parts = Vec::new();

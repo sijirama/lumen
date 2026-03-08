@@ -175,8 +175,11 @@ pub async fn refresh_dashboard_briefing(
                                     response_schema: None,
                                 }),
                             ).await {
-                                Ok(parts) => {
-                                    let filter_response = parts.iter().filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
+                                Ok(chat_response) => {
+                                    if let Some(usage) = &chat_response.usage {
+                                        println!("DEBUG: Email Filter Token Usage -> Prompt: {}, Candidates: {}, Total: {}", usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
+                                    }
+                                    let filter_response = chat_response.parts.iter().filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
                                     
                                     match serde_json::from_str::<Vec<crate::integrations::google_gmail::GmailMessage>>(&filter_response.trim()) {
                                         Ok(filtered) => {
@@ -284,7 +287,7 @@ pub async fn refresh_dashboard_briefing(
         raw_data_context
     );
 
-    let briefing_text = gemini_client
+    let chat_response = gemini_client
         .send_chat(
             vec![GeminiContent {
                 role: Some("user".to_string()),
@@ -298,12 +301,18 @@ pub async fn refresh_dashboard_briefing(
             }),
         )
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+
+    if let Some(usage) = &chat_response.usage {
+        println!("DEBUG: Final Briefing Token Usage -> Prompt: {}, Candidates: {}, Total: {}", usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
+    }
+    
+    let briefing_text = chat_response.parts
         .iter()
         .filter_map(|p| p.text.as_ref())
         .cloned()
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("")
         .trim()
         .to_string();
 

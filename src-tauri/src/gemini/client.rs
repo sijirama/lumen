@@ -59,6 +59,20 @@ pub struct GeminiTool {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct UsageMetadata {
+    pub prompt_token_count: i32,
+    pub candidates_token_count: i32,
+    pub total_token_count: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct GeminiChatResponse {
+    pub parts: Vec<GeminiPart>,
+    pub usage: Option<UsageMetadata>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct GeminiFunctionDeclaration {
     pub name: String,
     pub description: String,
@@ -132,8 +146,10 @@ pub struct GeminiFunctionResponse {
 
 //INFO: Response structure from Gemini API
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GeminiResponse {
     pub candidates: Option<Vec<GeminiCandidate>>,
+    pub usage_metadata: Option<UsageMetadata>,
     pub error: Option<GeminiError>,
 }
 
@@ -176,7 +192,7 @@ impl GeminiClient {
         system_instruction: Option<&str>,
         tools: Option<Vec<GeminiTool>>,
         generation_config: Option<GenerationConfig>,
-    ) -> Result<Vec<GeminiPart>> {
+    ) -> Result<GeminiChatResponse> {
         //INFO: Build the request payload
         let request = GeminiRequest {
             contents: messages,
@@ -220,7 +236,10 @@ impl GeminiClient {
             .first()
             .ok_or_else(|| anyhow!("Empty response candidates from Gemini"))?;
 
-        Ok(first_candidate.content.parts.clone())
+        Ok(GeminiChatResponse {
+            parts: first_candidate.content.parts.clone(),
+            usage: gemini_response.usage_metadata,
+        })
     }
 
     //INFO: Tests if the API key is valid by sending a simple request
