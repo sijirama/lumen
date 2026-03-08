@@ -116,12 +116,16 @@ pub async fn refresh_dashboard_briefing(
                                     .collect();
 
                                 entries.sort_by(|a, b| b.1.cmp(&a.1));
-                                for (entry, modified) in entries.into_iter().take(10) {
+                                if !entries.is_empty() {
+                                    println!("DEBUG: Found {} recently modified Obsidian files:", entries.len());
+                                }
+                                for (entry, modified) in entries.into_iter().take(4) {
                                     if let Ok(content) = fs::read_to_string(entry.path()) {
                                         let file_name = entry.file_name().to_string_lossy();
+                                        println!("  - [PICK] {}", file_name);
                                         // Truncate content to avoid blowing up context
                                         let snippet = if content.len() > 1000 { format!("{}...", &content[..1000]) } else { content };
-                                        recent_files.push(format!("### [MODIFIED] {} (at {})\n{}", file_name, modified.format("%A, %I:%M %p"), snippet));
+                                        recent_files.push(format!("### [MODIFIED] {} (on {})\n{}", file_name, modified.format("%A, %B %d"), snippet));
                                     }
                                 }
                             }
@@ -180,7 +184,8 @@ pub async fn refresh_dashboard_briefing(
                                             for f in &filtered {
                                                 println!("  - [KEEP] Subject: {}", f.subject.as_deref().unwrap_or("(No Subject)"));
                                             }
-                                            important_emails = filtered;
+                                            // Take up to 10
+                                            important_emails = filtered.into_iter().take(10).collect();
                                         }
                                         Err(e) => {
                                             println!("DEBUG: Email filter JSON parse failed: {}. Falling back to top 10.", e);
@@ -211,17 +216,21 @@ pub async fn refresh_dashboard_briefing(
                 queries::has_api_token(&connection, "google")
             } {
                 if has_google {
-                    let start_of_today = Local::now().format("%Y-%m-%dT00:00:00Z").to_string();
-                    let end_of_tomorrow = (Local::now() + Duration::days(1)).format("%Y-%m-%dT23:59:59Z").to_string();
+                    let start_of_search = (Local::now() - Duration::days(3)).format("%Y-%m-%dT00:00:00Z").to_string();
+                    let end_of_search = (Local::now() + Duration::days(3)).format("%Y-%m-%dT23:59:59Z").to_string();
 
-                    if let Ok(events) = crate::integrations::google_calendar::fetch_google_calendar_events(&db, &start_of_today, &end_of_tomorrow).await {
+                    if let Ok(events) = crate::integrations::google_calendar::fetch_google_calendar_events(&db, &start_of_search, &end_of_search).await {
+                        if !events.is_empty() {
+                            println!("DEBUG: Found {} calendar events in 7-day window (3 back, 3 forward):", events.len());
+                        }
                         let e_str = events.iter().map(|e| {
+                            let title = e.summary.as_deref().unwrap_or("(No Title)");
+                            println!("  - [KEEP] {}", title);
                             let start_str = e.start.date_time.as_deref().or(e.start.date.as_deref()).unwrap_or("unknown");
-                            let is_tomorrow = start_str.contains(& (Local::now() + Duration::days(1)).format("%Y-%m-%d").to_string());
-                            let day_label = if is_tomorrow { "[TOMORROW]" } else { "[TODAY]" };
-                            format!("- {} {} (starts at {})", day_label, e.summary.as_deref().unwrap_or("(No Title)"), start_str)
+                            // Try to parse for better labeling if possible, otherwise raw
+                            format!("- {} (starts at {})", title, start_str)
                         }).collect::<Vec<_>>().join("\n");
-                        if !e_str.is_empty() { google_calendar_data.push(format!("Calendar Events (Today & Tomorrow):\n{}", e_str)); }
+                        if !e_str.is_empty() { google_calendar_data.push(format!("Calendar Events (3 Days Backward to 3 Days Forward):\n{}", e_str)); }
                     }
                 }
             }
@@ -229,12 +238,33 @@ pub async fn refresh_dashboard_briefing(
         }
     };
 
+    let weather_future = async {
+        match crate::gemini::tools::fetch_weather("Lagos").await {
+            serde_json::Value::Object(map) => {
+                format!("Weather in {}: {}°C, {}", 
+                    map.get("location").and_then(|v| v.as_str()).unwrap_or("Lagos"),
+                    map.get("temperature_c").and_then(|v| v.as_str()).unwrap_or("??"),
+                    map.get("condition").and_then(|v| v.as_str()).unwrap_or("unknown condition")
+                )
+            },
+            _ => "Weather data unavailable.".to_string()
+        }
+    };
+
     // Run all fetches in parallel
-    let (obsidian_data, important_emails, google_calendar_data) = tokio::join!(obsidian_future, email_future, calendar_future);
+    let (obsidian_data, important_emails, google_calendar_data, weather_data) = tokio::join!(obsidian_future, email_future, calendar_future, weather_future);
 
     // 3. Construct Final Prompt and Generate Briefing
     let email_final = if important_emails.is_empty() { "No critical emails found." .to_string() } else {
-        important_emails.iter().map(|m| format!("- Date: {} | From: {} | Subject: {} | Snippet: {}", m.date.as_deref().unwrap_or("Unknown"), m.from.as_deref().unwrap_or("Unknown"), m.subject.as_deref().unwrap_or("No Subject"), m.snippet)).collect::<Vec<_>>().join("\n")
+        important_emails.iter().map(|m| {
+            let snippet = if m.snippet.len() > 200 { format!("{}...", &m.snippet[..200]) } else { m.snippet.clone() };
+            format!("- Date: {} | From: {} | Subject: {} | Snippet: {}", 
+                m.date.as_deref().unwrap_or("Unknown"), 
+                m.from.as_deref().unwrap_or("Unknown"), 
+                m.subject.as_deref().unwrap_or("No Subject"), 
+                snippet
+            )
+        }).collect::<Vec<_>>().join("\n")
     };
     
     let calendar_final = if google_calendar_data.is_empty() { "No upcoming calendar events." .to_string() } else { google_calendar_data };
@@ -243,8 +273,8 @@ pub async fn refresh_dashboard_briefing(
     let current_time_str = now.format("%A, %B %d, %Y at %I:%M %p").to_string();
 
     let raw_data_context = format!(
-        "CURRENT TIME: {}\n\nOBSIDIAN DATA:\n{}\n\nIMPORTANT EMAILS (Last 24h):\n{}\n\nCALENDAR:\n{}",
-        current_time_str, obsidian_data, email_final, calendar_final
+        "CURRENT TIME: {}\n\nWEATHER:\n{}\n\nOBSIDIAN DATA:\n{}\n\nIMPORTANT EMAILS (Last 24h):\n{}\n\nCALENDAR (7-Day Window):\n{}",
+        current_time_str, weather_data, obsidian_data, email_final, calendar_final
     );
 
     let system_instruction = crate::gemini::prompt::get_briefing_system_instruction(&greeting_name);
@@ -262,7 +292,10 @@ pub async fn refresh_dashboard_briefing(
             }],
             Some(&system_instruction),
             None,
-            None,
+            Some(GenerationConfig {
+                response_mime_type: None,
+                response_schema: None,
+            }),
         )
         .await
         .map_err(|e| e.to_string())?
