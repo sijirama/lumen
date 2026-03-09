@@ -147,14 +147,14 @@ pub fn retrieve_memories(
     situation_embedding: &[f32],
     top_k: usize,
 ) -> Result<Vec<MemoryItem>> {
-    println!("DEBUG: 🧠 PULSE: Retrieval engine scanning 300 most recent memories...");
-    // Step 1: Fetch the most recent 300 memories (all types)
+    println!("DEBUG: 🧠 PULSE: Retrieval engine scanning 1000 most recent memories...");
+    // Step 1: Fetch the most recent 1000 memories (all types)
     let mut stmt = conn
         .prepare(
             "SELECT m.id, m.type, m.content, m.importance, m.created_at, m.last_accessed, m.access_count
              FROM memories m
              ORDER BY m.last_accessed DESC
-             LIMIT 300",
+             LIMIT 1000",
         )
         .context("Failed to prepare retrieval query")?;
 
@@ -361,7 +361,8 @@ pub fn format_memories_for_prompt(memories: &[MemoryItem]) -> String {
     if memories.is_empty() {
         return String::new();
     }
-    let mut output = String::from("\n--- LONG-TERM MEMORY (Retrieved Contextual Memories) ---\n");
+    let mut output = String::from("\n--- RELEVANT PAST MEMORIES (BACKGROUND INTELLIGENCE) ---\n");
+    output.push_str("These are bits of info from past conversations that seem relevant to the current quest. Use them to provide personalized, context-aware help.\n\n");
     for (i, m) in memories.iter().enumerate() {
         output.push_str(&format!(
             "{}. [{}] (importance: {:.0}, score: {:.2}) {}\n",

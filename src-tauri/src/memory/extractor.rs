@@ -28,61 +28,68 @@ pub fn create_memory(
 }
 
 //INFO: Build the extraction prompt for chat batches
-pub fn build_chat_extraction_prompt(messages: &[String]) -> String {
+pub fn build_chat_extraction_prompt(messages: &[String], user_name: &str) -> String {
     let chat_block = messages.join("\n");
     format!(
-        r#"You are a memory extraction agent for a personal AI assistant called Lumen.
+        r#"You are Lumen's internal memory extraction engine. Lumen is the AI sidekick, and {} is the user.
 
-Below is a batch of recent chat messages between the user and Lumen.
-Your job is to extract HIGHLY DETAILED observations, preferences, and entities from this conversation.
+Below is a batch of recent chat messages. 
+Your job is to extract STARK, HIGH-DENSITY, and EXTREMELY DETAILED memories.
 
 RULES:
-- Extract as many important memories as you can find.
-- Each memory must be VERY DETAILED so semantic search can find it later.
-- Score each memory's importance from 1-10.
-- Types: "observation" (facts, events, activities), "preference" (user likes/dislikes), "entity" (named things: projects, people, accounts, tools).
-- Return ONLY valid JSON array.
+- NO REDUNDANCY: Do not extract information that is already common knowledge or redundant within this batch.
+- DENSITY: Combine related facts into a single, comprehensive, and information-dense observation rather than multiple small ones.
+- NAMES: Use " {}" for the user and "Lumen" for the assistant in the content. NEVER say "the user" or "the AI".
+- STARK & DETAILED: Each memory must be a standalone, high-fidelity fact that can be used for deep reasoning later.
+- Types: 
+  - "observation": Sharp facts, events, technical skills, or activities.
+  - "preference": Specific likes, dislikes, or personal goals of {}.
+  - "entity": Critical named things (projects, unique tools, specific people, deep-tech concepts).
 
-FORMAT:
+Return ONLY a valid JSON array of these high-value memories.
+
+FORMAT EXAMPLE:
 [
-  {{"type": "observation", "content": "detailed description...", "importance": 7}},
-  {{"type": "entity", "content": "detailed description...", "importance": 8}}
+  {{"type": "observation", "content": "{} is implementing a custom MoE architecture inspired by DeepSeek-V3, focusing on low-level CUDA optimizations.", "importance": 9}},
+  {{"type": "preference", "content": "{} prioritizes efficiency and system-level performance over high-level abstraction in ML research.", "importance": 8}}
 ]
 
 CHAT MESSAGES:
 {}
 
-Extract all important memories now:"#,
-        chat_block
+Extract only unique, dense, and high-importance memories now:"#,
+        user_name, user_name, user_name, user_name, user_name, chat_block
     )
 }
 
 //INFO: Build the extraction prompt for clipboard batches
-pub fn build_clipboard_extraction_prompt(items: &[String]) -> String {
+pub fn build_clipboard_extraction_prompt(items: &[String], user_name: &str) -> String {
     let clipboard_block = items.join("\n---\n");
     format!(
-        r#"You are a memory extraction agent for a personal AI assistant called Lumen.
+        r#"You are Lumen's internal memory extraction engine. Lumen is the AI sidekick, and {} is the user.
 
-Below is a batch of recent clipboard items the user has copied.
-Your job is to extract HIGHLY DETAILED observations or preferences about the user's ongoing work.
+Below are clips from {}'s clipboard. 
+Your job is to extract STARK, HIGH-DENSITY, and EXTREMELY DETAILED observations or preferences about {}'s ongoing work.
 
 RULES:
-- Extract as many important memories as you can.
-- Each memory must be VERY DETAILED.
-- Score importance 1-10.
+- NO REDUNDANCY: Do not extract redundant or trivial information.
+- DENSITY: Combine snippets into cohesive, information-dense observations.
+- NAMES: Use "{}" for the user and "Lumen" for the assistant. NEVER say "the user".
+- STARK & DETAILED: Each memory must be a detailed, standalone fact.
 - Types: "observation", "preference", "entity".
-- Return ONLY valid JSON array.
+
+Return ONLY a valid JSON array.
 
 FORMAT:
 [
-  {{"type": "observation", "content": "detailed description...", "importance": 6}}
+  {{"type": "observation", "content": "{} is researching specific CUDA kernels for sparse matrix multiplication as part of their ML systems dive.", "importance": 7}}
 ]
 
 CLIPBOARD ITEMS:
 {}
 
-Extract all important memories now:"#,
-        clipboard_block
+Extract only unique and high-value memories now:"#,
+        user_name, user_name, user_name, user_name, user_name, clipboard_block
     )
 }
 

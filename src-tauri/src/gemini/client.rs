@@ -9,7 +9,7 @@ const GEMINI_API_URL: &str =
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent";
 
 const GEMINI_EMBEDDING_URL: &str =
-    "https://generativelanguage.googleapis.com/v1/models/gemini-embedding-001:embedContent";
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent";
 
 // Updated instruction with Screen Awareness
 pub fn get_default_system_instruction() -> String {
@@ -29,7 +29,7 @@ pub fn get_default_system_instruction() -> String {
         - **LOOP CLOSURE**: Always respond back to confirm the job is done or share a joke about the process. \
         - **NO REPETITION**: NEVER repeat the text from a previous bubble. \
         - **LITERAL TRUTH**: Only claim success if the tool returns it. \
-        - **TONE**: Concise, witty, warm, and present. Use emojis! ✨"
+        - **CONTEXT PRIORITY**: Prioritize the current 'Chat History' for what was just discussed. Use 'Past Memories' and 'Digital State' only as supporting background intelligence.✨"
     )
 }
 
@@ -45,7 +45,7 @@ pub struct GeminiRequest {
     pub generation_config: Option<GenerationConfig>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -106,7 +106,7 @@ pub struct GeminiPart {
     pub function_response: Option<GeminiFunctionResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inline_data: Option<InlineData>,
-    #[serde(rename = "thought_signature", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "thought_signature", alias = "thoughtSignature", skip_serializing_if = "Option::is_none")]
     pub thought_signature: Option<String>,
 }
 
@@ -299,7 +299,7 @@ impl GeminiClient {
         Ok(result.is_ok())
     }
 
-    //INFO: Generates a text embedding using Gemini's text-embedding-004 model
+    //INFO: Generates a text embedding using Gemini's gemini-embedding-001 model (768 dims to match vec0 table)
     pub async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
         let api_url = format!("{}?key={}", GEMINI_EMBEDDING_URL, self.api_key);
 
@@ -308,7 +308,8 @@ impl GeminiClient {
             "content": {
                 "parts": [{ "text": text }]
             },
-            "taskType": "RETRIEVAL_DOCUMENT"
+            "taskType": "RETRIEVAL_DOCUMENT",
+            "outputDimensionality": 768
         });
 
         let response = self

@@ -46,7 +46,15 @@ impl ClipboardHandler for Handler {
                                 if let Some(encrypted) = api_key {
                                     if let Ok(key) = crate::crypto::decrypt_token(&encrypted) {
                                         let client = crate::gemini::client::GeminiClient::new(key);
-                                        let prompt = crate::memory::extractor::build_clipboard_extraction_prompt(&items_text);
+                                        let user_name = {
+                                            let conn = db_clone.connection.lock();
+                                            queries::get_user_profile(&conn)
+                                                .ok()
+                                                .flatten()
+                                                .map(|p| p.display_name)
+                                                .unwrap_or_else(|| "User".to_string())
+                                        };
+                                        let prompt = crate::memory::extractor::build_clipboard_extraction_prompt(&items_text, &user_name);
                                         
                                         println!("DEBUG: 🧠 Processing clipboard memories via Gemini...");
                                         let result = client.send_chat(
@@ -72,7 +80,8 @@ impl ClipboardHandler for Handler {
                                                         memory.embedding = Some(emb);
                                                         let conn = db_clone.connection.lock();
                                                         let _ = crate::memory::core::store_memory(&conn, memory);
-                                                        println!("DEBUG: 🧠 Stored clipboard memory: {}", &memory.content[..memory.content.len().min(60)]);
+                                                        let memory_snippet = memory.content.chars().take(60).collect::<String>();
+                                                        println!("DEBUG: 🧠 Stored clipboard memory: {}", memory_snippet);
                                                     }
                                                 }
                                             }

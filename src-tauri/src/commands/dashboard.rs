@@ -123,8 +123,12 @@ pub async fn refresh_dashboard_briefing(
                                     if let Ok(content) = fs::read_to_string(entry.path()) {
                                         let file_name = entry.file_name().to_string_lossy();
                                         println!("  - [PICK] {}", file_name);
-                                        // Truncate content to avoid blowing up context
-                                        let snippet = if content.len() > 1000 { format!("{}...", &content[..1000]) } else { content };
+                                        // Truncate content safely to avoid char boundary panics
+                                        let snippet = if content.chars().count() > 1000 { 
+                                            format!("{}...", content.chars().take(1000).collect::<String>()) 
+                                        } else { 
+                                            content 
+                                        };
                                         recent_files.push(format!("### [MODIFIED] {} (on {})\n{}", file_name, modified.format("%A, %B %d"), snippet));
                                     }
                                 }
@@ -260,7 +264,11 @@ pub async fn refresh_dashboard_briefing(
     // 3. Construct Final Prompt and Generate Briefing
     let email_final = if important_emails.is_empty() { "No critical emails found." .to_string() } else {
         important_emails.iter().map(|m| {
-            let snippet = if m.snippet.len() > 200 { format!("{}...", &m.snippet[..200]) } else { m.snippet.clone() };
+            let snippet = if m.snippet.chars().count() > 200 { 
+                format!("{}...", m.snippet.chars().take(200).collect::<String>()) 
+            } else { 
+                m.snippet.clone() 
+            };
             format!("- Date: {} | From: {} | Subject: {} | Snippet: {}", 
                 m.date.as_deref().unwrap_or("Unknown"), 
                 m.from.as_deref().unwrap_or("Unknown"), 
@@ -301,7 +309,7 @@ pub async fn refresh_dashboard_briefing(
         let memory_client = GeminiClient::new(api_key.clone());
         if let Ok(situation_embedding) = memory_client.generate_embedding(&raw_data_context).await {
             let connection = database.connection.lock();
-            if let Ok(memories) = crate::memory::core::retrieve_memories(&connection, &situation_embedding, 10) {
+            if let Ok(memories) = crate::memory::core::retrieve_memories(&connection, &situation_embedding, 50) {
                 if !memories.is_empty() {
                     memory_context.push_str(&crate::memory::core::format_memories_for_prompt(&memories));
                     // Update access counts
@@ -390,7 +398,7 @@ pub async fn refresh_dashboard_briefing(
             if let Ok(buckets) = crate::memory::core::get_briefing_buckets_for_date(&connection, &yesterday) {
                 if !buckets.is_empty() {
                     println!("DEBUG: 🧠 Yesterday's DailySummary missing. Synthesizing from {} buckets...", buckets.len());
-                    let synthesis_prompt = crate::memory::reflection::build_daily_summary_prompt(&buckets);
+                    let synthesis_prompt = crate::memory::reflection::build_daily_summary_prompt(&buckets, &greeting_name);
                     
                     let db_clone = database.inner().clone();
                     let api_key_summary = api_key.clone();

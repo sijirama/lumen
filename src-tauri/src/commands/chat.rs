@@ -22,6 +22,7 @@ pub struct ChatMessageResponse {
     pub created_at: String,
 }
 
+
 //INFO: Request to send a chat message
 #[derive(Debug, Deserialize)]
 pub struct SendMessageRequest {
@@ -58,10 +59,10 @@ pub async fn send_chat_message(
         decrypt_token(&encrypted_key).map_err(|e| format!("Failed to decrypt API key: {}", e))?
     };
 
-    //INFO: 1. Get Conversation History (Sliding Window: last 10 messages)
+    //INFO: 1. Get Conversation History (Sliding Window: last 50 messages)
     let history = {
         let connection = database.connection.lock();
-        get_chat_messages(&connection, request.session_id.as_deref(), 10)
+        get_chat_messages(&connection, request.session_id.as_deref(), 50)
             .map_err(|e| format!("Failed to get history: {}", e))?
     };
 
@@ -115,11 +116,11 @@ pub async fn send_chat_message(
     let mut system_instruction = get_default_system_instruction();
 
     if let Some(ctx) = context {
-        system_instruction.push_str("\n\n--- DYNAMIC KNOWLEDGE (BACKGROUND ONLY) ---");
+        system_instruction.push_str("\n\n--- CURRENT DIGITAL STATE (BACKGROUND CONTEXT) ---");
         system_instruction.push_str(
-            "\nThis is the user's current digital state. DO NOT acknowledgment it unless relevant.",
+            "\nThis is the user's active screen/system state. Use it ONLY if relevant to their request.",
         );
-        system_instruction.push_str("\nIf the user says 'hi' or chats, respond socially. DO NOT mention tasks unless they ask.");
+        system_instruction.push_str("\nIf the user says 'hi' or chats, respond socially. DO NOT mention system details unless asked.");
         system_instruction.push_str(&format!("\n\n{}", ctx));
         system_instruction.push_str("\n-------------------------------------------");
     }
@@ -131,9 +132,10 @@ pub async fn send_chat_message(
         // Generate embedding of the user's current message asynchronously
         drop(connection); // Release lock before async call
         if let Ok(situation_embedding) = memory_client.generate_embedding(&request.message).await {
-            println!("DEBUG: 🧠 PULSE: Memory retrieval starting for: '{}'...", &request.message[..request.message.len().min(40)]);
+            let debug_snippet = request.message.chars().take(40).collect::<String>();
+            println!("DEBUG: 🧠 PULSE: Memory retrieval starting for: '{}'...", debug_snippet);
             let connection = database.connection.lock();
-            match crate::memory::core::retrieve_memories(&connection, &situation_embedding, 10) {
+            match crate::memory::core::retrieve_memories(&connection, &situation_embedding, 50) {
                 Ok(memories) if !memories.is_empty() => {
                     println!("DEBUG: 🧠 SUCCESS: Retrieved {} relevant memories for chat context.", memories.len());
                     let memory_context = crate::memory::core::format_memories_for_prompt(&memories);
@@ -182,14 +184,20 @@ pub async fn send_chat_message(
 
     let mut tools_were_called = false;
 
-    //INFO: Tool execution loop (max 5 turns to prevent infinite loops)
-    for _i in 0..5 {
+    //INFO: Tool execution loop (max 20 turns to prevent infinite loops)
+    for _i in 0..20 {
+
+        let config = crate::gemini::client::GenerationConfig {
+            response_mime_type: None,
+            response_schema: None,
+        };
+
         let chat_response = client
             .send_chat(
                 current_messages.clone(),
                 Some(&system_instruction),
                 Some(tools.clone()),
-                None,
+                Some(config),
             )
             .await
             .map_err(|e| format!("Failed to get AI response: {}", e))?;
@@ -368,18 +376,26 @@ pub async fn send_chat_message(
 
                 let messages_for_extraction: Vec<String> = recent_messages
                     .iter()
-                    .map(|m| format!("[{}]: {}", m.role, m.content))
+                    .map(|m| format!("{}: {}", if m.role == "user" { "Sijibomi" } else { "Lumen" }, m.content))
                     .collect();
 
                 // Clone what we need for the background task
                 let db_clone = database.inner().clone();
                 let api_key_clone = api_key.clone();
-
                 // Fire and forget - async background extraction
                 tokio::spawn(async move {
                     println!("DEBUG: 🧠 Starting background memory extraction...");
 
-                    let prompt = crate::memory::extractor::build_chat_extraction_prompt(&messages_for_extraction);
+                    let user_name = {
+                        let conn = db_clone.connection.lock();
+                        crate::database::queries::get_user_profile(&conn)
+                            .ok()
+                            .flatten()
+                            .map(|p| p.display_name)
+                            .unwrap_or_else(|| "User".to_string())
+                    };
+
+                    let prompt = crate::memory::extractor::build_chat_extraction_prompt(&messages_for_extraction, &user_name);
                     let client = GeminiClient::new(api_key_clone.clone());
 
                     // Ask Gemini to extract memories
@@ -418,7 +434,7 @@ pub async fn send_chat_message(
                                                 println!("DEBUG: 🧠 [{}] (importance: {}) {}", 
                                                     memory.memory_type.as_str(),
                                                     memory.importance,
-                                                    &memory.content[..memory.content.len().min(80)]
+                                                    memory.content.chars().take(80).collect::<String>()
                                                 );
                                             }
                                             Err(e) => {
@@ -447,7 +463,15 @@ pub async fn send_chat_message(
                                                     30
                                                 ) {
                                                     let obs_texts: Vec<String> = recent_obs.iter().map(|o| o.content.clone()).collect();
-                                                    let prompt = crate::memory::reflection::build_reflection_prompt(&obs_texts);
+                                                    let user_name = {
+                                                        let conn = db_clone.connection.lock();
+                                                        crate::database::queries::get_user_profile(&conn)
+                                                            .ok()
+                                                            .flatten()
+                                                            .map(|p| p.display_name)
+                                                            .unwrap_or_else(|| "User".to_string())
+                                                    };
+                                                    let prompt = crate::memory::reflection::build_reflection_prompt(&obs_texts, &user_name);
                                                     
                                                     // Drop lock for async synthesis
                                                     drop(conn);
@@ -486,7 +510,8 @@ pub async fn send_chat_message(
                                                                         memory.embedding = Some(emb);
                                                                         let conn = db_clone.connection.lock();
                                                                         let _ = crate::memory::core::store_memory(&conn, &memory);
-                                                                        println!("DEBUG: 🧠 Stored reflection: {}", &memory.content[..memory.content.len().min(60)]);
+                                                                        let reflection_snippet = memory.content.chars().take(60).collect::<String>();
+                                                                        println!("DEBUG: 🧠 Stored reflection: {}", reflection_snippet);
                                                                     }
                                                                 }
                                                             }
@@ -668,9 +693,9 @@ fn build_chat_context(database: &State<Database>) -> Result<Option<String>, Stri
 
                         if daily_note_path.exists() {
                             if let Ok(content) = std::fs::read_to_string(&daily_note_path) {
-                                //INFO: Truncate if too long
-                                let truncated_content = if content.len() > 2000 {
-                                    format!("{}... (truncated)", &content[..2000])
+                                //INFO: Truncate if too long (safe char-based truncation)
+                                let truncated_content = if content.chars().count() > 2000 {
+                                    format!("{}... (truncated)", content.chars().take(2000).collect::<String>())
                                 } else {
                                     content
                                 };
