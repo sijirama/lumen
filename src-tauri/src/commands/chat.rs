@@ -82,23 +82,13 @@ pub async fn send_chat_message(
     }
 
     //INFO: 4. Add current message
-    let mut parts = vec![crate::gemini::client::GeminiPart {
-        text: Some(request.message.clone()),
-        function_call: None,
-        function_response: None,
-        inline_data: None,
-    }];
+    let mut parts = vec![crate::gemini::client::GeminiPart::text(request.message.clone())];
 
     if let Some(ref b64) = request.base64_image {
-        parts.push(crate::gemini::client::GeminiPart {
-            text: None,
-            function_call: None,
-            function_response: None,
-            inline_data: Some(crate::gemini::client::InlineData {
-                mime_type: "image/png".to_string(),
-                data: b64.clone(),
-            }),
-        });
+        parts.push(crate::gemini::client::GeminiPart::inline_data(
+            "image/png".to_string(),
+            b64.clone(),
+        ));
     }
 
     gemini_messages.push(crate::gemini::client::GeminiContent {
@@ -119,7 +109,7 @@ pub async fn send_chat_message(
     };
 
     //INFO: 6. Send to Gemini (with Tool Loop)
-    let client = GeminiClient::new(api_key);
+    let client = GeminiClient::new(api_key.clone());
 
     //INFO: Enhance system instruction with specific user info
     let mut system_instruction = get_default_system_instruction();
@@ -132,6 +122,35 @@ pub async fn send_chat_message(
         system_instruction.push_str("\nIf the user says 'hi' or chats, respond socially. DO NOT mention tasks unless they ask.");
         system_instruction.push_str(&format!("\n\n{}", ctx));
         system_instruction.push_str("\n-------------------------------------------");
+    }
+
+    //INFO: 6.5 Retrieve relevant memories from long-term storage
+    {
+        let connection = database.connection.lock();
+        let memory_client = GeminiClient::new(api_key.clone());
+        // Generate embedding of the user's current message asynchronously
+        drop(connection); // Release lock before async call
+        if let Ok(situation_embedding) = memory_client.generate_embedding(&request.message).await {
+            println!("DEBUG: 🧠 PULSE: Memory retrieval starting for: '{}'...", &request.message[..request.message.len().min(40)]);
+            let connection = database.connection.lock();
+            match crate::memory::core::retrieve_memories(&connection, &situation_embedding, 10) {
+                Ok(memories) if !memories.is_empty() => {
+                    println!("DEBUG: 🧠 SUCCESS: Retrieved {} relevant memories for chat context.", memories.len());
+                    let memory_context = crate::memory::core::format_memories_for_prompt(&memories);
+                    system_instruction.push_str(&memory_context);
+                    // Update access counts
+                    for m in &memories {
+                        let _ = crate::memory::core::update_memory_access(&connection, &m.id);
+                    }
+                }
+                Ok(_) => {
+                    println!("DEBUG: 🧠 No relevant memories found for chat");
+                }
+                Err(e) => {
+                    println!("DEBUG: 🧠 Memory retrieval failed: {}", e);
+                }
+            }
+        }
     }
 
     if let Some(config) = &obsidian_config {
@@ -164,7 +183,7 @@ pub async fn send_chat_message(
     let mut tools_were_called = false;
 
     //INFO: Tool execution loop (max 5 turns to prevent infinite loops)
-    for _ in 0..5 {
+    for _i in 0..5 {
         let chat_response = client
             .send_chat(
                 current_messages.clone(),
@@ -220,15 +239,16 @@ pub async fn send_chat_message(
                     || call.name == "create_google_task"
                     || call.name == "take_screenshot"
                 {
-                    let result =
+                    let res =
                         crate::gemini::tools::execute_tool_async(&call.name, &call.args, &database)
                             .await;
 
                     function_responses.push(crate::gemini::client::GeminiPart::function_response(
-                        call.name, result,
+                        call.name.clone(),
+                        res,
                     ));
                 } else {
-                    let result = {
+                    let res = {
                         let connection = database.connection.lock();
                         crate::gemini::tools::execute_tool_sync(
                             &call.name,
@@ -238,7 +258,8 @@ pub async fn send_chat_message(
                         )
                     };
                     function_responses.push(crate::gemini::client::GeminiPart::function_response(
-                        call.name, result,
+                        call.name.clone(),
+                        res,
                     ));
                 }
             }
@@ -272,21 +293,11 @@ pub async fn send_chat_message(
                 current_messages.push(crate::gemini::client::GeminiContent {
                     role: Some("user".to_string()),
                     parts: vec![
-                        crate::gemini::client::GeminiPart {
-                            text: Some("[VISUAL CONTEXT ATTACHED]".to_string()),
-                            function_call: None,
-                            function_response: None,
-                            inline_data: None,
-                        },
-                        crate::gemini::client::GeminiPart {
-                            text: None,
-                            function_call: None,
-                            function_response: None,
-                            inline_data: Some(crate::gemini::client::InlineData {
-                                mime_type: "image/png".to_string(),
-                                data: b64,
-                            }),
-                        },
+                        crate::gemini::client::GeminiPart::text("[VISUAL CONTEXT ATTACHED]".to_string()),
+                        crate::gemini::client::GeminiPart::inline_data(
+                            "image/png".to_string(),
+                            b64,
+                        ),
                     ],
                 });
             }
@@ -334,6 +345,174 @@ pub async fn send_chat_message(
             .map_err(|e| format!("Failed to save assistant message: {}", e))?;
         (user_id, assistant_id)
     };
+
+    //INFO: Latent Memory Extraction Trigger (mod-based)
+    //TODO: Change threshold to 50 for production
+    const MEMORY_EXTRACTION_THRESHOLD: i64 = 5;
+    {
+        let connection = database.connection.lock();
+        if let Ok(total_count) = crate::database::queries::count_chat_messages(&connection) {
+            println!("DEBUG: 🧠 PULSE: Current chat message count: {}. (Threshold: {})", total_count, MEMORY_EXTRACTION_THRESHOLD);
+            if total_count > 0 && total_count % MEMORY_EXTRACTION_THRESHOLD == 0 {
+                println!("DEBUG: 🧠 TRIGGER: Memory extraction threshold hit! Initializing background task...");
+                
+                // Grab the last N messages for extraction
+                let mut recent_messages = crate::database::queries::get_chat_messages(
+                    &connection, 
+                    None, 
+                    MEMORY_EXTRACTION_THRESHOLD as i32,
+                ).unwrap_or_default();
+                
+                // Reverse to chronological order (get_chat_messages returns newest first)
+                recent_messages.reverse();
+
+                let messages_for_extraction: Vec<String> = recent_messages
+                    .iter()
+                    .map(|m| format!("[{}]: {}", m.role, m.content))
+                    .collect();
+
+                // Clone what we need for the background task
+                let db_clone = database.inner().clone();
+                let api_key_clone = api_key.clone();
+
+                // Fire and forget - async background extraction
+                tokio::spawn(async move {
+                    println!("DEBUG: 🧠 Starting background memory extraction...");
+
+                    let prompt = crate::memory::extractor::build_chat_extraction_prompt(&messages_for_extraction);
+                    let client = GeminiClient::new(api_key_clone.clone());
+
+                    // Ask Gemini to extract memories
+                    let extraction_result = client.send_chat(
+                        vec![crate::gemini::client::GeminiContent {
+                            role: Some("user".to_string()),
+                            parts: vec![crate::gemini::client::GeminiPart::text(prompt)],
+                        }],
+                        Some("You are a memory extraction agent. Return ONLY valid JSON arrays."),
+                        None,
+                        Some(crate::gemini::client::GenerationConfig {
+                            response_mime_type: Some("application/json".to_string()),
+                            response_schema: None,
+                        }),
+                    ).await;
+
+                    match extraction_result {
+                        Ok(chat_response) => {
+                            if let Some(usage) = &chat_response.usage {
+                                println!("DEBUG: 🧠 Extraction Token Usage -> Prompt: {}, Candidates: {}, Total: {}", usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
+                            }
+                            let response_text = chat_response.parts.iter()
+                                .filter_map(|p| p.text.as_ref())
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .join("");
+
+                            match crate::memory::extractor::parse_extracted_memories(&response_text) {
+                                Ok(mut memories) => {
+                                    println!("DEBUG: 🧠 Extracted {} memories from chat!", memories.len());
+                                    for memory in &mut memories {
+                                        // Generate embedding for each memory
+                                        match client.generate_embedding(&memory.content).await {
+                                            Ok(embedding) => {
+                                                memory.embedding = Some(embedding);
+                                                println!("DEBUG: 🧠 [{}] (importance: {}) {}", 
+                                                    memory.memory_type.as_str(),
+                                                    memory.importance,
+                                                    &memory.content[..memory.content.len().min(80)]
+                                                );
+                                            }
+                                            Err(e) => {
+                                                println!("DEBUG: 🧠 Failed to embed memory: {}", e);
+                                            }
+                                        }
+                                        
+                                        // Store in DB
+                                        let conn = db_clone.connection.lock();
+                                        if let Err(e) = crate::memory::core::store_memory(&conn, memory) {
+                                            println!("DEBUG: 🧠 Failed to store memory: {}", e);
+                                        }
+                                    }
+                                    println!("DEBUG: 🧠 Memory extraction complete! ✅");
+
+                                    // Check if we should trigger a Reflection loop
+                                    {
+                                        let conn = db_clone.connection.lock();
+                                        match crate::memory::core::should_trigger_reflection(&conn) {
+                                            Ok(true) => {
+                                                println!("DEBUG: 🧠 Reflection threshold hit! Starting synthesis...");
+                                                // Get the last 30 observations for reflection
+                                                if let Ok(recent_obs) = crate::memory::core::get_recent_memories_by_type(
+                                                    &conn,
+                                                    &crate::memory::core::MemoryType::Observation,
+                                                    30
+                                                ) {
+                                                    let obs_texts: Vec<String> = recent_obs.iter().map(|o| o.content.clone()).collect();
+                                                    let prompt = crate::memory::reflection::build_reflection_prompt(&obs_texts);
+                                                    
+                                                    // Drop lock for async synthesis
+                                                    drop(conn);
+                                                    
+                                                    let api_key_reflection = api_key_clone.clone();
+                                                    tokio::spawn(async move {
+                                                        let client = GeminiClient::new(api_key_reflection);
+                                                        println!("DEBUG: 🧠 Requesting reflection from Gemini...");
+                                                        
+                                                        let synthesis_result = client.send_chat(
+                                                            vec![crate::gemini::client::GeminiContent {
+                                                                role: Some("user".to_string()),
+                                                                parts: vec![crate::gemini::client::GeminiPart::text(prompt)],
+                                                            }],
+                                                            Some("You are a reflection agent. Return ONLY a JSON array of reflections."),
+                                                            None,
+                                                            Some(crate::gemini::client::GenerationConfig {
+                                                                response_mime_type: Some("application/json".to_string()),
+                                                                response_schema: None,
+                                                            }),
+                                                        ).await;
+
+                                                        if let Ok(resp) = synthesis_result {
+                                                            let text = resp.parts.iter().filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
+                                                            if let Ok(reflections) = serde_json::from_str::<Vec<crate::memory::reflection::ExtractedReflection>>(&text) {
+                                                                println!("DEBUG: 🧠 Synthesized {} high-level reflections!", reflections.len());
+                                                                for r in reflections {
+                                                                    let mut memory = crate::memory::extractor::create_memory(
+                                                                        crate::memory::core::MemoryType::Reflection,
+                                                                        r.content,
+                                                                        r.importance
+                                                                    );
+                                                                    
+                                                                    // Embed and store
+                                                                    if let Ok(emb) = client.generate_embedding(&memory.content).await {
+                                                                        memory.embedding = Some(emb);
+                                                                        let conn = db_clone.connection.lock();
+                                                                        let _ = crate::memory::core::store_memory(&conn, &memory);
+                                                                        println!("DEBUG: 🧠 Stored reflection: {}", &memory.content[..memory.content.len().min(60)]);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                                }
+                                            }
+                                            Ok(false) => {}
+                                            Err(e) => println!("DEBUG: 🧠 Reflection check failed: {}", e),
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("DEBUG: 🧠 Failed to parse extracted memories: {}", e);
+                                    println!("DEBUG: 🧠 Raw response: {}", response_text);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("DEBUG: 🧠 Memory extraction LLM call failed: {}", e);
+                        }
+                    }
+                });
+            }
+        }
+    }
 
     Ok(SendMessageResponse {
         user_message: ChatMessageResponse {

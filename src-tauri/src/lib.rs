@@ -7,6 +7,7 @@ pub mod crypto;
 pub mod database;
 pub mod gemini;
 pub mod integrations;
+pub mod memory;
 pub mod oauth;
 
 use commands::{auth, calendar, chat, dashboard, settings, setup, vision, window};

@@ -6,7 +6,10 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 const GEMINI_API_URL: &str =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent";
+
+const GEMINI_EMBEDDING_URL: &str =
+    "https://generativelanguage.googleapis.com/v1/models/gemini-embedding-001:embedContent";
 
 // Updated instruction with Screen Awareness
 pub fn get_default_system_instruction() -> String {
@@ -96,29 +99,70 @@ pub struct GeminiPart {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub thought: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub function_call: Option<GeminiFunctionCall>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function_response: Option<GeminiFunctionResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inline_data: Option<InlineData>,
+    #[serde(rename = "thought_signature", skip_serializing_if = "Option::is_none")]
+    pub thought_signature: Option<String>,
 }
 
 impl GeminiPart {
     pub fn text(t: String) -> Self {
         Self {
             text: Some(t),
+            thought: None,
             function_call: None,
             function_response: None,
             inline_data: None,
+            thought_signature: None,
+        }
+    }
+
+    pub fn thought(t: serde_json::Value) -> Self {
+        Self {
+            text: None,
+            thought: Some(t),
+            function_call: None,
+            function_response: None,
+            inline_data: None,
+            thought_signature: None,
+        }
+    }
+
+    pub fn function_call(call: GeminiFunctionCall) -> Self {
+        Self {
+            text: None,
+            thought: None,
+            function_call: Some(call),
+            function_response: None,
+            inline_data: None,
+            thought_signature: None,
         }
     }
 
     pub fn function_response(name: String, response: serde_json::Value) -> Self {
         Self {
             text: None,
+            thought: None,
             function_call: None,
             function_response: Some(GeminiFunctionResponse { name, response }),
             inline_data: None,
+            thought_signature: None,
+        }
+    }
+
+    pub fn inline_data(mime_type: String, data: String) -> Self {
+        Self {
+            text: None,
+            thought: None,
+            function_call: None,
+            function_response: None,
+            inline_data: Some(InlineData { mime_type, data }),
+            thought_signature: None,
         }
     }
 }
@@ -217,10 +261,13 @@ impl GeminiClient {
             .context("Failed to send request to Gemini API")?;
 
         //INFO: Parse the response
-        let gemini_response: GeminiResponse = response
-            .json()
+        let response_text = response
+            .text()
             .await
-            .context("Failed to parse Gemini API response")?;
+            .context("Failed to get text from Gemini API response")?;
+
+        let gemini_response: GeminiResponse = serde_json::from_str(&response_text)
+            .context(format!("Failed to parse Gemini API response. Raw: {}", response_text))?;
 
         //INFO: Check for API errors
         if let Some(error) = gemini_response.error {
@@ -250,5 +297,52 @@ impl GeminiClient {
         }];
         let result = self.send_chat(request, None, None, None).await;
         Ok(result.is_ok())
+    }
+
+    //INFO: Generates a text embedding using Gemini's text-embedding-004 model
+    pub async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
+        let api_url = format!("{}?key={}", GEMINI_EMBEDDING_URL, self.api_key);
+
+        let body = serde_json::json!({
+            "model": "models/gemini-embedding-001",
+            "content": {
+                "parts": [{ "text": text }]
+            },
+            "taskType": "RETRIEVAL_DOCUMENT"
+        });
+
+        let response = self
+            .http_client
+            .post(&api_url)
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to send embedding request")?;
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse embedding response")?;
+
+        if let Some(error) = json.get("error") {
+            let message = error.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown API error");
+            return Err(anyhow!("Gemini embedding API error: {}", message));
+        }
+
+        let values = json
+            .get("embedding")
+            .and_then(|e| e.get("values"))
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| {
+                println!("DEBUG: 🧠 Embedding Response Error! Raw JSON: {}", json);
+                anyhow!("No embedding values in response")
+            })?;
+
+        let embedding: Vec<f32> = values
+            .iter()
+            .filter_map(|v| v.as_f64().map(|f| f as f32))
+            .collect();
+
+        Ok(embedding)
     }
 }

@@ -280,11 +280,45 @@ pub async fn refresh_dashboard_briefing(
         current_time_str, weather_data, obsidian_data, email_final, calendar_final
     );
 
+    // 2.5 Long-term Memory Retrieval & DailySummary Context
+    let mut memory_context = String::new();
+    {
+        // A. Inject last 7 DailySummaries for weekly continuity
+        let summaries = {
+            let connection = database.connection.lock();
+            crate::memory::core::get_recent_daily_summaries(&connection, 7).unwrap_or_default()
+        };
+
+        if !summaries.is_empty() {
+            memory_context.push_str("\n--- RECENT DAILY SUMMARIES (Last 7 Days) ---\n");
+            for s in summaries {
+                memory_context.push_str(&format!("- Date: {}\n{}\n", s.created_at.format("%Y-%m-%d"), s.content));
+            }
+            memory_context.push_str("--------------------------------------------\n");
+        }
+
+        // B. Semantic Retrieval based on current context
+        let memory_client = GeminiClient::new(api_key.clone());
+        if let Ok(situation_embedding) = memory_client.generate_embedding(&raw_data_context).await {
+            let connection = database.connection.lock();
+            if let Ok(memories) = crate::memory::core::retrieve_memories(&connection, &situation_embedding, 10) {
+                if !memories.is_empty() {
+                    memory_context.push_str(&crate::memory::core::format_memories_for_prompt(&memories));
+                    // Update access counts
+                    for m in &memories {
+                        let _ = crate::memory::core::update_memory_access(&connection, &m.id);
+                    }
+                }
+            }
+        }
+    }
+
     let system_instruction = crate::gemini::prompt::get_briefing_system_instruction(&greeting_name);
     let final_prompt = format!(
-        "It is {}.\n\nRAW DATA CONTEXT:\n{}\n\nTASK:\nGenerate a comprehensive briefing. You MUST synthesize and mention the important emails and calendar events alongside your notes. Do not ignore the financial or deployment alerts if they are present.", 
+        "It is {}.\n\nRAW DATA CONTEXT:\n{}\n{}\n\nTASK:\nGenerate a comprehensive briefing. You MUST synthesize and mention the important emails and calendar events alongside your notes and memories. Do not ignore the financial or deployment alerts if they are present.", 
         current_time_str, 
-        raw_data_context
+        raw_data_context,
+        memory_context
     );
 
     let chat_response = gemini_client
@@ -332,11 +366,77 @@ pub async fn refresh_dashboard_briefing(
         }
     });
 
-    // 5. Save to DB
+    // 5. Save to DB (Legacy Briefing & Memory Buckets)
     {
         let connection = database.connection.lock();
         queries::save_briefing_summary(&connection, &briefing_text, "power-up", None)
             .map_err(|e| e.to_string())?;
+
+        // 🧠 Store in time-bucket for DailySummary synthesis
+        let date_str = Local::now().format("%Y-%m-%d").to_string();
+        let bucket = crate::memory::core::get_current_bucket();
+        let _ = crate::memory::core::upsert_briefing_bucket(&connection, &date_str, bucket, &briefing_text);
+        println!("DEBUG: 🧠 SUCCESS: Briefing stored in time-bucket: '{}' for date: {}", bucket, date_str);
+
+        // 🧠 Automatic DailySummary Synthesis
+        // Check if yesterday's summary exists. If not, synthesize from yesterday's buckets.
+        let yesterday = (Local::now() - Duration::days(1)).format("%Y-%m-%d").to_string();
+        let mut yesterday_has_summary = false;
+        if let Ok(summaries) = crate::memory::core::get_recent_daily_summaries(&connection, 5) {
+            yesterday_has_summary = summaries.iter().any(|s| s.created_at.format("%Y-%m-%d").to_string() == yesterday);
+        }
+
+        if !yesterday_has_summary {
+            if let Ok(buckets) = crate::memory::core::get_briefing_buckets_for_date(&connection, &yesterday) {
+                if !buckets.is_empty() {
+                    println!("DEBUG: 🧠 Yesterday's DailySummary missing. Synthesizing from {} buckets...", buckets.len());
+                    let synthesis_prompt = crate::memory::reflection::build_daily_summary_prompt(&buckets);
+                    
+                    let db_clone = database.inner().clone();
+                    let api_key_summary = api_key.clone();
+                    
+                    tokio::spawn(async move {
+                        let client = GeminiClient::new(api_key_summary);
+                        let synthesis_result = client.send_chat(
+                            vec![GeminiContent {
+                                role: Some("user".to_string()),
+                                parts: vec![GeminiPart::text(synthesis_prompt)],
+                            }],
+                            Some("You are a summary agent. Return ONLY valid JSON."),
+                            None,
+                            Some(GenerationConfig {
+                                response_mime_type: Some("application/json".to_string()),
+                                response_schema: None,
+                            }),
+                        ).await;
+
+                        if let Ok(resp) = synthesis_result {
+                            let text = resp.parts.iter().filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
+                            if let Ok(summary) = serde_json::from_str::<crate::memory::reflection::ExtractedDailySummary>(&text) {
+                                let mut memory = crate::memory::extractor::create_memory(
+                                    crate::memory::core::MemoryType::DailySummary,
+                                    summary.content,
+                                    summary.importance
+                                );
+                                // Set creation date to yesterday so it's accurate
+                                if let Ok(y_date) = chrono::NaiveDate::parse_from_str(&yesterday, "%Y-%m-%d") {
+                                    if let Some(y_dt) = y_date.and_hms_opt(23, 59, 59) {
+                                        memory.created_at = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(y_dt, chrono::Utc);
+                                    }
+                                }
+
+                                if let Ok(emb) = client.generate_embedding(&memory.content).await {
+                                    memory.embedding = Some(emb);
+                                    let conn = db_clone.connection.lock();
+                                    let _ = crate::memory::core::store_memory(&conn, &memory);
+                                    println!("DEBUG: 🧠 Yesterday's DailySummary synthesized and stored! ✅");
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        }
     }
 
     Ok(DashboardBriefing {

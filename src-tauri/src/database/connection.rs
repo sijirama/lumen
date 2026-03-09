@@ -28,6 +28,13 @@ impl Database {
         //INFO: Construct the full path to the database file
         let database_path = config_directory.join("lumen.db");
 
+        //INFO: Register sqlite-vec extension for vector operations (must be done before opening any connection)
+        unsafe {
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
+        }
+
         //INFO: Open or create the SQLite database connection
         let connection =
             Connection::open(&database_path).context("Failed to open database connection")?;

@@ -23,6 +23,65 @@ impl ClipboardHandler for Handler {
                     }
 
                     self.last_content = trimmed.to_string();
+
+                    // 🧠 Latent Memory Extraction Hook (mod-5 threshold for testing)
+                    const CLIPBOARD_EXTRACTION_THRESHOLD: i64 = 5;
+                    if let Ok(count) = queries::count_clipboard_items(&connection) {
+                        println!("DEBUG: 🧠 PULSE: Clipboard history count: {}. (Threshold: {})", count, CLIPBOARD_EXTRACTION_THRESHOLD);
+                        if count > 0 && count % CLIPBOARD_EXTRACTION_THRESHOLD == 0 {
+                            println!("DEBUG: 🧠 TRIGGER: Clipboard memory extraction triggered! Initializing background task...");
+                            
+                            let db_clone = self.database.clone();
+                            // Grab last 10 items for batching
+                            let recent_items = queries::get_recent_clipboard_items(&connection, 10).unwrap_or_default();
+                            let items_text: Vec<String> = recent_items.into_iter().map(|i| i.content).collect();
+
+                            tokio::spawn(async move {
+                                // Fetch API Key
+                                let api_key = {
+                                    let conn = db_clone.connection.lock();
+                                    queries::get_api_token(&conn, "gemini").ok().flatten()
+                                };
+
+                                if let Some(encrypted) = api_key {
+                                    if let Ok(key) = crate::crypto::decrypt_token(&encrypted) {
+                                        let client = crate::gemini::client::GeminiClient::new(key);
+                                        let prompt = crate::memory::extractor::build_clipboard_extraction_prompt(&items_text);
+                                        
+                                        println!("DEBUG: 🧠 Processing clipboard memories via Gemini...");
+                                        let result = client.send_chat(
+                                            vec![crate::gemini::client::GeminiContent {
+                                                role: Some("user".to_string()),
+                                                parts: vec![crate::gemini::client::GeminiPart::text(prompt)],
+                                            }],
+                                            Some("You are a memory agent. Return ONLY valid JSON arrays."),
+                                            None,
+                                            Some(crate::gemini::client::GenerationConfig {
+                                                response_mime_type: Some("application/json".to_string()),
+                                                response_schema: None,
+                                            }),
+                                        ).await;
+
+                                        if let Ok(resp) = result {
+                                            let text = resp.parts.iter().filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
+                                            if let Ok(mut memories) = crate::memory::extractor::parse_extracted_memories(&text) {
+                                                println!("DEBUG: 🧠 Extracted {} memories from clipboard!", memories.len());
+                                                for memory in &mut memories {
+                                                    // Embed and Store
+                                                    if let Ok(emb) = client.generate_embedding(&memory.content).await {
+                                                        memory.embedding = Some(emb);
+                                                        let conn = db_clone.connection.lock();
+                                                        let _ = crate::memory::core::store_memory(&conn, memory);
+                                                        println!("DEBUG: 🧠 Stored clipboard memory: {}", &memory.content[..memory.content.len().min(60)]);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
                 }
             }
         }

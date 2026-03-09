@@ -166,6 +166,48 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
         )
         .context("Failed to create clipboard_history table")?;
 
+    //INFO: Create memories table - stores observations, reflections, entities, preferences, and daily summaries
+    connection
+        .execute(
+            "CREATE TABLE IF NOT EXISTS memories (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL CHECK (type IN ('observation', 'reflection', 'entity', 'preference', 'daily_summary')),
+            content TEXT NOT NULL,
+            importance REAL NOT NULL DEFAULT 5.0,
+            created_at TEXT NOT NULL,
+            last_accessed TEXT NOT NULL,
+            access_count INTEGER NOT NULL DEFAULT 0
+        )",
+            [],
+        )
+        .context("Failed to create memories table")?;
+
+    //INFO: Create memory_embeddings virtual table - sqlite-vec for semantic vector search (768-dim for Gemini text-embedding-004)
+    connection
+        .execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_embeddings USING vec0(
+            id TEXT PRIMARY KEY,
+            embedding float[768]
+        )",
+            [],
+        )
+        .context("Failed to create memory_embeddings virtual table")?;
+
+    //INFO: Create briefing_buckets table - stores time-bucketed briefings (Morning/Afternoon/Evening/Night)
+    connection
+        .execute(
+            "CREATE TABLE IF NOT EXISTS briefing_buckets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            bucket TEXT NOT NULL CHECK (bucket IN ('morning', 'afternoon', 'evening', 'night')),
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(date, bucket)
+        )",
+            [],
+        )
+        .context("Failed to create briefing_buckets table")?;
+
     Ok(())
 }
 

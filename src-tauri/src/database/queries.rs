@@ -339,6 +339,14 @@ pub fn get_chat_messages(
     Ok(messages)
 }
 
+//INFO: Count total chat messages (used for mod-trigger memory extraction)
+pub fn count_chat_messages(connection: &Connection) -> Result<i64> {
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM chat_messages", [], |row| row.get(0))
+        .context("Failed to count chat messages")?;
+    Ok(count)
+}
+
 //INFO: Clears all chat messages
 pub fn clear_chat_messages(connection: &Connection) -> Result<()> {
     connection
@@ -615,6 +623,14 @@ pub fn mark_briefing_as_final(connection: &Connection, id: i32) -> Result<()> {
     )?;
     Ok(())
 }
+//INFO: Count total clipboard items (used for mod-trigger memory extraction)
+pub fn count_clipboard_items(connection: &Connection) -> Result<i64> {
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM clipboard_history", [], |row| row.get(0))
+        .context("Failed to count clipboard items")?;
+    Ok(count)
+}
+
 // INFO: Saves a clipboard item to history
 pub fn save_clipboard_item(
     connection: &Connection,
@@ -629,6 +645,40 @@ pub fn save_clipboard_item(
         )
         .context("Failed to save clipboard item")?;
     Ok(())
+}
+
+// INFO: Represents an item from the clipboard history
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ClipboardHistoryItem {
+    pub content: String,
+    pub content_type: String,
+    pub created_at: String,
+}
+
+// INFO: Gets the most recent clipboard items
+pub fn get_recent_clipboard_items(
+    connection: &Connection,
+    limit: u32,
+) -> Result<Vec<ClipboardHistoryItem>> {
+    let mut stmt = connection.prepare(
+        "SELECT content, type, created_at FROM clipboard_history 
+         ORDER BY created_at DESC 
+         LIMIT ?1",
+    )?;
+
+    let rows = stmt.query_map(params![limit], |row| {
+        Ok(ClipboardHistoryItem {
+            content: row.get(0)?,
+            content_type: row.get(1)?,
+            created_at: row.get(2)?,
+        })
+    })?;
+
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row?);
+    }
+    Ok(results)
 }
 
 // INFO: Searches the clipboard history for a specific query

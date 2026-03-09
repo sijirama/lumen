@@ -70,3 +70,8 @@ urlencoding = "2"
 regex = "1"
 arboard = "3"
 clipboard-master = "4.0.0"
+
+# INFO: Vector storage for semantic memory retrieval
+sqlite-vec = "0.1"
+zerocopy = { version = "0.7", features = ["derive"] }
+uuid = { version = "1", features = ["v4"] }
