@@ -303,8 +303,7 @@ pub fn update_memory_access(conn: &Connection, memory_id: &str) -> Result<()> {
 }
 
 //INFO: Check if the observation count has hit the reflection threshold (mod 50)
-//TODO: Change threshold to 50 for production
-const REFLECTION_THRESHOLD: i64 = 10;
+const REFLECTION_THRESHOLD: i64 = 50;
 
 pub fn should_trigger_reflection(conn: &Connection) -> Result<bool> {
     let count = count_memories_by_type(conn, &MemoryType::Observation)?;

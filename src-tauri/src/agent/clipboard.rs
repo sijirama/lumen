@@ -25,15 +25,15 @@ impl ClipboardHandler for Handler {
                     self.last_content = trimmed.to_string();
 
                     // 🧠 Latent Memory Extraction Hook (mod-5 threshold for testing)
-                    const CLIPBOARD_EXTRACTION_THRESHOLD: i64 = 5;
+                    const CLIPBOARD_EXTRACTION_THRESHOLD: i64 = 15;
                     if let Ok(count) = queries::count_clipboard_items(&connection) {
                         println!("DEBUG: 🧠 PULSE: Clipboard history count: {}. (Threshold: {})", count, CLIPBOARD_EXTRACTION_THRESHOLD);
                         if count > 0 && count % CLIPBOARD_EXTRACTION_THRESHOLD == 0 {
                             println!("DEBUG: 🧠 TRIGGER: Clipboard memory extraction triggered! Initializing background task...");
                             
                             let db_clone = self.database.clone();
-                            // Grab last 10 items for batching
-                            let recent_items = queries::get_recent_clipboard_items(&connection, 10).unwrap_or_default();
+                            // Grab last 15 items for batching
+                            let recent_items = queries::get_recent_clipboard_items(&connection, CLIPBOARD_EXTRACTION_THRESHOLD as u32).unwrap_or_default();
                             let items_text: Vec<String> = recent_items.into_iter().map(|i| i.content).collect();
 
                             tokio::spawn(async move {

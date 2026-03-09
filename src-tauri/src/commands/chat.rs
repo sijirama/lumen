@@ -36,6 +36,7 @@ pub struct SendMessageRequest {
 pub struct SendMessageResponse {
     pub user_message: ChatMessageResponse,
     pub assistant_message: ChatMessageResponse,
+    pub suggested_view: Option<String>,
 }
 
 //INFO: Sends a message to the AI and returns the response
@@ -125,35 +126,7 @@ pub async fn send_chat_message(
         system_instruction.push_str("\n-------------------------------------------");
     }
 
-    //INFO: 6.5 Retrieve relevant memories from long-term storage
-    {
-        let connection = database.connection.lock();
-        let memory_client = GeminiClient::new(api_key.clone());
-        // Generate embedding of the user's current message asynchronously
-        drop(connection); // Release lock before async call
-        if let Ok(situation_embedding) = memory_client.generate_embedding(&request.message).await {
-            let debug_snippet = request.message.chars().take(40).collect::<String>();
-            println!("DEBUG: 🧠 PULSE: Memory retrieval starting for: '{}'...", debug_snippet);
-            let connection = database.connection.lock();
-            match crate::memory::core::retrieve_memories(&connection, &situation_embedding, 50) {
-                Ok(memories) if !memories.is_empty() => {
-                    println!("DEBUG: 🧠 SUCCESS: Retrieved {} relevant memories for chat context.", memories.len());
-                    let memory_context = crate::memory::core::format_memories_for_prompt(&memories);
-                    system_instruction.push_str(&memory_context);
-                    // Update access counts
-                    for m in &memories {
-                        let _ = crate::memory::core::update_memory_access(&connection, &m.id);
-                    }
-                }
-                Ok(_) => {
-                    println!("DEBUG: 🧠 No relevant memories found for chat");
-                }
-                Err(e) => {
-                    println!("DEBUG: 🧠 Memory retrieval failed: {}", e);
-                }
-            }
-        }
-    }
+    //INFO: 6.5 Memory retrieval is now handled explicitly via the retrieve_past_memories tool.
 
     if let Some(config) = &obsidian_config {
         system_instruction.push_str("\n\n--- OBSIDIAN CONFIGURATION ---");
@@ -187,9 +160,25 @@ pub async fn send_chat_message(
     //INFO: Tool execution loop (max 20 turns to prevent infinite loops)
     for _i in 0..20 {
 
+        let response_schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "response": {
+                    "type": "string",
+                    "description": "The conversational reply to the user. Use markdown for formatting."
+                },
+                "suggestedView": {
+                    "type": "string",
+                    "enum": ["chat", "calendar"],
+                    "description": "The view to transition to. Use 'calendar' if the user is asking about their schedule."
+                }
+            },
+            "required": ["response", "suggestedView"]
+        });
+
         let config = crate::gemini::client::GenerationConfig {
-            response_mime_type: None,
-            response_schema: None,
+            response_mime_type: Some("application/json".to_string()),
+            response_schema: Some(response_schema),
         };
 
         let chat_response = client
@@ -227,7 +216,15 @@ pub async fn send_chat_message(
         for part in response_parts {
             if let Some(text) = part.text {
                 if !final_response_text.ends_with(&text) {
-                    let _ = app_handle.emit("assistant-reply-turn", text.clone());
+                    let mut emit_text = text.clone();
+                    // Attempt to parse structured response to UI
+                    if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
+                            emit_text = resp.to_string();
+                        }
+                    }
+
+                    let _ = app_handle.emit("assistant-reply-turn", emit_text);
 
                     if !final_response_text.is_empty() {
                         final_response_text.push_str("\n\n");
@@ -246,6 +243,7 @@ pub async fn send_chat_message(
                     || call.name == "list_google_tasks"
                     || call.name == "create_google_task"
                     || call.name == "take_screenshot"
+                    || call.name == "retrieve_past_memories"
                 {
                     let res =
                         crate::gemini::tools::execute_tool_async(&call.name, &call.args, &database)
@@ -355,8 +353,7 @@ pub async fn send_chat_message(
     };
 
     //INFO: Latent Memory Extraction Trigger (mod-based)
-    //TODO: Change threshold to 50 for production
-    const MEMORY_EXTRACTION_THRESHOLD: i64 = 5;
+    const MEMORY_EXTRACTION_THRESHOLD: i64 = 50;
     {
         let connection = database.connection.lock();
         if let Ok(total_count) = crate::database::queries::count_chat_messages(&connection) {
@@ -460,7 +457,7 @@ pub async fn send_chat_message(
                                                 if let Ok(recent_obs) = crate::memory::core::get_recent_memories_by_type(
                                                     &conn,
                                                     &crate::memory::core::MemoryType::Observation,
-                                                    30
+                                                    MEMORY_EXTRACTION_THRESHOLD as usize
                                                 ) {
                                                     let obs_texts: Vec<String> = recent_obs.iter().map(|o| o.content.clone()).collect();
                                                     let user_name = {
@@ -539,6 +536,24 @@ pub async fn send_chat_message(
         }
     }
 
+    //INFO: Parse Structured JSON output
+    let mut actual_final_text = final_response_text.clone();
+    let mut suggested_view = None;
+
+    // We might have multiple chunks in final_response_text separated by \n\n
+    // Find the last valid JSON chunk
+    for text_chunk in final_response_text.rsplit("\n\n") {
+        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text_chunk) {
+            if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
+                actual_final_text = resp.to_string();
+            }
+            if let Some(view) = json_val.get("suggestedView").and_then(|v| v.as_str()) {
+                suggested_view = Some(view.to_string());
+            }
+            break;
+        }
+    }
+
     Ok(SendMessageResponse {
         user_message: ChatMessageResponse {
             id: Some(user_id),
@@ -550,10 +565,11 @@ pub async fn send_chat_message(
         assistant_message: ChatMessageResponse {
             id: Some(assistant_id),
             role: assistant_message.role,
-            content: final_response_text,
+            content: actual_final_text,
             image_data: None,
             created_at: assistant_message.created_at,
         },
+        suggested_view,
     })
 }
 

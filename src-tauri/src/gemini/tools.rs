@@ -368,6 +368,20 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                     "required": ["path", "query"]
                 })),
             },
+            GeminiFunctionDeclaration {
+                name: "retrieve_past_memories".to_string(),
+                description: "Search the user's past memories and conversation history when you need context about their life, preferences, or past discussions.".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The topic or keyword to search for in past memories."
+                        }
+                    },
+                    "required": ["query"]
+                })),
+            },
         ],
     }]
 }
@@ -804,6 +818,39 @@ pub async fn execute_tool_async(
             }
             Err(e) => json!({ "error": format!("Failed to capture screen: {}", e) }),
         },
+        "retrieve_past_memories" => {
+            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+            
+            //INFO: Fetch the API key to use for embeddings
+            let api_key = {
+                let connection = database.connection.lock();
+                match crate::database::queries::get_api_token(&connection, "gemini") {
+                    Ok(Some(key)) => key,
+                    _ => return json!({ "error": "Gemini API key not found. Please add it in settings." }),
+                }
+            };
+            let memory_client = crate::gemini::client::GeminiClient::new(api_key);
+
+            println!("DEBUG: 🧠 Tool 'retrieve_past_memories' invoked for: '{}'", query);
+
+            if let Ok(embedding) = memory_client.generate_embedding(query).await {
+                let connection = database.connection.lock();
+                match crate::memory::core::retrieve_memories(&connection, &embedding, 50) {
+                    Ok(memories) if !memories.is_empty() => {
+                        println!("DEBUG: 🧠 Retrieved {} memories for query.", memories.len());
+                        let memory_context = crate::memory::core::format_memories_for_prompt(&memories);
+                        for m in &memories {
+                            let _ = crate::memory::core::update_memory_access(&connection, &m.id);
+                        }
+                        json!({ "memories_found": memory_context })
+                    }
+                    Ok(_) => json!({ "message": "No relevant past memories found." }),
+                    Err(e) => json!({ "error": format!("Failed to retrieve memories: {}", e) }),
+                }
+            } else {
+                json!({ "error": "Failed to generate embedding for memory search." })
+            }
+        }
         _ => json!({ "error": format!("Unknown asynchronous tool: {}", name) }),
     }
 }

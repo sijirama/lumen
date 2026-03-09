@@ -20,6 +20,7 @@ interface ChatMessage {
 interface SendMessageResponse {
     user_message: ChatMessage;
     assistant_message: ChatMessage;
+    suggested_view?: 'chat' | 'calendar';
 }
 
 function OverlayWindow() {
@@ -291,6 +292,14 @@ function OverlayWindow() {
                     response.assistant_message
                 ];
             });
+
+            //INFO: Trigger implicit view transition if suggested
+            if (response.suggested_view) {
+                if (response.suggested_view !== transitionView && response.suggested_view !== currentView) {
+                    console.log(`🧠 Lumen suggested view transition: ${response.suggested_view}`);
+                    switchView(response.suggested_view as 'chat' | 'calendar');
+                }
+            }
         } catch (err) {
             setError(String(err));
             setMessages(prev => prev.filter(m => m.id !== null && m.id !== -1));
