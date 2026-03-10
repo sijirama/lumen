@@ -6,7 +6,10 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 const GEMINI_API_URL: &str =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent";
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+
+const GEMINI_STREAM_URL: &str =
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent";
 
 const GEMINI_EMBEDDING_URL: &str =
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent";
@@ -345,5 +348,113 @@ impl GeminiClient {
             .collect();
 
         Ok(embedding)
+    }
+
+    //INFO: Sends a conversation to Gemini with streaming support
+    pub async fn stream_chat(
+        &self,
+        messages: Vec<GeminiContent>,
+        system_instruction: Option<&str>,
+        tools: Option<Vec<GeminiTool>>,
+        generation_config: Option<GenerationConfig>,
+    ) -> Result<impl futures::Stream<Item = Result<GeminiChatResponse>>> {
+        use futures::StreamExt;
+
+        //INFO: Build the request payload
+        let request = GeminiRequest {
+            contents: messages,
+            system_instruction: system_instruction.map(|instruction| GeminiContent {
+                role: None,
+                parts: vec![GeminiPart::text(instruction.to_string())],
+            }),
+            tools,
+            generation_config,
+        };
+
+        let api_url = format!("{}?key={}", GEMINI_STREAM_URL, self.api_key);
+
+        let response = self
+            .http_client
+            .post(&api_url)
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to send streaming request to Gemini API")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let err_text = response.text().await.unwrap_or_default();
+            return Err(anyhow!("Gemini Streaming API Error ({}): {}", status, err_text));
+        }
+
+        let mut stream = response.bytes_stream();
+        
+        Ok(async_stream::try_stream! {
+            let mut buffer = Vec::new();
+            
+            while let Some(chunk_result) = stream.next().await {
+                let chunk = chunk_result.context("Failed to read stream chunk")?;
+                buffer.extend_from_slice(&chunk);
+                
+                let text = String::from_utf8_lossy(&buffer);
+                
+                let mut start_idx = None;
+                let mut depth = 0;
+                let mut in_string = false;
+                let mut escaped = false;
+                
+                let mut found_objects = Vec::new();
+                
+                for (i, c) in text.char_indices() {
+                    if escaped {
+                        escaped = false;
+                        continue;
+                    }
+                    match c {
+                        '\\' => if in_string { escaped = true; },
+                        '"' => in_string = !in_string,
+                        '{' if !in_string => {
+                            if depth == 0 { start_idx = Some(i); }
+                            depth += 1;
+                        },
+                        '}' if !in_string => {
+                            depth -= 1;
+                            if depth == 0 {
+                                if let Some(start) = start_idx {
+                                    found_objects.push((start, i + 1));
+                                    start_idx = None;
+                                }
+                            }
+                        },
+                        _ => {}
+                    }
+                }
+                
+                if !found_objects.is_empty() {
+                    let last_end_utf8 = found_objects.last().unwrap().1;
+                    
+                    for (start, end) in found_objects {
+                        let obj_str = &text[start..end];
+                        if let Ok(gemini_response) = serde_json::from_str::<GeminiResponse>(obj_str) {
+                            if let Some(error) = gemini_response.error {
+                                Err(anyhow!("Gemini API error during stream: {}", error.message))?;
+                            }
+                            
+                            if let Some(mut candidates) = gemini_response.candidates {
+                                if let Some(first) = candidates.pop() {
+                                    yield GeminiChatResponse {
+                                        parts: first.content.parts,
+                                        usage: gemini_response.usage_metadata,
+                                    };
+                                }
+                            }
+                        }
+                    }
+                    
+                    let byte_offset = text[..last_end_utf8].as_bytes().len();
+                    buffer.drain(..byte_offset);
+                }
+            }
+        })
     }
 }

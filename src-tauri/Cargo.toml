@@ -38,7 +38,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 tokio = { version = "1", features = ["full"] }
 
 # INFO: HTTP client for Gemini API calls
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 
 # INFO: Encryption for storing sensitive data like API keys
 aes-gcm = "0.10"
@@ -75,3 +75,5 @@ clipboard-master = "4.0.0"
 sqlite-vec = "0.1"
 zerocopy = { version = "0.7", features = ["derive"] }
 uuid = { version = "1", features = ["v4"] }
+futures = "0.3"
+async-stream = "0.3"

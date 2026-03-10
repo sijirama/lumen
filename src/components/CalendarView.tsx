@@ -27,13 +27,25 @@ interface CalendarEvent {
 interface CalendarViewProps {
     isExpanded: boolean;
     onToggleExpand: (expanded: boolean) => void;
+    initialDate?: string; // ISO string
 }
 
-const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand }) => {
+const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand, initialDate }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [events, setEvents] = useState<CalendarEvent[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+
+    // Sync with initialDate if provided
+    useEffect(() => {
+        if (initialDate) {
+            const date = parseISO(initialDate);
+            if (!isNaN(date.getTime())) {
+                setCurrentDate(date);
+                setSelectedDate(date);
+            }
+        }
+    }, [initialDate]);
 
     useEffect(() => {
         fetchEvents();
@@ -145,7 +157,6 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand 
                                     className={`date-cell ${!isCurrentMonth ? 'dimmed' : ''} ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''}`}
                                     onClick={() => {
                                         setSelectedDate(day);
-                                        onToggleExpand(false);
                                     }}
                                 >
                                     <div className="date-content">

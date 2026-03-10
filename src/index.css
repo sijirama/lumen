@@ -22,10 +22,10 @@
   --color-text-tertiary: #80868b;
   --color-text-muted: #9aa0a6;
 
-  /* INFO: Accent color - clean blue */
-  --color-accent: #1a73e8;
-  --color-accent-light: #e8f0fe;
-  --color-accent-hover: #1557b0;
+  /* INFO: Accent color - pastel purple ✨ */
+  --color-accent: #A78BFA;
+  --color-accent-light: #F3F0FF;
+  --color-accent-hover: #8B5CF6;
 
   /* INFO: Semantic colors */
   --color-success: #34a853;
@@ -1520,7 +1520,7 @@ html.snipper-window {
 
 /* breathing room at the bottom of the message list */
 .chat-spacer {
-  height: 24px;
+  height: 12px;
   width: 100%;
   flex-shrink: 0;
 }

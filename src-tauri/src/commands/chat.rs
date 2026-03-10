@@ -37,6 +37,7 @@ pub struct SendMessageResponse {
     pub user_message: ChatMessageResponse,
     pub assistant_message: ChatMessageResponse,
     pub suggested_view: Option<String>,
+    pub suggested_date: Option<String>, // ISO date string for calendar view
 }
 
 //INFO: Sends a message to the AI and returns the response
@@ -156,10 +157,8 @@ pub async fn send_chat_message(
     let mut final_response_text = String::new();
 
     let mut tools_were_called = false;
-
     //INFO: Tool execution loop (max 20 turns to prevent infinite loops)
     for _i in 0..20 {
-
         let response_schema = serde_json::json!({
             "type": "object",
             "properties": {
@@ -171,6 +170,10 @@ pub async fn send_chat_message(
                     "type": "string",
                     "enum": ["chat", "calendar"],
                     "description": "The view to transition to. Use 'calendar' if the user is asking about their schedule."
+                },
+                "suggestedDate": {
+                    "type": "string",
+                    "description": "The specific ISO-8601 date to show in the calendar (e.g., '2024-03-25'). Use only if transitioning to calendar."
                 }
             },
             "required": ["response", "suggestedView"]
@@ -181,8 +184,8 @@ pub async fn send_chat_message(
             response_schema: Some(response_schema),
         };
 
-        let chat_response = client
-            .send_chat(
+        let chat_stream = client
+            .stream_chat(
                 current_messages.clone(),
                 Some(&system_instruction),
                 Some(tools.clone()),
@@ -191,47 +194,42 @@ pub async fn send_chat_message(
             .await
             .map_err(|e| format!("Failed to get AI response: {}", e))?;
 
-        let response_parts = chat_response.parts;
+        let mut chat_stream = Box::pin(chat_stream);
 
-        //INFO: Record the model's response in history for the next loop turn
-        let mut clean_response_parts = Vec::new();
-        for part in &response_parts {
-            if let Some(text) = &part.text {
-                if !final_response_text.contains(text) || part.function_call.is_none() {
-                    clean_response_parts.push(part.clone());
+        // Process the stream
+        use futures::StreamExt;
+        let mut response_parts = Vec::new();
+
+        while let Some(chunk_res) = chat_stream.next().await {
+            let chunk = chunk_res.map_err(|e| format!("Stream error: {}", e))?;
+            for part in chunk.parts {
+                if let Some(ref text) = part.text {
+                    let mut emit_text = text.clone();
+                    if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text) {
+                        if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
+                            emit_text = resp.to_string();
+                        }
+                    }
+                    let _ = app_handle.emit("assistant-reply-turn", emit_text);
+                    
+                    if !final_response_text.is_empty() {
+                        final_response_text.push_str("\n\n");
+                    }
+                    final_response_text.push_str(text);
                 }
-            } else {
-                clean_response_parts.push(part.clone());
+                response_parts.push(part);
             }
         }
 
         current_messages.push(crate::gemini::client::GeminiContent {
             role: Some("model".to_string()),
-            parts: clean_response_parts,
+            parts: response_parts.clone(),
         });
 
         let mut has_function_calls = false;
         let mut function_responses = Vec::new();
 
         for part in response_parts {
-            if let Some(text) = part.text {
-                if !final_response_text.ends_with(&text) {
-                    let mut emit_text = text.clone();
-                    // Attempt to parse structured response to UI
-                    if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&text) {
-                        if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
-                            emit_text = resp.to_string();
-                        }
-                    }
-
-                    let _ = app_handle.emit("assistant-reply-turn", emit_text);
-
-                    if !final_response_text.is_empty() {
-                        final_response_text.push_str("\n\n");
-                    }
-                    final_response_text.push_str(&text);
-                }
-            }
             if let Some(call) = part.function_call {
                 has_function_calls = true;
                 tools_were_called = true;
@@ -539,6 +537,7 @@ pub async fn send_chat_message(
     //INFO: Parse Structured JSON output
     let mut actual_final_text = final_response_text.clone();
     let mut suggested_view = None;
+    let mut suggested_date = None;
 
     // We might have multiple chunks in final_response_text separated by \n\n
     // Find the last valid JSON chunk
@@ -549,6 +548,9 @@ pub async fn send_chat_message(
             }
             if let Some(view) = json_val.get("suggestedView").and_then(|v| v.as_str()) {
                 suggested_view = Some(view.to_string());
+            }
+            if let Some(date) = json_val.get("suggestedDate").and_then(|v| v.as_str()) {
+                suggested_date = Some(date.to_string());
             }
             break;
         }
@@ -570,6 +572,7 @@ pub async fn send_chat_message(
             created_at: assistant_message.created_at,
         },
         suggested_view,
+        suggested_date,
     })
 }
 

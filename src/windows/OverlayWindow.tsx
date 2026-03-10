@@ -21,6 +21,7 @@ interface SendMessageResponse {
     user_message: ChatMessage;
     assistant_message: ChatMessage;
     suggested_view?: 'chat' | 'calendar';
+    suggested_date?: string;
 }
 
 function OverlayWindow() {
@@ -34,6 +35,7 @@ function OverlayWindow() {
     const [transitionView, setTransitionView] = useState<'chat' | 'calendar'>('chat');
     const [isExiting, setIsExiting] = useState(false);
     const [isCalendarExpanded, setIsCalendarExpanded] = useState(false);
+    const [suggestedDate, setSuggestedDate] = useState<string | undefined>(undefined);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -127,20 +129,28 @@ function OverlayWindow() {
             // @ts-ignore
             const { listen } = await import('@tauri-apps/api/event');
 
-            // Turn-by-turn streaming (Temporary)
+            // Turn-by-turn streaming (Real-time accumulation)
             unlistenTurn = await listen<string>('assistant-reply-turn', (event) => {
                 setMessages(prev => {
-                    // Check if the last message is already a turn and has the same content (deduplicate)
                     const last = prev[prev.length - 1];
-                    if (last?.id === -1 && last.content === event.payload) return prev;
-
-                    const newPart: ChatMessage = {
-                        id: -1,
-                        role: 'assistant',
-                        content: event.payload,
-                        created_at: new Date().toISOString()
-                    };
-                    return [...prev, newPart];
+                    if (last && last.id === -1) {
+                        // Update the existing streaming bubble
+                        const updated = [...prev];
+                        updated[updated.length - 1] = {
+                            ...last,
+                            content: last.content + event.payload
+                        };
+                        return updated;
+                    } else {
+                        // Create a new streaming bubble
+                        const newPart: ChatMessage = {
+                            id: -1,
+                            role: 'assistant',
+                            content: event.payload,
+                            created_at: new Date().toISOString()
+                        };
+                        return [...prev, newPart];
+                    }
                 });
             });
 
@@ -295,6 +305,10 @@ function OverlayWindow() {
 
             //INFO: Trigger implicit view transition if suggested
             if (response.suggested_view) {
+                if (response.suggested_date) {
+                    setSuggestedDate(response.suggested_date);
+                }
+                
                 if (response.suggested_view !== transitionView && response.suggested_view !== currentView) {
                     console.log(`🧠 Lumen suggested view transition: ${response.suggested_view}`);
                     switchView(response.suggested_view as 'chat' | 'calendar');
@@ -427,12 +441,13 @@ function OverlayWindow() {
                             </div>
                         ) : (
                             <div
-                                key="calendar-view"
-                                className={`view-transition-content ${isExiting ? 'is-exiting' : ''}`}
+                                key="view-calendar"
+                                className={`view-transition-content calendar-container ${isExiting ? 'is-exiting' : ''}`}
                             >
-                                <CalendarView
-                                    isExpanded={isCalendarExpanded}
+                                <CalendarView 
+                                    isExpanded={isCalendarExpanded} 
                                     onToggleExpand={handleCalendarExpansionToggle}
+                                    initialDate={suggestedDate}
                                 />
                             </div>
                         )}

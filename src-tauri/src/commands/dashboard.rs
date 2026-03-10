@@ -336,8 +336,7 @@ pub async fn refresh_dashboard_briefing(
                 parts: vec![GeminiPart::text(final_prompt)],
             }],
             Some(&system_instruction),
-            None,
-            Some(GenerationConfig {
+            None,            Some(GenerationConfig {
                 response_mime_type: None,
                 response_schema: None,
             }),
@@ -360,7 +359,7 @@ pub async fn refresh_dashboard_briefing(
 
     // 4. Async TTS
     let db_for_audio = database.inner().clone();
-    let text_for_audio = briefing_text.clone();
+    let text_for_audio = briefing_text.clone(); 
     
     tauri::async_runtime::spawn(async move {
         if let Ok(audio_data) = crate::integrations::gemini_tts::generate_audio(&db_for_audio, &text_for_audio).await {
