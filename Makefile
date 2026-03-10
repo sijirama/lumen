@@ -5,13 +5,16 @@
 # Default target
 help:
 	@echo "Lumen Development Commands:"
-	@echo "  make dev    - Start the development environment (Hot reloading)"
+	@echo "  make run    - Start the app (Hot reloading)"
+	@echo "  make dev    - Alias for run"
 	@echo "  make build  - Build the production binary (AppImage/Bundles)"
 	@echo "  make clean  - Wipe the massive Rust target directory (Saves space! 🧹)"
 
 # Run in development mode
-dev:
+run:
 	npm run tauri dev
+
+dev: run
 
 # Build production bundle
 build:

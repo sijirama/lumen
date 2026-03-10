@@ -8,14 +8,17 @@ use tauri::{Manager, WebviewWindow};
 pub async fn show_overlay(app: tauri::AppHandle) -> Result<(), String> {
     //INFO: Get the overlay window by its label
     if let Some(overlay_window) = app.get_webview_window("overlay") {
-        //INFO: Show first, then position
+        // 1. Position it BEFORE showing to avoid "center flash"
+        let _ = position_overlay_bottom_left(&overlay_window);
+
+        // 2. Make it visible on all workspaces (Sticky)
+        let _ = overlay_window.set_visible_on_all_workspaces(true);
+
+        // 3. Finally show and focus
         overlay_window
             .show()
             .map_err(|e| format!("Failed to show overlay: {}", e))?;
 
-        //INFO: Make it visible on all workspaces (Sticky)
-        let _ = overlay_window.set_visible_on_all_workspaces(true);
-        let _ = position_overlay_bottom_left(&overlay_window);
         overlay_window
             .set_focus()
             .map_err(|e| format!("Failed to focus overlay: {}", e))?;
@@ -53,16 +56,16 @@ pub async fn toggle_overlay(app: tauri::AppHandle) -> Result<bool, String> {
                 .map_err(|e| format!("Failed to hide overlay: {}", e))?;
             Ok(false)
         } else {
-            //INFO: Show first to ensure window resources are allocated
+            // 1. Position it BEFORE showing
+            let _ = position_overlay_bottom_left(&overlay_window);
+
+            // 2. Make it visible on all workspaces (Sticky)
+            let _ = overlay_window.set_visible_on_all_workspaces(true);
+
+            // 3. Show and focus
             overlay_window
                 .show()
                 .map_err(|e| format!("Failed to show overlay: {}", e))?;
-
-            //INFO: Make it visible on all workspaces (Sticky)
-            let _ = overlay_window.set_visible_on_all_workspaces(true);
-
-            //INFO: Then position it (ignore errors to prevent crash)
-            let _ = position_overlay_bottom_left(&overlay_window);
 
             overlay_window
                 .set_focus()
@@ -90,11 +93,7 @@ pub async fn is_overlay_visible(app: tauri::AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub async fn resize_overlay(app: tauri::AppHandle, view: String) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("overlay") {
-        let (width, height) = match view.as_str() {
-            "calendar" => (400.0, 850.0),
-            "calendar-collapsed" => (400.0, 600.0),
-            _ => (400.0, 520.0),
-        };
+        let (width, height) = (400.0, 820.0);
 
         // 1. Set Size
         window
@@ -112,18 +111,16 @@ pub async fn resize_overlay(app: tauri::AppHandle, view: String) -> Result<(), S
         if let Ok(Some(monitor)) = window.primary_monitor() {
             let monitor_size = monitor.size();
             let monitor_position = monitor.position();
-            let window_size = window
-                .outer_size()
-                .map_err(|e| format!("Failed to get window size: {}", e))?;
-
-            let padding = 4;
-            let x_position = monitor_position.x + padding;
-            let y_position = monitor_position.y + (monitor_size.height as i32)
-                - (window_size.height as i32)
-                - padding;
+            let scale_factor = monitor.scale_factor();
+            let logical_size = monitor_size.to_logical::<f64>(scale_factor);
+            let logical_pos = monitor_position.to_logical::<f64>(scale_factor);
+            
+            //INFO: Set the window position directly based on expected size to avoid mid-render glitches
+            let x_position = logical_pos.x + 4.0;
+            let y_position = logical_pos.y + logical_size.height - 820.0 - 4.0;
 
             window
-                .set_position(tauri::PhysicalPosition::new(x_position, y_position))
+                .set_position(tauri::LogicalPosition::new(x_position, y_position))
                 .map_err(|e| format!("Failed to set position: {}", e))?;
 
             // Ensure window is focused after resize
@@ -149,21 +146,17 @@ pub fn position_overlay_bottom_left(window: &WebviewWindow) -> Result<(), String
         let monitor_size = monitor.size();
         let monitor_position = monitor.position();
 
-        //INFO: Get the overlay window size
-        let window_size = window
-            .outer_size()
-            .map_err(|e| format!("Failed to get window size: {}", e))?;
+        let scale_factor = monitor.scale_factor();
+        let logical_size = monitor_size.to_logical::<f64>(scale_factor);
+        let logical_pos = monitor_position.to_logical::<f64>(scale_factor);
 
-        //INFO: Calculate position for bottom-left corner with minimal padding
-        let padding = 4;
-        let x_position = monitor_position.x + padding;
-        let y_position = monitor_position.y + (monitor_size.height as i32)
-            - (window_size.height as i32)
-            - padding;
+        //INFO: Set the window position directly based on expected size to avoid mid-render glitches
+        let x_position = logical_pos.x + 4.0;
+        let y_position = logical_pos.y + logical_size.height - 820.0 - 4.0;
 
         //INFO: Set the window position
         window
-            .set_position(tauri::PhysicalPosition::new(x_position, y_position))
+            .set_position(tauri::LogicalPosition::new(x_position, y_position))
             .map_err(|e| format!("Failed to set position: {}", e))?;
     }
 

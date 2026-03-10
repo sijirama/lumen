@@ -859,13 +859,14 @@ pub async fn execute_tool_async(
 pub async fn fetch_weather(location: &str) -> serde_json::Value {
     let url = format!("https://wttr.in/{}?format=j1", location);
 
-    let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => return json!({ "error": format!("Failed to create client: {}", e) }),
-    };
+    // Reuse a shared client for simple HTTP requests as well
+    static WEATHER_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    let client = WEATHER_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    });
 
     match client.get(&url).send().await {
         Ok(response) => match response.json::<serde_json::Value>().await {

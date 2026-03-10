@@ -10,7 +10,34 @@ use crate::database::Database;
 use crate::gemini::{client::get_default_system_instruction, GeminiClient};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use tauri::State;
+
+static CHAT_RESPONSE_SCHEMA: OnceLock<serde_json::Value> = OnceLock::new();
+
+fn get_chat_response_schema() -> &'static serde_json::Value {
+    CHAT_RESPONSE_SCHEMA.get_or_init(|| {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "response": {
+                    "type": "string",
+                    "description": "The conversational reply to the user. Use markdown for formatting."
+                },
+                "suggestedView": {
+                    "type": "string",
+                    "enum": ["chat", "calendar"],
+                    "description": "The view to transition to. Use 'calendar' if the user is asking about their schedule."
+                },
+                "suggestedDate": {
+                    "type": "string",
+                    "description": "The specific ISO-8601 date to show in the calendar (e.g., '2024-03-25'). Use only if transitioning to calendar."
+                }
+            },
+            "required": ["response", "suggestedView"]
+        })
+    })
+}
 
 //INFO: Chat message for frontend
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -151,7 +178,7 @@ pub async fn send_chat_message(
         system_instruction.push_str("\n------------------------------");
     }
 
-    system_instruction.push_str("\n\n🎯 CONVERSATIONAL RULE: If the user says 'hi', 'hello', or is just being social, respond ONLY with warmth and conversation. DO NOT mention tasks, technical context, or potential actions unless the user initiates it. Be a friend first, a sidekick second.");
+    system_instruction.push_str("\n\n🎯 CONVERSATIONAL RULES:\n1. If the user says 'hi', 'hello', 'hey', 'what's up', or is just being social, respond IMMEDIATELY with warmth in the 'response' field. Do NOT call any tools. Do NOT retrieve memories. Just be friendly.\n2. Only use tools when the user asks a SPECIFIC question that requires data (calendar, weather, files, etc.).\n3. The 'response' field is MANDATORY in every reply. Never skip it.");
 
     let mut current_messages = gemini_messages;
     let mut final_response_text = String::new();
@@ -160,32 +187,17 @@ pub async fn send_chat_message(
 
     //INFO: Tool execution loop — uses non-streaming for tool rounds
     //NOTE: Only the FINAL response (no function calls) gets streamed to the UI
-    let response_schema = serde_json::json!({
-        "type": "object",
-        "properties": {
-            "response": {
-                "type": "string",
-                "description": "The conversational reply to the user. Use markdown for formatting."
-            },
-            "suggestedView": {
-                "type": "string",
-                "enum": ["chat", "calendar"],
-                "description": "The view to transition to. Use 'calendar' if the user is asking about their schedule."
-            },
-            "suggestedDate": {
-                "type": "string",
-                "description": "The specific ISO-8601 date to show in the calendar (e.g., '2024-03-25'). Use only if transitioning to calendar."
-            }
-        },
-        "required": ["response", "suggestedView"]
-    });
-
     let config = crate::gemini::client::GenerationConfig {
         response_mime_type: Some("application/json".to_string()),
-        response_schema: Some(response_schema),
+        response_schema: Some(get_chat_response_schema().clone()),
     };
 
-    for _i in 0..20 {
+    //INFO: Per-tool call counter to prevent runaway tool loops
+    let mut tool_call_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    const MAX_CALLS_PER_TOOL: usize = 2;
+    const MAX_TOOL_ROUNDS: usize = 5;
+
+    for _i in 0..MAX_TOOL_ROUNDS {
         // Use non-streaming send_chat for tool execution rounds
         let chat_response = client
             .send_chat(
@@ -226,6 +238,21 @@ pub async fn send_chat_message(
             }
 
             if let Some(call) = &part.function_call {
+                // Check if this tool has been called too many times
+                let count = tool_call_counts.entry(call.name.clone()).or_insert(0);
+                *count += 1;
+
+                if *count > MAX_CALLS_PER_TOOL {
+                    println!("DEBUG: ⚠️ Tool '{}' hit call limit ({}), skipping.", call.name, MAX_CALLS_PER_TOOL);
+                    function_responses.push(crate::gemini::client::GeminiPart::function_response(
+                        call.name.clone(),
+                        serde_json::json!({ "error": format!("Tool '{}' has already been called {} times this turn. Please provide your response now using the information you already have.", call.name, MAX_CALLS_PER_TOOL) }),
+                    ));
+                    has_function_calls = true;
+                    tools_were_called = true;
+                    continue;
+                }
+
                 has_function_calls = true;
                 tools_were_called = true;
                 if call.name == "get_weather"
@@ -309,11 +336,38 @@ pub async fn send_chat_message(
         }
     }
 
+    //INFO: Safety net — if the model used tools but never produced text,
+    //      force one last call WITHOUT tools so it MUST reply with text.
     if final_response_text.is_empty() {
-        if tools_were_called {
-            final_response_text = "Done! ✨".to_string();
-        } else {
-            return Err("AI failed to provide a text response after tool execution".to_string());
+        println!("DEBUG: ⚠️ No text after tool loop. Forcing a final text-only call...");
+
+        let forced_response = client
+            .send_chat(
+                current_messages.clone(),
+                Some(&system_instruction),
+                None, // No tools — forces a pure text response
+                Some(config.clone()),
+            )
+            .await
+            .map_err(|e| format!("Failed to get forced response: {}", e))?;
+
+        for part in &forced_response.parts {
+            if let Some(text) = &part.text {
+                final_response_text = text.clone();
+
+                // Emit to frontend
+                let mut emit_text = text.clone();
+                if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text) {
+                    if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
+                        emit_text = resp.to_string();
+                    }
+                }
+                let _ = app_handle.emit("assistant-reply-turn", emit_text);
+            }
+        }
+
+        if final_response_text.is_empty() {
+            return Err("Lumen processed the request but couldn't generate a response. Please try again.".to_string());
         }
     }
 
@@ -329,11 +383,33 @@ pub async fn send_chat_message(
         session_id: request.session_id.clone(),
     };
 
+    //INFO: Parse Structured JSON output BEFORE saving to DB
+    let mut actual_final_text = final_response_text.clone();
+    let mut suggested_view = None;
+    let mut suggested_date = None;
+
+    // We might have multiple chunks in final_response_text separated by \n\n
+    // Find the last valid JSON chunk
+    for text_chunk in final_response_text.rsplit("\n\n") {
+        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text_chunk) {
+            if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
+                actual_final_text = resp.to_string();
+            }
+            if let Some(view) = json_val.get("suggestedView").and_then(|v| v.as_str()) {
+                suggested_view = Some(view.to_string());
+            }
+            if let Some(date) = json_val.get("suggestedDate").and_then(|v| v.as_str()) {
+                suggested_date = Some(date.to_string());
+            }
+            break;
+        }
+    }
+
     let assistant_message = ChatMessage {
         id: None,
         role: "assistant".to_string(),
-        content: final_response_text.clone(),
-        image_data: None, // Assistant doesn't send images back currently
+        content: actual_final_text.clone(),
+        image_data: None,
         created_at: chrono::Utc::now().to_rfc3339(),
         session_id: request.session_id,
     };
@@ -532,28 +608,6 @@ pub async fn send_chat_message(
         }
     }
 
-    //INFO: Parse Structured JSON output
-    let mut actual_final_text = final_response_text.clone();
-    let mut suggested_view = None;
-    let mut suggested_date = None;
-
-    // We might have multiple chunks in final_response_text separated by \n\n
-    // Find the last valid JSON chunk
-    for text_chunk in final_response_text.rsplit("\n\n") {
-        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text_chunk) {
-            if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
-                actual_final_text = resp.to_string();
-            }
-            if let Some(view) = json_val.get("suggestedView").and_then(|v| v.as_str()) {
-                suggested_view = Some(view.to_string());
-            }
-            if let Some(date) = json_val.get("suggestedDate").and_then(|v| v.as_str()) {
-                suggested_date = Some(date.to_string());
-            }
-            break;
-        }
-    }
-
     Ok(SendMessageResponse {
         user_message: ChatMessageResponse {
             id: Some(user_id),
@@ -607,69 +661,50 @@ pub fn clear_chat_history(database: State<Database>) -> Result<(), String> {
     clear_chat_messages(&connection).map_err(|e| format!("Failed to clear chat history: {}", e))
 }
 
-//INFO: Builds context string from integrations (calendar, notes, etc.)
+//INFO: Bu//INFO: Builds context string from integrations (calendar, notes, etc.)
 fn build_chat_context(database: &State<Database>) -> Result<Option<String>, String> {
-    let connection = database.connection.lock();
     let mut context_parts: Vec<String> = Vec::new();
 
-    //INFO: Get today's date info
+    // 1. Static Metadata
     let today = Local::now();
     let today_str = today.format("%A, %b %d").to_string();
     let current_time = today.format("%H:%M").to_string();
     let iso_now = today.to_rfc3339();
-
     context_parts.push(format!("Today: {} at {}", today_str, current_time));
 
-    //INFO: Add user profile info
-    if let Ok(Some(profile)) = get_user_profile(&connection) {
+    // 2. Integration Data (Locked Section - Keep it brief)
+    let (user_profile, g_int, o_int) = {
+        let connection = database.connection.lock();
+        let user_profile = get_user_profile(&connection).ok().flatten();
+        let g_int = get_integration(&connection, "google").ok().flatten();
+        let o_int = get_integration(&connection, "obsidian").ok().flatten();
+        (user_profile, g_int, o_int)
+    };
+
+    if let Some(profile) = user_profile {
         context_parts.push(format!("User Name: {}", profile.display_name));
     }
 
     context_parts.push(format!("\n[TECHNICAL CONTEXT]\nISO_NOW: {}", iso_now));
 
-    //INFO: Integration Status (Helpful for AI to know what's possible)
     let mut status_parts = Vec::new();
     status_parts.push("--- INTEGRATION STATUS ---".to_string());
-
-    let g_int = get_integration(&connection, "google").ok().flatten();
-    status_parts.push(format!(
-        "Google Services: {}",
-        if g_int.is_some_and(|i| i.enabled) {
-            "ENABLED"
-        } else {
-            "DISABLED"
-        }
-    ));
-
-    let o_int = get_integration(&connection, "obsidian").ok().flatten();
-    status_parts.push(format!(
-        "Obsidian: {}",
-        if o_int.is_some_and(|i| i.enabled) {
-            "ENABLED"
-        } else {
-            "DISABLED"
-        }
-    ));
-
+    status_parts.push(format!("Google Services: {}", if g_int.as_ref().is_some_and(|i| i.enabled) { "ENABLED" } else { "DISABLED" }));
+    status_parts.push(format!("Obsidian: {}", if o_int.as_ref().is_some_and(|i| i.enabled) { "ENABLED" } else { "DISABLED" }));
     status_parts.push("--------------------------".to_string());
     context_parts.push(status_parts.join("\n"));
 
-    //INFO: Add calendar events if integration is enabled
-    let google_integration = get_integration(&connection, "google")
-        .map_err(|e| format!("Failed to check Google integration: {}", e))?;
-
-    if let Some(integration) = google_integration {
+    // 3. Calendar Data (Locked Section)
+    if let Some(integration) = g_int {
         if integration.enabled {
-            //INFO: Get today's events
             let start_of_day = today.format("%Y-%m-%dT00:00:00").to_string();
             let end_of_day = today.format("%Y-%m-%dT23:59:59").to_string();
-
+            let connection = database.connection.lock();
             if let Ok(events) = get_calendar_events(&connection, &start_of_day, &end_of_day) {
                 if !events.is_empty() {
                     let mut events_str = String::from("Today's calendar events:\n");
                     for event in events {
-                        events_str
-                            .push_str(&format!("- {} at {}\n", event.title, event.start_time));
+                        events_str.push_str(&format!("- {} at {}\n", event.title, event.start_time));
                     }
                     context_parts.push(events_str);
                 }
@@ -677,40 +712,21 @@ fn build_chat_context(database: &State<Database>) -> Result<Option<String>, Stri
         }
     }
 
-    //INFO: Add Obsidian notes if integration is enabled
-    let obsidian_integration = get_integration(&connection, "obsidian")
-        .map_err(|e| format!("Failed to check Obsidian integration: {}", e))?;
-
-    if let Some(integration) = obsidian_integration {
+    // 4. Obsidian Data (NO LOCKS - Pure Disk I/O)
+    if let Some(integration) = o_int {
         if integration.enabled {
             if let Some(config) = integration.config {
-                //INFO: Try to read today's daily note
                 if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&config) {
-                    if let Some(vault_path) = config_json.get("vault_path").and_then(|v| v.as_str())
-                    {
-                        let daily_notes_folder = config_json
-                            .get("daily_notes_path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        let date_format_raw = config_json
-                            .get("daily_notes_format")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("YYYY-MM-DD");
+                    if let Some(vault_path) = config_json.get("vault_path").and_then(|v| v.as_str()) {
+                        let daily_notes_folder = config_json.get("daily_notes_path").and_then(|v| v.as_str()).unwrap_or("");
+                        let date_format_raw = config_json.get("daily_notes_format").and_then(|v| v.as_str()).unwrap_or("YYYY-MM-DD");
 
-                        // Convert Obsidian/Moment format to Chrono format
-                        let chrono_format = date_format_raw
-                            .replace("YYYY", "%Y")
-                            .replace("MM", "%m")
-                            .replace("DD", "%d");
-
+                        let chrono_format = date_format_raw.replace("YYYY", "%Y").replace("MM", "%m").replace("DD", "%d");
                         let daily_note_name = format!("{}.md", today.format(&chrono_format));
-                        let daily_note_path = std::path::Path::new(vault_path)
-                            .join(daily_notes_folder)
-                            .join(&daily_note_name);
+                        let daily_note_path = std::path::Path::new(vault_path).join(daily_notes_folder).join(&daily_note_name);
 
                         if daily_note_path.exists() {
                             if let Ok(content) = std::fs::read_to_string(&daily_note_path) {
-                                //INFO: Truncate if too long (safe char-based truncation)
                                 let truncated_content = if content.chars().count() > 2000 {
                                     format!("{}... (truncated)", content.chars().take(2000).collect::<String>())
                                 } else {

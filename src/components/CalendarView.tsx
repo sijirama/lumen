@@ -305,22 +305,24 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
                 }
                 .nav-icon-btn:hover { background: var(--color-bg-subtle); color: var(--color-text-primary); }
 
-                /* Grid Styling */
                 .sexy-grid-wrapper {
                     overflow: hidden;
                     transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
                     opacity: 0;
+                    background: var(--color-bg-primary); /* Ensure background stays solid */
                 }
                 .sexy-grid-wrapper.collapsed {
                     max-height: 0;
                     margin-bottom: 0;
                     pointer-events: none;
+                    transform: translateY(-10px);
                 }
                 .sexy-grid-wrapper.expanded {
-                    max-height: 300px;
+                    max-height: 400px; /* Slightly taller for breathing room */
                     opacity: 1;
                     margin-bottom: var(--spacing-4);
                     pointer-events: auto;
+                    transform: translateY(0);
                 }
 
                 .sexy-grid {

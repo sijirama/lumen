@@ -30,13 +30,14 @@
         "title": "Lumen Chat",
         "url": "/?window=overlay",
         "width": 400,
-        "height": 520,
-        "resizable": true,
+        "height": 820,
+        "resizable": false,
         "visible": false,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
+        "center": false,
         "focus": true
       },
       {

@@ -3,6 +3,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use reqwest::Client;
+use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 const GEMINI_API_URL: &str =
@@ -220,14 +221,21 @@ pub struct GeminiClient {
     api_key: String,
 }
 
+static SHARED_HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+
 impl GeminiClient {
     //INFO: Creates a new Gemini client with the given API key
+    //NOTE: Uses a shared HTTP client for connection pooling and better performance
     pub fn new(api_key: String) -> Self {
-        Self {
-            http_client: Client::builder()
+        let http_client = SHARED_HTTP_CLIENT.get_or_init(|| {
+            Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
-                .unwrap_or_else(|_| Client::new()),
+                .unwrap_or_else(|_| Client::new())
+        }).clone();
+
+        Self {
+            http_client,
             api_key,
         }
     }

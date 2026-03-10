@@ -71,6 +71,11 @@ pub fn run() {
                 }
             }
 
+            //INFO: Pre-position overlay so it's ready in the corner
+            if let Some(overlay) = app.get_webview_window("overlay") {
+                let _ = crate::commands::window::position_overlay_bottom_left(&overlay);
+            }
+
             Ok(())
         })
         //INFO: Handle window events to prevent app from closing when windows are closed
