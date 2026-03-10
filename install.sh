@@ -162,28 +162,29 @@ elif [ "$OS" == "Darwin" ]; then
 fi
 
 # 5. Desktop Integration & Autostart
-echo -e "${BLUE}🖥 Integrating with your desktop launcher & autostart...${NC}"
+if [ "$OS" == "Linux" ]; then
+    echo -e "${BLUE}🖥 Integrating with your desktop launcher & autostart...${NC}"
 
-AUTOSTART_DIR="$HOME/.config/autostart"
-mkdir -p "$ICON_DIR"
-mkdir -p "$DESKTOP_DIR"
-mkdir -p "$AUTOSTART_DIR"
+    AUTOSTART_DIR="$HOME/.config/autostart"
+    mkdir -p "$ICON_DIR"
+    mkdir -p "$DESKTOP_DIR"
+    mkdir -p "$AUTOSTART_DIR"
 
-# Cleanup any previous broken entries (Case-sensitive cleanup)
-rm -f "$DESKTOP_DIR/Lumen.desktop" "$DESKTOP_DIR/lumen.desktop"
-rm -f "$AUTOSTART_DIR/Lumen.desktop" "$AUTOSTART_DIR/lumen.desktop"
+    # Cleanup any previous broken entries
+    rm -f "$DESKTOP_DIR/Lumen.desktop" "$DESKTOP_DIR/lumen.desktop"
+    rm -f "$AUTOSTART_DIR/Lumen.desktop" "$AUTOSTART_DIR/lumen.desktop"
 
-# Download or Copy icon
-if [ -f "./public/logo.png" ]; then
-    cp "./public/logo.png" "$ICON_DIR/lumen.png"
-elif [ -f "./src-tauri/icons/128x128.png" ]; then
-    cp "./src-tauri/icons/128x128.png" "$ICON_DIR/lumen.png"
-else
-    curl -s -L -o "$ICON_DIR/lumen.png" "$ICON_URL"
-fi
+    # Download or Copy icon
+    if [ -f "./public/logo.png" ]; then
+        cp "./public/logo.png" "$ICON_DIR/lumen.png"
+    elif [ -f "./src-tauri/icons/128x128.png" ]; then
+        cp "./src-tauri/icons/128x128.png" "$ICON_DIR/lumen.png"
+    else
+        curl -s -L -o "$ICON_DIR/lumen.png" "$ICON_URL"
+    fi
 
-# Create high-quality Desktop Entry with absolute path
-cat <<EOF > "$DESKTOP_DIR/lumen.desktop"
+    # Create high-quality Desktop Entry with absolute path
+    cat <<EOF > "$DESKTOP_DIR/lumen.desktop"
 [Desktop Entry]
 Name=Lumen
 Comment=Your AI-powered desktop sidekick
@@ -196,33 +197,28 @@ Keywords=ai;chat;lumen;assistant;
 StartupNotify=false
 EOF
 
-chmod +x "$DESKTOP_DIR/lumen.desktop"
+    chmod +x "$DESKTOP_DIR/lumen.desktop"
 
-# Copy to Autostart so it boots with the OS (with --minimized flag)
-cat <<EOF > "$AUTOSTART_DIR/lumen.desktop"
-[Desktop Entry]
-Name=Lumen
-Comment=Your AI-powered desktop sidekick
-Exec=$INSTALL_DIR/$BINARY_NAME --minimized
-Icon=$ICON_DIR/lumen.png
-Terminal=false
-Type=Application
-Categories=Utility;Contextual;AI;
-Keywords=ai;chat;lumen;assistant;
-StartupNotify=false
-EOF
-chmod +x "$AUTOSTART_DIR/lumen.desktop"
+    # Copy to Autostart so it boots with the OS
+    cp "$DESKTOP_DIR/lumen.desktop" "$AUTOSTART_DIR/lumen.desktop"
+    sed -i "s|Exec=$INSTALL_DIR/$BINARY_NAME|Exec=$INSTALL_DIR/$BINARY_NAME --minimized|" "$AUTOSTART_DIR/lumen.desktop"
 
-# Refresh desktop database so icon appears immediately (if tool exists)
-if command -v update-desktop-database >/dev/null 2>&1; then
-    update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
+    # Refresh desktop database
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
+    fi
+    echo -e "${GREEN}✅ Desktop & Autostart integration complete. ✨${NC}"
+elif [ "$OS" == "Darwin" ]; then
+    echo -e "${BLUE}🖥 Desktop integration on macOS is handled by the App bundle. ✨${NC}"
+    echo -e "${YELLOW}Note: You can enable 'Start at Login' in Lumen Settings once it's running.${NC}"
 fi
 
-echo -e "${GREEN}✅ Desktop & Autostart integration complete. ✨${NC}"
+# 6. Run it immediately
+echo -e "${GREEN}🚀 Launching Lumen...${NC}"
+if [ "$OS" == "Linux" ]; then
+    nohup "$INSTALL_DIR/$BINARY_NAME" > /dev/null 2>&1 &
+elif [ "$OS" == "Darwin" ]; then
+    open -a "Lumen"
+fi
 
-# 6. Run it immediately (Detached from terminal)
-echo -e "${GREEN}🚀 Launching Lumen (Background Mode)...${NC}"
-# Use nohup and redirect output to ensure it survives terminal closing
-nohup "$INSTALL_DIR/$BINARY_NAME" > /dev/null 2>&1 &
-
-echo -e "${BLUE}Lumen is now running. Close this terminal and stay wavy. ✨${NC}"
+echo -e "${BLUE}Lumen is now running. Stay wavy. ✨${NC}"
