@@ -64,7 +64,7 @@ pub async fn send_chat_message(
     //INFO: 1. Get Conversation History (Sliding Window: last 50 messages)
     let history = {
         let connection = database.connection.lock();
-        get_chat_messages(&connection, request.session_id.as_deref(), 50)
+        get_chat_messages(&connection, request.session_id.as_deref(), 20)
             .map_err(|e| format!("Failed to get history: {}", e))?
     };
 
@@ -157,70 +157,49 @@ pub async fn send_chat_message(
     let mut final_response_text = String::new();
 
     let mut tools_were_called = false;
-    //INFO: Tool execution loop (max 20 turns to prevent infinite loops)
-    for _i in 0..20 {
-        let response_schema = serde_json::json!({
-            "type": "object",
-            "properties": {
-                "response": {
-                    "type": "string",
-                    "description": "The conversational reply to the user. Use markdown for formatting."
-                },
-                "suggestedView": {
-                    "type": "string",
-                    "enum": ["chat", "calendar"],
-                    "description": "The view to transition to. Use 'calendar' if the user is asking about their schedule."
-                },
-                "suggestedDate": {
-                    "type": "string",
-                    "description": "The specific ISO-8601 date to show in the calendar (e.g., '2024-03-25'). Use only if transitioning to calendar."
-                }
+
+    //INFO: Tool execution loop — uses non-streaming for tool rounds
+    //NOTE: Only the FINAL response (no function calls) gets streamed to the UI
+    let response_schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "response": {
+                "type": "string",
+                "description": "The conversational reply to the user. Use markdown for formatting."
             },
-            "required": ["response", "suggestedView"]
-        });
+            "suggestedView": {
+                "type": "string",
+                "enum": ["chat", "calendar"],
+                "description": "The view to transition to. Use 'calendar' if the user is asking about their schedule."
+            },
+            "suggestedDate": {
+                "type": "string",
+                "description": "The specific ISO-8601 date to show in the calendar (e.g., '2024-03-25'). Use only if transitioning to calendar."
+            }
+        },
+        "required": ["response", "suggestedView"]
+    });
 
-        let config = crate::gemini::client::GenerationConfig {
-            response_mime_type: Some("application/json".to_string()),
-            response_schema: Some(response_schema),
-        };
+    let config = crate::gemini::client::GenerationConfig {
+        response_mime_type: Some("application/json".to_string()),
+        response_schema: Some(response_schema),
+    };
 
-        let chat_stream = client
-            .stream_chat(
+    for _i in 0..20 {
+        // Use non-streaming send_chat for tool execution rounds
+        let chat_response = client
+            .send_chat(
                 current_messages.clone(),
                 Some(&system_instruction),
                 Some(tools.clone()),
-                Some(config),
+                Some(config.clone()),
             )
             .await
             .map_err(|e| format!("Failed to get AI response: {}", e))?;
 
-        let mut chat_stream = Box::pin(chat_stream);
+        let response_parts = chat_response.parts;
 
-        // Process the stream
-        use futures::StreamExt;
-        let mut response_parts = Vec::new();
-
-        while let Some(chunk_res) = chat_stream.next().await {
-            let chunk = chunk_res.map_err(|e| format!("Stream error: {}", e))?;
-            for part in chunk.parts {
-                if let Some(ref text) = part.text {
-                    let mut emit_text = text.clone();
-                    if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text) {
-                        if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
-                            emit_text = resp.to_string();
-                        }
-                    }
-                    let _ = app_handle.emit("assistant-reply-turn", emit_text);
-                    
-                    if !final_response_text.is_empty() {
-                        final_response_text.push_str("\n\n");
-                    }
-                    final_response_text.push_str(text);
-                }
-                response_parts.push(part);
-            }
-        }
-
+        // Record the model's response in history
         current_messages.push(crate::gemini::client::GeminiContent {
             role: Some("model".to_string()),
             parts: response_parts.clone(),
@@ -229,8 +208,24 @@ pub async fn send_chat_message(
         let mut has_function_calls = false;
         let mut function_responses = Vec::new();
 
-        for part in response_parts {
-            if let Some(call) = part.function_call {
+        for part in &response_parts {
+            // Extract text from non-tool-call responses
+            if let Some(text) = &part.text {
+                // Reset final text each round — only the last round's text matters
+                final_response_text.clear();
+                final_response_text.push_str(text);
+
+                // Emit to frontend for real-time display
+                let mut emit_text = text.clone();
+                if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text) {
+                    if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
+                        emit_text = resp.to_string();
+                    }
+                }
+                let _ = app_handle.emit("assistant-reply-turn", emit_text);
+            }
+
+            if let Some(call) = &part.function_call {
                 has_function_calls = true;
                 tools_were_called = true;
                 if call.name == "get_weather"
@@ -270,6 +265,9 @@ pub async fn send_chat_message(
         }
 
         if has_function_calls {
+            // Clear the streaming bubble so it doesn't show stale tool-call text
+            let _ = app_handle.emit("assistant-reply-clear", ());
+
             let mut screenshot_data = None;
             for resp in &mut function_responses {
                 if let Some(f_resp) = &mut resp.function_response {

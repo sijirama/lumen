@@ -93,7 +93,12 @@ pub async fn refresh_dashboard_briefing(
                                     let note_path = Path::new(vault_path).join(daily_notes_folder).join(&note_name);
 
                                     if let Ok(content) = fs::read_to_string(&note_path) {
-                                        notes.push(format!("### [{}] Daily Note ({})\n{}", label, target_date.format("%A, %B %d"), content));
+                                        let trimmed = if content.chars().count() > 500 {
+                                            format!("{}...", content.chars().take(500).collect::<String>())
+                                        } else {
+                                            content
+                                        };
+                                        notes.push(format!("### [{}] Daily Note ({})\n{}", label, target_date.format("%A, %B %d"), trimmed));
                                     }
                                 }
 
@@ -124,8 +129,8 @@ pub async fn refresh_dashboard_briefing(
                                         let file_name = entry.file_name().to_string_lossy();
                                         println!("  - [PICK] {}", file_name);
                                         // Truncate content safely to avoid char boundary panics
-                                        let snippet = if content.chars().count() > 1000 { 
-                                            format!("{}...", content.chars().take(1000).collect::<String>()) 
+                                        let snippet = if content.chars().count() > 500 { 
+                                            format!("{}...", content.chars().take(500).collect::<String>()) 
                                         } else { 
                                             content 
                                         };
@@ -145,7 +150,6 @@ pub async fn refresh_dashboard_briefing(
 
     let email_future = {
         let db = database.inner().clone();
-        let api_key = api_key.clone();
         async move {
             let mut important_emails = Vec::new();
             if let Ok(has_google) = {
@@ -156,55 +160,14 @@ pub async fn refresh_dashboard_briefing(
                     let last_24h = (Local::now() - Duration::hours(24)).timestamp();
                     let query = format!("category:primary after:{}", last_24h);
                     
-                    if let Ok(emails) = crate::integrations::google_gmail::fetch_recent_emails_with_query(&db, 30, Some(&query)).await {
+                    if let Ok(emails) = crate::integrations::google_gmail::fetch_recent_emails_with_query(&db, 10, Some(&query)).await {
                         if !emails.is_empty() {
-                            println!("DEBUG: Found {} emails from Gmail API in last 24h:", emails.len());
-                            for e in &emails {
-                                println!("  - Subject: {}", e.subject.as_deref().unwrap_or("(No Subject)"));
-                            }
-
-                            let emails_json = serde_json::to_string(&emails).unwrap_or_default();
-                            let filter_prompt = crate::gemini::prompt::get_email_filter_prompt(&emails_json);
-                            let gemini_client = GeminiClient::new(api_key);
-                            
-                            match gemini_client.send_chat(
-                                vec![GeminiContent {
-                                    role: Some("user".to_string()),
-                                    parts: vec![GeminiPart::text(filter_prompt)],
-                                }],
-                                Some("You are a specialized email filtering agent. Respond ONLY with valid JSON."),
-                                None,
-                                Some(GenerationConfig {
-                                    response_mime_type: Some("application/json".to_string()),
-                                    response_schema: None,
-                                }),
-                            ).await {
-                                Ok(chat_response) => {
-                                    if let Some(usage) = &chat_response.usage {
-                                        println!("DEBUG: Email Filter Token Usage -> Prompt: {}, Candidates: {}, Total: {}", usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
-                                    }
-                                    let filter_response = chat_response.parts.iter().filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
-                                    
-                                    match serde_json::from_str::<Vec<crate::integrations::google_gmail::GmailMessage>>(&filter_response.trim()) {
-                                        Ok(filtered) => {
-                                            println!("DEBUG: Filtered down to {} important emails:", filtered.len());
-                                            for f in &filtered {
-                                                println!("  - [KEEP] Subject: {}", f.subject.as_deref().unwrap_or("(No Subject)"));
-                                            }
-                                            // Take up to 10
-                                            important_emails = filtered.into_iter().take(10).collect();
-                                        }
-                                        Err(e) => {
-                                            println!("DEBUG: Email filter JSON parse failed: {}. Falling back to top 10.", e);
-                                            println!("DEBUG: Raw response was: {}", filter_response);
-                                            important_emails = emails.into_iter().take(10).collect();
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    println!("DEBUG: Email filter Gemini call failed: {}. Falling back to top 10.", e);
-                                    important_emails = emails.into_iter().take(10).collect();
-                                }
+                            println!("DEBUG: Found {} primary emails in last 24h (heuristic filter)", emails.len());
+                            // Heuristic: Gmail's category:primary already filters promos/social.
+                            // Take the top 5 most recent — no LLM call needed.
+                            important_emails = emails.into_iter().take(5).collect();
+                            for e in &important_emails {
+                                println!("  - [KEEP] Subject: {}", e.subject.as_deref().unwrap_or("(No Subject)"));
                             }
                         }
                     }
@@ -305,11 +268,15 @@ pub async fn refresh_dashboard_briefing(
             memory_context.push_str("--------------------------------------------\n");
         }
 
-        // B. Semantic Retrieval based on current context
+        // B. Semantic Retrieval — use a lightweight query instead of embedding the entire context
+        let memory_query = format!(
+            "Daily briefing for {} on {}. Weather, calendar events, emails, notes, tasks.",
+            greeting_name, current_time_str
+        );
         let memory_client = GeminiClient::new(api_key.clone());
-        if let Ok(situation_embedding) = memory_client.generate_embedding(&raw_data_context).await {
+        if let Ok(situation_embedding) = memory_client.generate_embedding(&memory_query).await {
             let connection = database.connection.lock();
-            if let Ok(memories) = crate::memory::core::retrieve_memories(&connection, &situation_embedding, 50) {
+            if let Ok(memories) = crate::memory::core::retrieve_memories(&connection, &situation_embedding, 15) {
                 if !memories.is_empty() {
                     memory_context.push_str(&crate::memory::core::format_memories_for_prompt(&memories));
                     // Update access counts

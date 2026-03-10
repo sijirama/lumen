@@ -120,25 +120,26 @@ function OverlayWindow() {
         }
     };
 
-    //INFO: Listen for streaming "double-texting" messages and proactive updates
+    //INFO: Listen for streaming messages, clear events, and proactive updates
     useEffect(() => {
         let unlistenTurn: (() => void) | null = null;
+        let unlistenClear: (() => void) | null = null;
         let unlistenMsg: (() => void) | null = null;
 
         async function setup() {
             // @ts-ignore
             const { listen } = await import('@tauri-apps/api/event');
 
-            // Turn-by-turn streaming (Real-time accumulation)
+            // Real-time text from the AI (replaces streaming bubble content)
             unlistenTurn = await listen<string>('assistant-reply-turn', (event) => {
                 setMessages(prev => {
                     const last = prev[prev.length - 1];
                     if (last && last.id === -1) {
-                        // Update the existing streaming bubble
+                        // Replace the streaming bubble content (non-streaming sends full text)
                         const updated = [...prev];
                         updated[updated.length - 1] = {
                             ...last,
-                            content: last.content + event.payload
+                            content: event.payload
                         };
                         return updated;
                     } else {
@@ -154,6 +155,11 @@ function OverlayWindow() {
                 });
             });
 
+            // Clear streaming bubbles (e.g., during tool execution rounds)
+            unlistenClear = await listen('assistant-reply-clear', () => {
+                setMessages(prev => prev.filter(m => m.id !== -1));
+            });
+
             // Permanent proactive messages (from Agent)
             unlistenMsg = await listen<ChatMessage>('assistant-message', (event) => {
                 setMessages(prev => [...prev.filter(m => m.id !== event.payload.id), event.payload]);
@@ -162,6 +168,7 @@ function OverlayWindow() {
         setup();
         return () => {
             if (unlistenTurn) unlistenTurn();
+            if (unlistenClear) unlistenClear();
             if (unlistenMsg) unlistenMsg();
         };
     }, []);
