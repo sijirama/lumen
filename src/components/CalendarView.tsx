@@ -28,9 +28,10 @@ interface CalendarViewProps {
     isExpanded: boolean;
     onToggleExpand: (expanded: boolean) => void;
     initialDate?: string; // ISO string
+    transitionView?: 'chat' | 'calendar';
 }
 
-const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand, initialDate }) => {
+const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand, initialDate, transitionView }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -50,6 +51,31 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
     useEffect(() => {
         fetchEvents();
     }, [currentDate]);
+
+    // Force refresh when view becomes active
+    useEffect(() => {
+        if (transitionView === 'calendar') {
+            console.log('🗓️ Calendar view active, refreshing events...');
+            fetchEvents();
+        }
+    }, [transitionView]);
+
+    // Listen for backend updates
+    useEffect(() => {
+        let unlisten: (() => void) | null = null;
+        async function setup() {
+            // @ts-ignore
+            const { listen } = await import('@tauri-apps/api/event');
+            unlisten = await listen('calendar-updated', () => {
+                console.log('🗓️ Backend signaled calendar update, refreshing...');
+                fetchEvents();
+            });
+        }
+        setup();
+        return () => {
+            if (unlisten) unlisten();
+        };
+    }, []);
 
     const fetchEvents = async () => {
         setIsLoading(true);

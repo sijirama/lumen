@@ -426,6 +426,7 @@ function OverlayWindow() {
                                 isExpanded={isCalendarExpanded} 
                                 onToggleExpand={handleCalendarExpansionToggle}
                                 initialDate={suggestedDate}
+                                transitionView={transitionView}
                             />
                         </div>
                     </div>

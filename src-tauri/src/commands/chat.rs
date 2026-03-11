@@ -267,6 +267,15 @@ pub async fn send_chat_message(
                         crate::gemini::tools::execute_tool_async(&call.name, &call.args, &database)
                             .await;
 
+                    // Proactive signals for UI refreshes
+                    if call.name == "create_calendar_event" || call.name == "delete_calendar_event" {
+                        if res.get("status").and_then(|s| s.as_str()) == Some("success")
+                            || res.get("events").is_some()
+                        {
+                            let _ = app_handle.emit("calendar-updated", ());
+                        }
+                    }
+
                     function_responses.push(crate::gemini::client::GeminiPart::function_response(
                         call.name.clone(),
                         res,

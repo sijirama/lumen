@@ -7,10 +7,10 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 const GEMINI_API_URL: &str =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent";
 
 const GEMINI_STREAM_URL: &str =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent";
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent";
 
 const GEMINI_EMBEDDING_URL: &str =
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent";
