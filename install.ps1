@@ -20,12 +20,12 @@ $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$REPO/releases/
 $LATEST_RELEASE = $releases.tag_name
 
 if (-not $LATEST_RELEASE) {
-    Write-Host "Couldn't find a release tagged on GitHub. Fallback to v0.1.0" -ForegroundColor Yellow
-    $LATEST_RELEASE = "v0.1.0"
+    Write-Host "Couldn't find a release tagged on GitHub. Fallback to v0.2.0" -ForegroundColor Yellow
+    $LATEST_RELEASE = "v0.2.0"
 }
 
 # 2. Download and Install
-# Asset naming convention for Tauri on Windows: Lumen_0.1.3_x64_en-US.msi
+# Asset naming convention for Tauri on Windows: Lumen_0.2.0_x64_en-US.msi
 $VERSION_NUM = $LATEST_RELEASE.Replace("v", "")
 $ASSET_NAME = "Lumen_${VERSION_NUM}_x64_en-US.msi"
 $DOWNLOAD_URL = "https://github.com/$REPO/releases/download/$LATEST_RELEASE/$ASSET_NAME"

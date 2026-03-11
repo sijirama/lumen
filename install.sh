@@ -106,11 +106,11 @@ LATEST_RELEASE=$(curl -s https://api.github.com/repos/$REPO/releases/latest | gr
 if [ -z "$LATEST_RELEASE" ]; then
     # Fallback if API fails or no release exists yet
     echo -e "${YELLOW}Couldn't find a release tagged on GitHub. Checking binary in local build...${NC}"
-    LATEST_RELEASE="v0.1.0"
+    LATEST_RELEASE="v0.2.0"
 fi
 
 # 4. Download and Install
-# Asset naming convention for Tauri: Lumen_0.1.0_amd64.AppImage
+# Asset naming convention for Tauri: Lumen_0.2.0_amd64.AppImage
 ARCH_SUFFIX="amd64"
 if [ "$ARCH" == "aarch64" ]; then ARCH_SUFFIX="arm64"; fi
 
