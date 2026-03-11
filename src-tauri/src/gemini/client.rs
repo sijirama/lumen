@@ -323,6 +323,8 @@ impl GeminiClient {
             "outputDimensionality": 768
         });
 
+        println!("DEBUG: 🧠 Generating Embedding. URL: {} | Body: {}", api_url.replace(&self.api_key, "HIDDEN_KEY"), body);
+
         let response = self
             .http_client
             .post(&api_url)

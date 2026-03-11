@@ -248,10 +248,7 @@ pub async fn send_chat_message(
                         call.name.clone(),
                         serde_json::json!({ "error": format!("Tool '{}' has already been called {} times this turn. Please provide your response now using the information you already have.", call.name, MAX_CALLS_PER_TOOL) }),
                     ));
-                    has_function_calls = true;
-                    tools_were_called = true;
-                    continue;
-                }
+                } else {
 
                 has_function_calls = true;
                 tools_were_called = true;
@@ -288,6 +285,7 @@ pub async fn send_chat_message(
                         res,
                     ));
                 }
+                } // Close the newly added else block
             }
         }
 
