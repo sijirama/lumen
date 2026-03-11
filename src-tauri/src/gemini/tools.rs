@@ -224,6 +224,21 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                 })),
             },
             GeminiFunctionDeclaration {
+                name: "delete_calendar_event".to_string(),
+                description: "Deletes an event from the user's primary Google Calendar using its unique event ID. IMPORTANT: You must first use 'get_google_calendar_events' to find the 'id' of the event you want to delete."
+                    .to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "event_id": {
+                            "type": "string",
+                            "description": "The unique ID of the event to delete."
+                        }
+                    },
+                    "required": ["event_id"]
+                })),
+            },
+            GeminiFunctionDeclaration {
                 name: "list_google_tasks".to_string(),
                 description: "Lists pending tasks from the user's default Google Tasks list (Official cloud-stored items). DO NOT use this for checking local Obsidian daily notes or Markdown tasks."
                     .to_string(),
@@ -789,6 +804,13 @@ pub async fn execute_tool_async(
             {
                 Ok(event) => json!({ "status": "success", "event": event }),
                 Err(e) => json!({ "error": format!("Failed to create event: {}", e) }),
+            }
+        }
+        "delete_calendar_event" => {
+            let event_id = args.get("event_id").and_then(|v| v.as_str()).unwrap_or("");
+            match crate::integrations::google_calendar::delete_calendar_event(database, event_id).await {
+                Ok(_) => json!({ "status": "success", "message": "Event deleted successfully." }),
+                Err(e) => json!({ "error": format!("Failed to delete event: {}", e) }),
             }
         }
         "list_google_tasks" => {

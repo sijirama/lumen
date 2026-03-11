@@ -194,8 +194,8 @@ pub async fn send_chat_message(
 
     //INFO: Per-tool call counter to prevent runaway tool loops
     let mut tool_call_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    const MAX_CALLS_PER_TOOL: usize = 2;
-    const MAX_TOOL_ROUNDS: usize = 5;
+    const MAX_CALLS_PER_TOOL: usize = 5;
+    const MAX_TOOL_ROUNDS: usize = 7;
 
     for _i in 0..MAX_TOOL_ROUNDS {
         // Use non-streaming send_chat for tool execution rounds
@@ -261,6 +261,7 @@ pub async fn send_chat_message(
                     || call.name == "create_google_task"
                     || call.name == "take_screenshot"
                     || call.name == "retrieve_past_memories"
+                    || call.name == "delete_calendar_event"
                 {
                     let res =
                         crate::gemini::tools::execute_tool_async(&call.name, &call.args, &database)
@@ -313,7 +314,7 @@ pub async fn send_chat_message(
             }
 
             current_messages.push(crate::gemini::client::GeminiContent {
-                role: Some("function".to_string()),
+                role: Some("user".to_string()),
                 parts: function_responses,
             });
             if let Some(b64) = screenshot_data {

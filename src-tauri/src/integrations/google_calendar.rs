@@ -142,6 +142,50 @@ pub async fn create_calendar_event(
     }
 }
 
+pub async fn delete_calendar_event(
+    database: &Database,
+    event_id: &str,
+) -> Result<()> {
+    let mut tokens = {
+        let connection = database.connection.lock();
+        get_google_tokens(&connection)?
+    };
+
+    if is_expired(&tokens) {
+        tokens = refresh_google_tokens(database, &tokens).await?;
+    }
+
+    let url = format!("https://www.googleapis.com/calendar/v3/calendars/primary/events/{}", event_id);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .delete(&url)
+        .header(AUTHORIZATION, format!("Bearer {}", tokens.access_token))
+        .send()
+        .await?;
+
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        tokens = refresh_google_tokens(database, &tokens).await?;
+        let response = client
+            .delete(&url)
+            .header(AUTHORIZATION, format!("Bearer {}", tokens.access_token))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(anyhow!("Failed to delete calendar event after refresh: {}", error_text));
+        }
+        Ok(())
+    } else {
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(anyhow!("Failed to delete calendar event: {}", error_text));
+        }
+        Ok(())
+    }
+}
+
 use serde_json::json;
 
 fn parse_google_events(data: serde_json::Value) -> Result<Vec<GoogleCalendarEvent>> {
