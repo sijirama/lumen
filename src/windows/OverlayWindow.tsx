@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, X, Loader2, FileText, Crosshair, CalendarDays, LayoutDashboard, MessageSquare, Globe } from 'lucide-react';
+import { Send, X, Loader2, FileText, Crosshair, CalendarDays, LayoutDashboard, MessageSquare } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import CalendarView from '../components/CalendarView';
 
@@ -16,6 +16,14 @@ interface ChatMessage {
     created_at: string;
     image_data?: string;
     citations?: { title: string; url: string }[];
+}
+
+//INFO: Response type for send_chat_message command
+interface SendMessageResponse {
+    user_message: ChatMessage;
+    assistant_message: ChatMessage;
+    suggested_date?: string | null;
+    suggested_view?: string | null;
 }
 
 //INFO: Helper to extract domain from URL

@@ -67,7 +67,6 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
     // Listen for backend updates
     useEffect(() => {
         let unlisten: (() => void) | null = null;
-        let unlistenReminders: (() => void) | null = null;
         
         async function setup() {
             const { listen } = await import('@tauri-apps/api/event');
