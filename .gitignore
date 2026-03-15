@@ -1,5 +1,6 @@
 # Logs
 notes/
+src-tauri/test_prompts/
 
 logs
 *.log

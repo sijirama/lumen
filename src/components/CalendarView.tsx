@@ -20,6 +20,7 @@ interface CalendarEvent {
     summary: string;
     description?: string;
     location?: string;
+    hangout_link?: string;
     start: { dateTime?: string; date?: string };
     end: { dateTime?: string; date?: string };
 }
@@ -55,7 +56,10 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
     // Force refresh when view becomes active
     useEffect(() => {
         if (transitionView === 'calendar') {
-            console.log('🗓️ Calendar view active, refreshing events...');
+            console.log('🗓️ Calendar view active, refreshing events and resetting to today...');
+            const today = new Date();
+            setCurrentDate(today);
+            setSelectedDate(today);
             fetchEvents();
         }
     }, [transitionView]);
@@ -63,15 +67,18 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
     // Listen for backend updates
     useEffect(() => {
         let unlisten: (() => void) | null = null;
+        let unlistenReminders: (() => void) | null = null;
+        
         async function setup() {
-            // @ts-ignore
             const { listen } = await import('@tauri-apps/api/event');
             unlisten = await listen('calendar-updated', () => {
                 console.log('🗓️ Backend signaled calendar update, refreshing...');
                 fetchEvents();
             });
         }
+        
         setup();
+        
         return () => {
             if (unlisten) unlisten();
         };
@@ -82,13 +89,15 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
         try {
             const start = startOfMonth(currentDate).toISOString();
             const end = endOfMonth(currentDate).toISOString();
+            
             const data = await invoke<CalendarEvent[]>('get_calendar_events_for_range', {
                 startIso: start,
                 endIso: end
             });
+            
             setEvents(data || []);
         } catch (err) {
-            console.error('Failed to fetch calendar events:', err);
+            console.error('Failed to fetch calendar data:', err);
         } finally {
             setIsLoading(false);
         }
@@ -200,7 +209,9 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
             <div className="events-timeline-glow">
                 <div className="timeline-header">
                     <span className="sticky-day-title">{format(selectedDate, 'EEEE, MMM do')}</span>
-                    {isLoading && <Loader2 className="animate-spin opacity-50" size={14} />}
+                    <div className="flex items-center gap-2">
+                        {isLoading && <Loader2 className="animate-spin opacity-50" size={14} />}
+                    </div>
                 </div>
 
                 <div className="sexy-event-list">
@@ -226,6 +237,18 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
                                                     <MapPin size={10} className="mr-1" /> {event.location}
                                                 </span>
                                             )}
+                                            {event.hangout_link && (
+                                                <a 
+                                                    href={event.hangout_link} 
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer"
+                                                    className="join-meet-btn"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    style={{ color: style.text, borderColor: style.text }}
+                                                >
+                                                    Join Meet
+                                                </a>
+                                            )}
                                         </div>
                                         <h4 className="pill-title">{event.summary}</h4>
                                         {event.description && (
@@ -246,7 +269,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
                     flex: 1;
                     display: flex;
                     flex-direction: column;
-                    padding: 0 2px;
+                    padding: 0;
                     height: 100%;
                     overflow: hidden;
                     font-family: var(--font-family-sans);
@@ -346,7 +369,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
                 .sexy-grid-wrapper.expanded {
                     max-height: 400px; /* Slightly taller for breathing room */
                     opacity: 1;
-                    margin-bottom: var(--spacing-4);
+                    margin-bottom: var(--spacing-2);
                     pointer-events: auto;
                     transform: translateY(0);
                 }
@@ -442,6 +465,11 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
                     display: flex;
                     flex-direction: column;
                     min-height: 0;
+                    margin-top: 0;
+                    background: rgba(255, 255, 255, 0.02);
+                    border-radius: 20px;
+                    padding: 8px 0;
+                    border: 1px solid rgba(255, 255, 255, 0.05);
                 }
 
                 .timeline-header {
@@ -449,6 +477,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
                     align-items: center;
                     justify-content: space-between;
                     margin-bottom: var(--spacing-3);
+                    padding: 0 14px;
                 }
 
                 .sticky-day-title {
@@ -463,22 +492,50 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
                     overflow-y: auto;
                     display: flex;
                     flex-direction: column;
-                    gap: var(--spacing-2);
-                    padding-bottom: var(--spacing-6);
+                    gap: 4px;
+                    padding: 0 0 20px 0;
+                    
+                    /* Custom Scrollbar - Visible but hidden until needed */
                     scrollbar-width: none;
                 }
-                .sexy-event-list::-webkit-scrollbar { display: none; }
+                .sexy-event-list::-webkit-scrollbar { 
+                    display: none;
+                }
+                .sexy-event-list::-webkit-scrollbar { 
+                    width: 4px;
+                }
+                .sexy-event-list::-webkit-scrollbar-track {
+                    background: transparent;
+                }
+                .sexy-event-list::-webkit-scrollbar-thumb {
+                    background: rgba(167, 139, 250, 0.3);
+                    border-radius: 10px;
+                }
+                .sexy-event-list::-webkit-scrollbar-thumb:hover {
+                    background: rgba(167, 139, 250, 0.5);
+                }
 
                 .sexy-pill {
-                    padding: 10px 14px;
+                    padding: 8px 14px;
                     border-radius: 14px;
                     position: relative;
-                    overflow: hidden;
-                    transition: transform 0.2s;
-                    background: var(--color-bg-secondary); /* Fallback */
-                    border: 1px solid rgba(0,0,0,0.05);
+                    overflow: visible;
+                    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                    background: var(--color-bg-secondary);
+                    width: fit-content;
+                    max-width: calc(100% - 16px);
+                    margin: 0 8px;
+                    border: 1px solid rgba(255,255,255,0.08);
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+                    flex-shrink: 0;
+                    margin: 0;
                 }
-                .sexy-pill:hover { transform: scale(1.01); background: var(--color-bg-elevated); }
+                .sexy-pill:hover { 
+                    transform: translateY(-2px); 
+                    background: var(--color-bg-elevated);
+                    box-shadow: 0 8px 25px rgba(0,0,0,0.06);
+                    border-color: rgba(167, 139, 250, 0.2);
+                }
 
 
                 .pill-main {
@@ -505,19 +562,77 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
                 .pill-location, .pill-desc { color: var(--color-text-tertiary); font-weight: 600; opacity: 0.6; }
 
                 .pill-title {
-                    font-size: 0.75rem;
-                    font-weight: 600;
+                    font-size: 0.8rem;
+                    font-weight: 700;
                     color: var(--color-text-primary);
                     line-height: 1.2;
                 }
 
                 .pill-desc {
-                    margin-top: 2px;
-                    display: -webkit-box;
-                    -webkit-line-clamp: 2;
-                    -webkit-box-orient: vertical;
-                    overflow: hidden;
-                    line-height: 1.4;
+                    margin-top: 4px;
+                    max-height: 0;
+                    opacity: 0;
+                    transition: all 0.2s ease;
+                    pointer-events: none;
+                    font-size: 0.65rem;
+                }
+
+                .sexy-pill:hover .pill-desc {
+                    max-height: 60px;
+                    opacity: 0.8;
+                    margin-top: 6px;
+                }
+
+                .reminder-pill {
+                    background: var(--color-accent-light) !important;
+                    border: 1px solid rgba(167, 139, 250, 0.3) !important;
+                }
+
+                .reminder-time {
+                    color: var(--color-accent) !important;
+                }
+
+                .join-meet-btn {
+                    margin-left: auto;
+                    padding: 4px 10px;
+                    border-radius: 8px;
+                    font-size: 0.65rem;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                    letter-spacing: 0.02em;
+                    text-decoration: none;
+                    background: rgba(255, 255, 255, 0.4);
+                    border: 1px solid currentColor;
+                    transition: all 0.2s;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .join-meet-btn:hover {
+                    background: white;
+                    transform: scale(1.05);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+                }
+
+                .pill-delete-btn {
+                    margin-left: auto;
+                    background: none;
+                    border: none;
+                    color: var(--color-text-tertiary);
+                    opacity: 0.5;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 4px;
+                    border-radius: 4px;
+                }
+
+                .pill-delete-btn:hover {
+                    color: var(--color-error);
+                    background: rgba(234, 67, 53, 0.1);
+                    opacity: 1;
                 }
 
                 .mr-1 { margin-right: 2px; }

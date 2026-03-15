@@ -15,6 +15,8 @@ pub struct GoogleCalendarEvent {
     pub start: GoogleDateTime,
     pub end: GoogleDateTime,
     pub location: Option<String>,
+    #[serde(rename = "hangoutLink")]
+    pub hangout_link: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

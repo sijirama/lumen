@@ -306,6 +306,7 @@ pub async fn refresh_dashboard_briefing(
             None,            Some(GenerationConfig {
                 response_mime_type: None,
                 response_schema: None,
+                ..Default::default()
             }),
         )
         .await
@@ -381,6 +382,7 @@ pub async fn refresh_dashboard_briefing(
                             Some(GenerationConfig {
                                 response_mime_type: Some("application/json".to_string()),
                                 response_schema: None,
+                                ..Default::default()
                             }),
                         ).await;
 

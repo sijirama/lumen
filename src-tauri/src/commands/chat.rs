@@ -4,7 +4,7 @@
 use crate::crypto::decrypt_token;
 use crate::database::queries::{
     clear_chat_messages, get_api_token, get_calendar_events, get_chat_messages, get_integration,
-    get_user_profile, save_chat_message, ChatMessage,
+    get_user_profile, save_chat_message, ChatMessage, Citation,
 };
 use crate::database::Database;
 use crate::gemini::{client::get_default_system_instruction, GeminiClient};
@@ -47,6 +47,7 @@ pub struct ChatMessageResponse {
     pub content: String,
     pub image_data: Option<String>,
     pub created_at: String,
+    pub citations: Option<Vec<Citation>>,
 }
 
 
@@ -64,7 +65,7 @@ pub struct SendMessageResponse {
     pub user_message: ChatMessageResponse,
     pub assistant_message: ChatMessageResponse,
     pub suggested_view: Option<String>,
-    pub suggested_date: Option<String>, // ISO date string for calendar view
+    pub suggested_date: Option<String>,
 }
 
 //INFO: Sends a message to the AI and returns the response
@@ -88,10 +89,10 @@ pub async fn send_chat_message(
         decrypt_token(&encrypted_key).map_err(|e| format!("Failed to decrypt API key: {}", e))?
     };
 
-    //INFO: 1. Get Conversation History (Sliding Window: last 50 messages)
+    //INFO: 1. Get Conversation History (Sliding Window: last 15 messages)
     let history = {
         let connection = database.connection.lock();
-        get_chat_messages(&connection, request.session_id.as_deref(), 20)
+        get_chat_messages(&connection, request.session_id.as_deref(), 15)
             .map_err(|e| format!("Failed to get history: {}", e))?
     };
 
@@ -126,8 +127,13 @@ pub async fn send_chat_message(
         parts,
     });
 
-    //INFO: 5. Load Tools
-    let tools = crate::gemini::tools::get_tool_declarations();
+    //INFO: 5. Load Tools (serialize function declarations)
+    let function_tool_declarations = crate::gemini::tools::get_tool_declarations();
+    let tools_json: Vec<serde_json::Value> = function_tool_declarations
+        .iter()
+        .map(|t| serde_json::to_value(t).unwrap_or_default())
+        .collect();
+    let tools = tools_json;
 
     let obsidian_config = {
         let connection = database.connection.lock();
@@ -144,7 +150,7 @@ pub async fn send_chat_message(
     //INFO: Enhance system instruction with specific user info
     let mut system_instruction = get_default_system_instruction();
 
-    if let Some(ctx) = context {
+    if let Some(ctx) = &context {
         system_instruction.push_str("\n\n--- CURRENT DIGITAL STATE (BACKGROUND CONTEXT) ---");
         system_instruction.push_str(
             "\nThis is the user's active screen/system state. Use it ONLY if relevant to their request.",
@@ -178,19 +184,54 @@ pub async fn send_chat_message(
         system_instruction.push_str("\n------------------------------");
     }
 
-    system_instruction.push_str("\n\n🎯 CONVERSATIONAL RULES:\n1. If the user says 'hi', 'hello', 'hey', 'what's up', or is just being social, respond IMMEDIATELY with warmth in the 'response' field. Do NOT call any tools. Do NOT retrieve memories. Just be friendly.\n2. Only use tools when the user asks a SPECIFIC question that requires data (calendar, weather, files, etc.).\n3. The 'response' field is MANDATORY in every reply. Never skip it.");
+    // (Rule #1 moved to top)
 
+    let history_count = gemini_messages.len();
+
+    let tool_count: usize = tools.iter().map(|t| {
+        if let Some(funcs) = t.get("function_declarations").and_then(|f| f.as_array()) {
+            funcs.len()
+        } else if t.get("google_search").is_some() {
+            1
+        } else {
+            0
+        }
+    }).sum();
+
+    //INFO: PROMPT BILL OF MATERIALS (For Speed Audit)
+    println!("\n--- 📦 PROMPT BILL OF MATERIALS ---");
+    println!("├─ 📜 System Instruction: {} chars", system_instruction.len());
+    if let Some(ctx) = &context {
+        println!("├─ 🔍 Context: {} chars (Snippet: {}...)", ctx.len(), &ctx[..100.min(ctx.len())].replace("\n", " "));
+    } else {
+        println!("├─ 🔍 Context: NONE");
+    }
+    println!("├─ 🕒 History: {} messages", history_count);
+    println!("├─ 🔧 Tools: {} available", tool_count);
+    println!("------------------------------------\n");
     let mut current_messages = gemini_messages;
     let mut final_response_text = String::new();
+    let mut final_grounding_metadata: Option<crate::gemini::client::GroundingMetadata> = None;
+    let mut manual_citations: Vec<Citation> = Vec::new();
 
-    let mut tools_were_called = false;
 
     //INFO: Tool execution loop — uses non-streaming for tool rounds
     //NOTE: Only the FINAL response (no function calls) gets streamed to the UI
-    let config = crate::gemini::client::GenerationConfig {
+    println!("DEBUG: 🤖 Using Gemini API at: {}", crate::gemini::client::get_api_url());
+
+    let mut config = crate::gemini::client::GenerationConfig {
         response_mime_type: Some("application/json".to_string()),
         response_schema: Some(get_chat_response_schema().clone()),
+        max_output_tokens: Some(2048),
+        ..Default::default()
     };
+
+    // Only use thinking config for 3.1 models
+    if crate::gemini::client::get_api_url().contains("gemini-3.1") {
+        config.thinking_config = Some(crate::gemini::client::ThinkingConfig {
+            thinking_level: "minimal".to_string(),
+        });
+    }
 
     //INFO: Per-tool call counter to prevent runaway tool loops
     let mut tool_call_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -198,6 +239,15 @@ pub async fn send_chat_message(
     const MAX_TOOL_ROUNDS: usize = 7;
 
     for _i in 0..MAX_TOOL_ROUNDS {
+        // DEBUG: Log the full prompt state before sending to LLM
+        log_prompt_debug(
+            &request.message,
+            &system_instruction,
+            &current_messages,
+            &tools,
+            _i + 1
+        );
+
         // Use non-streaming send_chat for tool execution rounds
         let chat_response = client
             .send_chat(
@@ -210,6 +260,15 @@ pub async fn send_chat_message(
             .map_err(|e| format!("Failed to get AI response: {}", e))?;
 
         let response_parts = chat_response.parts;
+
+        // Capture grounding metadata from latest response
+        if chat_response.grounding_metadata.is_some() {
+            final_grounding_metadata = chat_response.grounding_metadata.clone();
+        }
+
+        if let Some(usage) = &chat_response.usage {
+            println!("DEBUG: ⚡ Round {} Tokens -> Prompt: {}, Candidates: {}, Total: {}", _i + 1, usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
+        }
 
         // Record the model's response in history
         current_messages.push(crate::gemini::client::GeminiContent {
@@ -238,6 +297,7 @@ pub async fn send_chat_message(
             }
 
             if let Some(call) = &part.function_call {
+                println!("DEBUG: 🛠️ Tool Call -> {} (args: {})", call.name, call.args);
                 // Check if this tool has been called too many times
                 let count = tool_call_counts.entry(call.name.clone()).or_insert(0);
                 *count += 1;
@@ -246,12 +306,11 @@ pub async fn send_chat_message(
                     println!("DEBUG: ⚠️ Tool '{}' hit call limit ({}), skipping.", call.name, MAX_CALLS_PER_TOOL);
                     function_responses.push(crate::gemini::client::GeminiPart::function_response(
                         call.name.clone(),
-                        serde_json::json!({ "error": format!("Tool '{}' has already been called {} times this turn. Please provide your response now using the information you already have.", call.name, MAX_CALLS_PER_TOOL) }),
+                        serde_json::json!({ "error": format!("Tool '{}' has already been called {} times this turn. Please provide your response now using the information you already have. Do not attempt another search.", call.name, MAX_CALLS_PER_TOOL) }),
                     ));
                 } else {
 
                 has_function_calls = true;
-                tools_were_called = true;
                 if call.name == "get_weather"
                     || call.name == "get_google_calendar_events"
                     || call.name == "get_unread_emails"
@@ -262,10 +321,28 @@ pub async fn send_chat_message(
                     || call.name == "take_screenshot"
                     || call.name == "retrieve_past_memories"
                     || call.name == "delete_calendar_event"
+                    || call.name == "search_web"
                 {
                     let res =
                         crate::gemini::tools::execute_tool_async(&call.name, &call.args, &database)
                             .await;
+
+                    // Capture citations from search results
+                    if call.name == "search_web" {
+                        if let Some(results) = res.get("results").and_then(|r| r.as_array()) {
+                            for r in results {
+                                if let (Some(title), Some(url)) = (
+                                    r.get("title").and_then(|v| v.as_str()),
+                                    r.get("url").and_then(|v| v.as_str()),
+                                ) {
+                                    manual_citations.push(Citation {
+                                        title: title.to_string(),
+                                        url: url.to_string(),
+                                    });
+                                }
+                            }
+                        }
+                    }
 
                     // Proactive signals for UI refreshes
                     if call.name == "create_calendar_event" || call.name == "delete_calendar_event" {
@@ -278,8 +355,9 @@ pub async fn send_chat_message(
 
                     function_responses.push(crate::gemini::client::GeminiPart::function_response(
                         call.name.clone(),
-                        res,
+                        res.clone(),
                     ));
+                    println!("DEBUG: ✅ Tool '{}' Result: {}", call.name, res);
                 } else {
                     let res = {
                         let connection = database.connection.lock();
@@ -288,12 +366,14 @@ pub async fn send_chat_message(
                             &call.args,
                             obsidian_config.as_ref(),
                             &connection,
+                            &app_handle,
                         )
                     };
                     function_responses.push(crate::gemini::client::GeminiPart::function_response(
                         call.name.clone(),
-                        res,
+                        res.clone(),
                     ));
+                    println!("DEBUG: ✅ Tool '{}' Result: {}", call.name, res);
                 }
                 } // Close the newly added else block
             }
@@ -387,6 +467,7 @@ pub async fn send_chat_message(
         role: "user".to_string(),
         content: request.message.clone(),
         image_data: request.base64_image.clone(),
+        citations: None,
         created_at: now.clone(),
         session_id: request.session_id.clone(),
     };
@@ -413,11 +494,39 @@ pub async fn send_chat_message(
         }
     }
 
+    //INFO: Extract citations from grounding metadata (or manual citations from Tavily)
+    let mut citations: Option<Vec<Citation>> = if !manual_citations.is_empty() {
+        Some(manual_citations)
+    } else {
+        None
+    };
+
+    if citations.is_none() {
+        if let Some(ref gm) = final_grounding_metadata {
+            if let Some(ref chunks) = gm.grounding_chunks {
+                let citation_list: Vec<Citation> = chunks
+                    .iter()
+                    .filter_map(|chunk| {
+                        chunk.web.as_ref().map(|web| Citation {
+                            title: web.title.clone(),
+                            url: web.uri.clone(),
+                        })
+                    })
+                    .collect();
+                if !citation_list.is_empty() {
+                    println!("DEBUG: 🌐 Extracted {} citations from native grounding.", citation_list.len());
+                    citations = Some(citation_list);
+                }
+            }
+        }
+    }
+
     let assistant_message = ChatMessage {
         id: None,
         role: "assistant".to_string(),
         content: actual_final_text.clone(),
         image_data: None,
+        citations: citations.clone(),
         created_at: chrono::Utc::now().to_rfc3339(),
         session_id: request.session_id,
     };
@@ -486,6 +595,7 @@ pub async fn send_chat_message(
                         Some(crate::gemini::client::GenerationConfig {
                             response_mime_type: Some("application/json".to_string()),
                             response_schema: None,
+                            ..Default::default()
                         }),
                     ).await;
 
@@ -568,6 +678,7 @@ pub async fn send_chat_message(
                                                             Some(crate::gemini::client::GenerationConfig {
                                                                 response_mime_type: Some("application/json".to_string()),
                                                                 response_schema: None,
+                                                                ..Default::default()
                                                             }),
                                                         ).await;
 
@@ -623,6 +734,7 @@ pub async fn send_chat_message(
             content: user_message.content,
             image_data: user_message.image_data,
             created_at: user_message.created_at,
+            citations: None,
         },
         assistant_message: ChatMessageResponse {
             id: Some(assistant_id),
@@ -630,6 +742,7 @@ pub async fn send_chat_message(
             content: actual_final_text,
             image_data: None,
             created_at: assistant_message.created_at,
+            citations,
         },
         suggested_view,
         suggested_date,
@@ -657,6 +770,7 @@ pub fn get_chat_history(
             content: m.content,
             image_data: m.image_data,
             created_at: m.created_at,
+            citations: m.citations,
         })
         .collect())
 }
@@ -669,7 +783,51 @@ pub fn clear_chat_history(database: State<Database>) -> Result<(), String> {
     clear_chat_messages(&connection).map_err(|e| format!("Failed to clear chat history: {}", e))
 }
 
-//INFO: Bu//INFO: Builds context string from integrations (calendar, notes, etc.)
+//INFO: Bu//INFO: Helper to log prompt state for debugging
+fn log_prompt_debug(
+    message: &str,
+    system: &str,
+    history: &[crate::gemini::client::GeminiContent],
+    tools: &[serde_json::Value],
+    round: usize,
+) {
+    use std::fs;
+    use std::path::Path;
+
+    // 1. Sanitize filename (take first 30 chars of user message)
+    let safe_message: String = message
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ')
+        .take(30)
+        .collect::<String>()
+        .trim()
+        .replace(" ", "_");
+
+    let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let filename = format!("{}_R{}_{}.json", timestamp, round, safe_message);
+    
+    // Path: src-tauri/test_prompts/ (assuming we are in src-tauri or project root)
+    let debug_dir = Path::new("test_prompts");
+
+    if !debug_dir.exists() {
+        let _ = fs::create_dir_all(debug_dir);
+    }
+
+    let debug_data = serde_json::json!({
+        "round": round,
+        "timestamp": timestamp,
+        "user_message": message,
+        "system_instruction": system,
+        "history": history,
+        "tools": tools,
+    });
+
+    if let Ok(json_str) = serde_json::to_string_pretty(&debug_data) {
+        let _ = fs::write(debug_dir.join(filename), json_str);
+    }
+}
+
+//INFO: Builds context string from integrations (calendar, notes, etc.)
 fn build_chat_context(database: &State<Database>) -> Result<Option<String>, String> {
     let mut context_parts: Vec<String> = Vec::new();
 

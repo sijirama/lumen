@@ -91,7 +91,7 @@ pub async fn is_overlay_visible(app: tauri::AppHandle) -> Result<bool, String> {
 
 //INFO: Resizes and re-positions the overlay based on the view
 #[tauri::command]
-pub async fn resize_overlay(app: tauri::AppHandle, view: String) -> Result<(), String> {
+pub async fn resize_overlay(app: tauri::AppHandle, _view: String) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("overlay") {
         let (width, height) = (400.0, 820.0);
 

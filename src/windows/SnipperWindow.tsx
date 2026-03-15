@@ -19,12 +19,25 @@ export default function SnipperWindow() {
             }
         };
 
-        window.addEventListener('keydown', handleKeyDown);
+        // Listen for reset event to clear state (since window is recycled)
+        let unlistenReset: (() => void) | null = null;
+        async function setupResetListener() {
+            // @ts-ignore
+            const { listen } = await import('@tauri-apps/api/event');
+            unlistenReset = await listen('prepare-snip', () => {
+                console.log('🎯 Snipper preparing, resetting state...');
+                setStartPos(null);
+                setCurrentPos(null);
+                setIsDragging(false);
+            });
+        }
+        setupResetListener();
 
         return () => {
             document.body.classList.remove('snipper-window');
             document.documentElement.classList.remove('snipper-window');
             window.removeEventListener('keydown', handleKeyDown);
+            if (unlistenReset) unlistenReset();
         };
     }, []);
 

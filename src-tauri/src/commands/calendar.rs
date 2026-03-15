@@ -23,3 +23,32 @@ pub async fn get_calendar_events_for_range(
         }
     }
 }
+#[tauri::command]
+pub async fn get_reminders_for_range(
+    app: tauri::AppHandle,
+    start_iso: String,
+    end_iso: String,
+) -> Result<Vec<crate::database::queries::Reminder>, String> {
+    let database = app.state::<crate::database::Database>();
+    let connection = database.connection.lock();
+
+    crate::database::queries::get_reminders_for_range(&connection, &start_iso, &end_iso)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_reminder(
+    app: tauri::AppHandle,
+    id: i32,
+) -> Result<(), String> {
+    let database = app.state::<crate::database::Database>();
+    let connection = database.connection.lock();
+
+    // Trigger daemon wake up if possible
+    if let Some(mgr) = app.try_state::<crate::agent::reminders::ReminderManager>() {
+        mgr.trigger_update();
+    }
+
+    crate::database::queries::delete_reminder(&connection, id)
+        .map_err(|e| e.to_string())
+}

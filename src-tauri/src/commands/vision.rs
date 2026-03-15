@@ -67,6 +67,7 @@ pub async fn start_snipping(app: AppHandle) -> Result<(), String> {
             let _ = snipper.set_resizable(false);
         }
 
+        snipper.emit("prepare-snip", ()).map_err(|e| e.to_string())?;
         snipper.show().map_err(|e| e.to_string())?;
         snipper.set_focus().map_err(|e| e.to_string())?;
         snipper.set_always_on_top(true).map_err(|e| e.to_string())?;

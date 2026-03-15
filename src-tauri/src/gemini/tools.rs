@@ -5,6 +5,8 @@ use crate::gemini::client::{GeminiFunctionDeclaration, GeminiTool};
 use serde_json::json;
 use std::fs;
 use walkdir::WalkDir;
+use anyhow::Result;
+
 
 //INFO: Get all available tool declarations for Gemini
 pub fn get_tool_declarations() -> Vec<GeminiTool> {
@@ -85,37 +87,14 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                 parameters: None,
             },
             GeminiFunctionDeclaration {
-                name: "add_reminder".to_string(),
-                description: "Adds a reminder for the user.".to_string(),
-                parameters: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "content": {
-                            "type": "string",
-                            "description": "The reminder text."
-                        },
-                        "due_at": {
-                            "type": "string",
-                            "description": "When the reminder is due (optional, e.g. '2026-01-20T10:00:00Z')."
-                        }
-                    },
-                    "required": ["content"]
-                })),
-            },
-            GeminiFunctionDeclaration {
-                name: "list_reminders".to_string(),
-                description: "Lists all active reminders.".to_string(),
-                parameters: None,
-            },
-            GeminiFunctionDeclaration {
                 name: "search_web".to_string(),
-                description: "Searches the web for a query (simulated).".to_string(),
+                description: "Searches the web for high-quality information and direct answers using the Tavily API. This tool returns both a list of sources and a synthesized 'quick_answer' from an LLM. Use this for deep research and discovery.".to_string(),
                 parameters: Some(json!({
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "The search query."
+                            "description": "The specific research question or keywords."
                         }
                     },
                     "required": ["query"]
@@ -407,6 +386,7 @@ pub fn execute_tool_sync(
     args: &serde_json::Value,
     obsidian_config: Option<&serde_json::Value>,
     db_connection: &rusqlite::Connection,
+    _app_handle: &tauri::AppHandle,
 ) -> serde_json::Value {
     match name {
         "read_file" => {
@@ -490,42 +470,6 @@ pub fn execute_tool_sync(
             } else {
                 json!({ "error": "Obsidian vault not configured in settings." })
             }
-        }
-        "add_reminder" => {
-            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            let due_at = args.get("due_at").and_then(|v| v.as_str());
-            let created_at = chrono::Utc::now().to_rfc3339();
-
-            match db_connection.execute(
-                "INSERT INTO reminders (content, due_at, created_at) VALUES (?, ?, ?)",
-                rusqlite::params![content, due_at, created_at],
-            ) {
-                Ok(_) => json!({ "status": "success", "message": "Reminder added." }),
-                Err(e) => json!({ "error": format!("Failed to add reminder: {}", e) }),
-            }
-        }
-        "list_reminders" => {
-            let mut stmt = match db_connection
-                .prepare("SELECT id, content, due_at, completed FROM reminders WHERE completed = 0")
-            {
-                Ok(s) => s,
-                Err(e) => return json!({ "error": e.to_string() }),
-            };
-
-            let reminders: Vec<_> = stmt
-                .query_map([], |row| {
-                    Ok(json!({
-                        "id": row.get::<_, i32>(0)?,
-                        "content": row.get::<_, String>(1)?,
-                        "due_at": row.get::<_, Option<String>>(2)?,
-                        "completed": row.get::<_, i32>(3)? == 1
-                    }))
-                })
-                .unwrap()
-                .filter_map(|r| r.ok())
-                .collect();
-
-            json!({ "reminders": reminders })
         }
         "grep_file" => {
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
@@ -655,16 +599,6 @@ pub fn execute_tool_sync(
                 }
                 Err(e) => json!({ "error": format!("Failed to read file: {}", e) }),
             }
-        }
-        "search_web" => {
-            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
-            // Simulate a search result for now
-            json!({
-                "results": [
-                    { "title": format!("Information about {}", query), "snippet": "This is a simulated search result from the web." },
-                    { "title": "Lumen AI Assistant", "snippet": "Lumen is a desktop AI assistant designed for productivity." }
-                ]
-            })
         }
         "search_clipboard" => {
             let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
@@ -832,6 +766,13 @@ pub async fn execute_tool_async(
             {
                 Ok(task) => json!({ "status": "success", "task": task }),
                 Err(e) => json!({ "error": format!("Failed to create task: {}", e) }),
+            }
+        }
+        "search_web" => {
+            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+            match crate::integrations::tavily::search(database, query).await {
+                Ok(res) => res,
+                Err(e) => json!({ "error": format!("Search failed: {}", e) }),
             }
         }
         "take_screenshot" => match crate::commands::vision::capture_primary_screen().await {

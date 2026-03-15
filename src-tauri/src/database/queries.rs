@@ -40,6 +40,13 @@ fn default_snipper_enabled() -> bool {
     true
 }
 
+//INFO: Citation data structure for web search sources
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Citation {
+    pub title: String,
+    pub url: String,
+}
+
 //INFO: Chat message data structure
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
@@ -47,8 +54,18 @@ pub struct ChatMessage {
     pub role: String,
     pub content: String,
     pub image_data: Option<String>,
+    pub citations: Option<Vec<Citation>>,
     pub created_at: String,
     pub session_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Reminder {
+    pub id: i32,
+    pub content: String,
+    pub due_at: Option<String>,
+    pub completed: bool,
+    pub created_at: String,
 }
 
 //INFO: Calendar event data structure
@@ -269,9 +286,11 @@ pub fn has_api_token(connection: &Connection, provider: &str) -> Result<bool> {
 //INFO: Saves a chat message
 pub fn save_chat_message(connection: &Connection, message: &ChatMessage) -> Result<i64> {
     let now = Utc::now().to_rfc3339();
+    let citations_json = message.citations.as_ref().and_then(|c| serde_json::to_string(c).ok());
+    
     connection.execute(
-        "INSERT INTO chat_messages (role, content, image_data, created_at, session_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![message.role, message.content, message.image_data, now, message.session_id],
+        "INSERT INTO chat_messages (role, content, image_data, citations, created_at, session_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![message.role, message.content, message.image_data, citations_json, now, message.session_id],
     ).context("Failed to save chat message")?;
 
     Ok(connection.last_insert_rowid())
@@ -289,11 +308,14 @@ pub fn get_chat_messages(
     match session_id {
         Some(sid) => {
             let mut statement = connection.prepare(
-                "SELECT id, role, content, image_data, created_at, session_id FROM chat_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2"
+                "SELECT id, role, content, image_data, created_at, session_id, citations FROM chat_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2"
             ).context("Failed to prepare chat messages query")?;
 
             let rows = statement
                 .query_map(params![sid, limit], |row| {
+                    let citations_json: Option<String> = row.get(6)?;
+                    let citations = citations_json.and_then(|s| serde_json::from_str(&s).ok());
+                    
                     Ok(ChatMessage {
                         id: Some(row.get(0)?),
                         role: row.get(1)?,
@@ -301,6 +323,7 @@ pub fn get_chat_messages(
                         image_data: row.get(3)?,
                         created_at: row.get(4)?,
                         session_id: row.get(5)?,
+                        citations,
                     })
                 })
                 .context("Failed to query chat messages")?;
@@ -311,11 +334,14 @@ pub fn get_chat_messages(
         }
         None => {
             let mut statement = connection.prepare(
-                "SELECT id, role, content, image_data, created_at, session_id FROM chat_messages ORDER BY created_at DESC LIMIT ?1"
+                "SELECT id, role, content, image_data, created_at, session_id, citations FROM chat_messages ORDER BY created_at DESC LIMIT ?1"
             ).context("Failed to prepare chat messages query")?;
 
             let rows = statement
                 .query_map(params![limit], |row| {
+                    let citations_json: Option<String> = row.get(6)?;
+                    let citations = citations_json.and_then(|s| serde_json::from_str(&s).ok());
+                    
                     Ok(ChatMessage {
                         id: Some(row.get(0)?),
                         role: row.get(1)?,
@@ -323,6 +349,7 @@ pub fn get_chat_messages(
                         image_data: row.get(3)?,
                         created_at: row.get(4)?,
                         session_id: row.get(5)?,
+                        citations,
                     })
                 })
                 .context("Failed to query chat messages")?;
@@ -707,4 +734,119 @@ pub fn search_clipboard_history(
         results.push(row?);
     }
     Ok(results)
+}
+
+// ============================================================================
+// Web Search Cache Queries
+// ============================================================================
+
+//INFO: Gets a cached search result if it exists
+pub fn get_web_search_cache(connection: &Connection, query_hash: &str) -> Result<Option<String>> {
+    connection
+        .query_row(
+            "SELECT results FROM web_search_cache WHERE query_hash = ?",
+            [query_hash],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("Failed to get web search cache")
+}
+
+//INFO: Saves a search result to the cache
+pub fn save_web_search_cache(
+    connection: &Connection,
+    query_hash: &str,
+    query: &str,
+    results: &str,
+) -> Result<()> {
+    connection.execute(
+        "INSERT OR REPLACE INTO web_search_cache (query_hash, query, results, cached_at) VALUES (?, ?, ?, ?)",
+        params![query_hash, query, results, Utc::now().to_rfc3339()],
+    ).context("Failed to save web search cache")?;
+    Ok(())
+}
+
+// ============================================================================
+// Reminder Queries
+// ============================================================================
+
+//INFO: Saves a new reminder to the database
+pub fn save_reminder(
+    connection: &Connection,
+    content: &str,
+    due_at: Option<&str>,
+) -> Result<i32> {
+    let now = Utc::now().to_rfc3339();
+    connection.execute(
+        "INSERT INTO reminders (content, due_at, created_at) VALUES (?, ?, ?)",
+        params![content, due_at, now],
+    ).context("Failed to save reminder")?;
+    Ok(connection.last_insert_rowid() as i32)
+}
+
+//INFO: Gets all active (incomplete) reminders
+pub fn get_active_reminders(connection: &Connection) -> Result<Vec<Reminder>> {
+    let mut stmt = connection.prepare(
+        "SELECT id, content, due_at, completed, created_at FROM reminders WHERE completed = 0 ORDER BY due_at ASC"
+    )?;
+    
+    let rows = stmt.query_map([], |row| {
+        Ok(Reminder {
+            id: row.get(0)?,
+            content: row.get(1)?,
+            due_at: row.get(2)?,
+            completed: row.get::<_, i32>(3)? == 1,
+            created_at: row.get(4)?,
+        })
+    })?;
+
+    let mut reminders = Vec::new();
+    for row in rows {
+        reminders.push(row?);
+    }
+    Ok(reminders)
+}
+
+//INFO: Gets reminders for a specific date range (ISO format)
+pub fn get_reminders_for_range(
+    connection: &Connection,
+    start_iso: &str,
+    end_iso: &str,
+) -> Result<Vec<Reminder>> {
+    let mut stmt = connection.prepare(
+        "SELECT id, content, due_at, completed, created_at 
+         FROM reminders 
+         WHERE due_at >= ?1 AND due_at <= ?2"
+    )?;
+    
+    let rows = stmt.query_map(params![start_iso, end_iso], |row| {
+        Ok(Reminder {
+            id: row.get(0)?,
+            content: row.get(1)?,
+            due_at: row.get(2)?,
+            completed: row.get::<_, i32>(3)? == 1,
+            created_at: row.get(4)?,
+        })
+    })?;
+
+    let mut reminders = Vec::new();
+    for row in rows {
+        reminders.push(row?);
+    }
+    Ok(reminders)
+}
+
+//INFO: Deletes a reminder by ID
+pub fn delete_reminder(connection: &Connection, id: i32) -> Result<()> {
+    connection.execute("DELETE FROM reminders WHERE id = ?", params![id])
+        .context("Failed to delete reminder")?;
+    Ok(())
+}
+
+//INFO: Toggles the completion status of a reminder
+pub fn toggle_reminder_completion(connection: &Connection, id: i32, completed: bool) -> Result<()> {
+    let val = if completed { 1 } else { 0 };
+    connection.execute("UPDATE reminders SET completed = ? WHERE id = ?", params![val, id])
+        .context("Failed to update reminder completion")?;
+    Ok(())
 }

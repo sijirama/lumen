@@ -49,6 +49,7 @@ pub fn run() {
             let db_clone = database.clone();
             app.manage(database);
 
+
             // Start clipboard manager
             let db_clipboard = db_clone.clone();
             tauri::async_runtime::spawn(async move {

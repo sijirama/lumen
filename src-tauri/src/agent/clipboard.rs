@@ -67,6 +67,7 @@ impl ClipboardHandler for Handler {
                                             Some(crate::gemini::client::GenerationConfig {
                                                 response_mime_type: Some("application/json".to_string()),
                                                 response_schema: None,
+                                                ..Default::default()
                                             }),
                                         ).await;
 

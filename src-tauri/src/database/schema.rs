@@ -74,12 +74,33 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
             role TEXT NOT NULL,
             content TEXT NOT NULL,
             image_data TEXT,
+            citations TEXT,
             created_at TEXT NOT NULL,
             session_id TEXT
         )",
             [],
         )
         .context("Failed to create chat_messages table")?;
+
+    //INFO: Migration - Add citations column if it doesn't exist (for existing databases)
+    {
+        let mut statement = connection.prepare("PRAGMA table_info(chat_messages)")?;
+        let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+        let mut has_citations = false;
+        for col in columns {
+            if let Ok(name) = col {
+                if name == "citations" {
+                    has_citations = true;
+                    break;
+                }
+            }
+        }
+        if !has_citations {
+            println!("DEBUG: 🛠️ Migrating chat_messages table (adding citations column)");
+            connection.execute("ALTER TABLE chat_messages ADD COLUMN citations TEXT", [])
+                .context("Failed to migrate chat_messages table (adding citations column)")?;
+        }
+    }
 
     //INFO: Create calendar_events table - caches calendar events for offline access
     connection
@@ -207,6 +228,19 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
             [],
         )
         .context("Failed to create briefing_buckets table")?;
+
+    //INFO: Create web_search_cache table - stores search results to save API credits
+    connection
+        .execute(
+            "CREATE TABLE IF NOT EXISTS web_search_cache (
+            query_hash TEXT PRIMARY KEY,
+            query TEXT NOT NULL,
+            results TEXT NOT NULL,
+            cached_at TEXT NOT NULL
+        )",
+            [],
+        )
+        .context("Failed to create web_search_cache table")?;
 
     Ok(())
 }

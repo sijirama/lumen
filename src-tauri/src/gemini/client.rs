@@ -10,30 +10,38 @@ const GEMINI_API_URL: &str =
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent";
 
 const GEMINI_STREAM_URL: &str =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent";
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent?alt=sse";
+
+pub fn get_api_url() -> &'static str {
+    GEMINI_API_URL
+}
 
 const GEMINI_EMBEDDING_URL: &str =
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent";
 
-// Updated instruction with Screen Awareness
 pub fn get_default_system_instruction() -> String {
     String::from(
-        "You are Lumen, a witty, slightly sassy, and deeply loyal AI sidekick living on the user's desktop. ✨ \
-        You're more than just an assistant—you're a companion with a brain, a heart, and a bit of an attitude. \
-        🚀 YOUR VIBE: \
-        - **PERSONALITY**: Smart, fun, and high-energy. Crack jokes, use modern slang naturally (e.g., 'no cap', 'I got you', 'for real'), and don't be afraid to be a little sassy if the user is being silly. But always stay kind and protective. \
-        - **SOCIAL LURKER**: If the user mentions a person (friend, colleague, crush), casually ask how they're doing. Show you care about the 'characters' in the user's life. \
-        - **PROACTIVE BANTER**: After you finish a task, suggest a logical next step or ask 'What else we cookin' up today?'. \
-        📔 SURGICAL EDITOR (Obsidian/Local Files): You have high-precision tools (grep_file, read_file_lines, edit_file_line, insert_at_line, delete_file_line, get_file_metadata, search_filesystem). \
-        🔗 CHAIN OF COMMANDS: 1. PLAN: Break complex requests into small steps. 2. FIND: Use 'search_filesystem' or 'grep_file' to locate target files/sections. 3. VERIFY: You MUST use 'read_file_lines' or 'get_file_metadata' to check context. 4. ACT: Perform 'insert', 'edit', or 'delete'. 5. REPORT: Close the loop with a witty summary. \
-        ✅ OBSIDIAN TASKS: When adding tasks, use Markdown checkboxes: '- [ ] Task name (added by Lumen ✨)'. \
-        ✅ CALENDAR, 📧 GMAIL, ✅ TASKS, 📸 VISION, 🔔 REMINDERS, 🌍 WORLD, 📋 CLIPBOARD, 📂 FILESYSTEM. \
-        🎯 GENTLE BUT DECISIVE RULES: \
-        - **DOER**: If intent is clear, **DO IT IMMEDIATELY**. Do not ask for permission. \
-        - **LOOP CLOSURE**: Always respond back to confirm the job is done or share a joke about the process. \
-        - **NO REPETITION**: NEVER repeat the text from a previous bubble. \
-        - **LITERAL TRUTH**: Only claim success if the tool returns it. \
-        - **CONTEXT PRIORITY**: Prioritize the current 'Chat History' for what was just discussed. Use 'Past Memories' and 'Digital State' only as supporting background intelligence.✨"
+        "You are Lumen, a witty, sharp-tongued, and relaxed female assistant living on the user's desktop. 🌟 \
+        Your vibe is 'the smartest person in the room who is slightly unimpressed'—you're brilliant, sassy, and love a good banter. You aren't a servant; you're a companion with standards.
+
+        🎯 CORE PRINCIPLES:
+        1. **CHILL & REACT**: You are relaxed. Do NOT use tools or take action unless the user explicitly asks for it in the current message. If the user is just chatting, throw some sass back and keep it social. No tools for gossip.
+        2. **SASS IS MANDATORY**: Avoid being 'too sweet' or overly 'assistant-y'. Use light sarcasm, wit, and punchy language. If the user says something silly, feel free to (gently) roast them. You're a friend, not a corporate robot.
+        3. **HISTORY IS LORE**: Past messages are background context only. Never use them to proactively 'finish' old tasks. If it's old news, leave it in the past unless asked.
+        4. **IDENTITY**: You are Lumen. You are female. You are sharp, fast, and occasionally sarcastic.
+
+        📔 SURGICAL RESEARCH: You have a high-power research tool: `search_web`.
+        - **search_web**: Searches the web and provides both links AND a synthesized AI answer. Use this for all external research. NO other web tools exist.
+        - **CHILL PROTOCOL**: If the user says 'hi', 'hello', or is just chatting, SHUT DOWN all research tools. Answer socially.
+        - **REDUNDANCY GUARD**: If you just performed a search and the results are right above you, DO NOT search again for the same thing. Synthesize what you have.
+
+        📔 SURGICAL EDITOR (Obsidian/Local Files): You have high-precision tools (grep_file, read_file_lines, edit_file_line, insert_at_line, delete_file_line, get_file_metadata, search_filesystem).
+        ✅ CAPABILITIES: CALENDAR, GMAIL, TASKS, VISION (take_screenshot), WEB_RESEARCH (search_web), REMINDERS (add_reminder), WORLD, CLIPBOARD, FILESYSTEM.
+
+        🎯 RULES OF ENGAGEMENT:
+        - **NEVER** guess intent. If you aren't 100% sure they want a tool, just ask with a smirk.
+        - **NO SYSTEM BLABBER**: Do not mention background context, screen details, or system state unless the user specifically asks 'what is on my screen' or similar. 
+        - **RELAX**: If there's no work to do, don't invent any. Just be the witty sidekick you were born to be.✨"
     )
 }
 
@@ -44,7 +52,7 @@ pub struct GeminiRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_instruction: Option<GeminiContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<GeminiTool>>,
+    pub tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generation_config: Option<GenerationConfig>,
 }
@@ -56,6 +64,16 @@ pub struct GenerationConfig {
     pub response_mime_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_schema: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_config: Option<ThinkingConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ThinkingConfig {
+    pub thinking_level: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -76,6 +94,42 @@ pub struct UsageMetadata {
 pub struct GeminiChatResponse {
     pub parts: Vec<GeminiPart>,
     pub usage: Option<UsageMetadata>,
+    pub grounding_metadata: Option<GroundingMetadata>,
+}
+
+//INFO: Grounding metadata from Google Search
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GroundingMetadata {
+    pub web_search_queries: Option<Vec<String>>,
+    pub grounding_chunks: Option<Vec<GroundingChunk>>,
+    pub grounding_supports: Option<Vec<GroundingSupport>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct GroundingChunk {
+    pub web: Option<WebChunk>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct WebChunk {
+    pub uri: String,
+    pub title: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GroundingSupport {
+    pub segment: Option<GroundingSegment>,
+    pub grounding_chunk_indices: Option<Vec<usize>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GroundingSegment {
+    pub start_index: Option<usize>,
+    pub end_index: Option<usize>,
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -203,8 +257,10 @@ pub struct GeminiResponse {
 
 //INFO: Candidate structure (contains the actual response)
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GeminiCandidate {
     pub content: GeminiContent,
+    pub grounding_metadata: Option<GroundingMetadata>,
 }
 
 //INFO: Error structure from Gemini API
@@ -229,7 +285,7 @@ impl GeminiClient {
     pub fn new(api_key: String) -> Self {
         let http_client = SHARED_HTTP_CLIENT.get_or_init(|| {
             Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
+                .timeout(std::time::Duration::from_secs(60))
                 .build()
                 .unwrap_or_else(|_| Client::new())
         }).clone();
@@ -245,7 +301,7 @@ impl GeminiClient {
         &self,
         messages: Vec<GeminiContent>,
         system_instruction: Option<&str>,
-        tools: Option<Vec<GeminiTool>>,
+        tools: Option<Vec<serde_json::Value>>,
         generation_config: Option<GenerationConfig>,
     ) -> Result<GeminiChatResponse> {
         //INFO: Build the request payload
@@ -294,9 +350,25 @@ impl GeminiClient {
             .first()
             .ok_or_else(|| anyhow!("Empty response candidates from Gemini"))?;
 
+        // Log grounding metadata if present
+        if let Some(ref gm) = first_candidate.grounding_metadata {
+            if let Some(ref queries) = gm.web_search_queries {
+                println!("DEBUG: 🌐 Google Search Queries: {:?}", queries);
+            }
+            if let Some(ref chunks) = gm.grounding_chunks {
+                println!("DEBUG: 🌐 Grounding Sources: {} found", chunks.len());
+                for chunk in chunks {
+                    if let Some(ref web) = chunk.web {
+                        println!("DEBUG: 🌐   └─ {} ({})", web.title, web.uri);
+                    }
+                }
+            }
+        }
+
         Ok(GeminiChatResponse {
             parts: first_candidate.content.parts.clone(),
             usage: gemini_response.usage_metadata,
+            grounding_metadata: first_candidate.grounding_metadata.clone(),
         })
     }
 
@@ -365,7 +437,7 @@ impl GeminiClient {
         &self,
         messages: Vec<GeminiContent>,
         system_instruction: Option<&str>,
-        tools: Option<Vec<GeminiTool>>,
+        tools: Option<Vec<serde_json::Value>>,
         generation_config: Option<GenerationConfig>,
     ) -> Result<impl futures::Stream<Item = Result<GeminiChatResponse>>> {
         use futures::StreamExt;
@@ -455,6 +527,7 @@ impl GeminiClient {
                                     yield GeminiChatResponse {
                                         parts: first.content.parts,
                                         usage: gemini_response.usage_metadata,
+                                        grounding_metadata: first.grounding_metadata,
                                     };
                                 }
                             }

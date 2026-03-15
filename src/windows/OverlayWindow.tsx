@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, X, Loader2, FileText, Scan, CalendarDays, LayoutDashboard, MessageSquare } from 'lucide-react';
+import { Send, X, Loader2, FileText, Crosshair, CalendarDays, LayoutDashboard, MessageSquare, Globe } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import CalendarView from '../components/CalendarView';
 
@@ -15,13 +15,77 @@ interface ChatMessage {
     content: string;
     created_at: string;
     image_data?: string;
+    citations?: { title: string; url: string }[];
 }
 
-interface SendMessageResponse {
-    user_message: ChatMessage;
-    assistant_message: ChatMessage;
-    suggested_view?: 'chat' | 'calendar';
-    suggested_date?: string;
+//INFO: Helper to extract domain from URL
+const extractDomain = (url: string) => {
+    try {
+        const domain = new URL(url).hostname;
+        return domain.replace(/^www\./, '');
+    } catch {
+        return 'source';
+    }
+};
+
+//INFO: Premium Citation Stack component
+function CitationStack({ citations }: { citations: { title: string; url: string }[] }) {
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    return (
+        <div className="citation-container">
+            <div 
+                className="citation-stack-trigger" 
+                onClick={() => setIsExpanded(!isExpanded)}
+                title={isExpanded ? "Collapse citations" : "View sources"}
+            >
+                <div className="citation-avatar-stack">
+                    {citations.slice(0, 3).map((cite, i) => (
+                        <div key={i} className="citation-avatar" style={{ zIndex: 10 - i }}>
+                            <img 
+                                src={`https://www.google.com/s2/favicons?domain=${extractDomain(cite.url)}&sz=64`} 
+                                alt="" 
+                                onError={(e) => (e.currentTarget.src = 'https://www.google.com/s2/favicons?domain=google.com&sz=64')}
+                            />
+                        </div>
+                    ))}
+                    {citations.length > 3 && (
+                        <div className="citation-avatar extra-count" style={{ zIndex: 0 }}>
+                            <span style={{ fontSize: '10px', color: '#fff' }}>+{citations.length - 3}</span>
+                        </div>
+                    )}
+                </div>
+                <span className="citation-count-label">
+                    {citations.length} {citations.length === 1 ? 'Source' : 'Sources'}
+                </span>
+            </div>
+
+            {isExpanded && (
+                <div className="citation-expanded-list">
+                    {citations.map((cite, i) => (
+                        <a 
+                            key={i} 
+                            href={cite.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="citation-item"
+                        >
+                            <div className="citation-item-icon">
+                                <img 
+                                    src={`https://www.google.com/s2/favicons?domain=${extractDomain(cite.url)}&sz=64`} 
+                                    alt="" 
+                                />
+                            </div>
+                            <div className="citation-info">
+                                <span className="citation-title">{cite.title}</span>
+                                <span className="citation-domain">{extractDomain(cite.url)}</span>
+                            </div>
+                        </a>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
 }
 
 function OverlayWindow() {
@@ -49,6 +113,8 @@ function OverlayWindow() {
         // Post-layout scroll handling
         if (newView === 'chat') {
             setTimeout(() => scrollToBottom(true), 80);
+        } else if (newView === 'calendar') {
+            setIsCalendarExpanded(true); // Extend by default
         }
     };
 
@@ -401,6 +467,9 @@ function OverlayWindow() {
                                             {message.content}
                                         </ReactMarkdown>
                                     </div>
+                                    {message.role === 'assistant' && message.citations && message.citations.length > 0 && (
+                                        <CitationStack citations={message.citations} />
+                                    )}
                                 </div>
                             ))}
 
@@ -440,7 +509,7 @@ function OverlayWindow() {
                         disabled={isLoading || isCapturing}
                         title="Capture screen"
                     >
-                        {isCapturing ? <Loader2 size={18} className="loading-spinner" /> : <Scan size={18} />}
+                        {isCapturing ? <Loader2 size={18} className="loading-spinner" /> : <Crosshair size={18} />}
                     </button>
 
                     <button
@@ -481,9 +550,11 @@ function OverlayWindow() {
                                 src={`data:image/png;base64,${capturedImage}`}
                                 alt="Captured"
                                 style={{
+                                    maxWidth: '100%',
                                     maxHeight: '120px',
                                     borderRadius: 'var(--radius-md)',
-                                    border: '1px solid var(--color-border)'
+                                    border: '1px solid var(--color-border)',
+                                    objectFit: 'contain'
                                 }}
                             />
                             <button
