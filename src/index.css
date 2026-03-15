@@ -232,7 +232,8 @@ a:hover {
   align-items: center;
   gap: 12px;
   padding: 6px 14px;
-  background: #31264d; /* Darker pastel purple */
+  background: #31264d;
+  /* Darker pastel purple */
   border: 1px solid rgba(167, 139, 250, 0.5);
   border-radius: var(--radius-lg);
   cursor: pointer;
@@ -257,7 +258,8 @@ a:hover {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 2px solid #1a1b1e; /* Match chat background */
+  border: 2px solid #1a1b1e;
+  /* Match chat background */
   background: #2a2b2e;
   overflow: hidden;
   margin-left: -8px;
@@ -292,7 +294,8 @@ a:hover {
 .citation-count-label {
   font-size: 0.7rem;
   font-weight: 600;
-  color: #ffffff; /* White text for dark bg */
+  color: #ffffff;
+  /* White text for dark bg */
   letter-spacing: 0.01em;
   opacity: 0.9;
 }
@@ -302,7 +305,8 @@ a:hover {
   margin-top: 8px;
   display: flex;
   flex-direction: column;
-  gap: 4px; /* Reduced from 8px */
+  gap: 4px;
+  /* Reduced from 8px */
   animation: slideInUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -316,7 +320,8 @@ a:hover {
   border-radius: var(--radius-md);
   text-decoration: none !important;
   transition: all 0.2s ease;
-  margin: 0 4px; /* Reduced x-margin */
+  margin: 0 4px;
+  /* Reduced x-margin */
 }
 
 .citation-item:hover {
@@ -366,8 +371,15 @@ a:hover {
 }
 
 @keyframes slideInUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .citation-pill:active {
@@ -927,7 +939,8 @@ html.widget-window {
 }
 
 .overlay-panel {
-  margin-top: auto; /* Push to bottom of the transparent 820px container */
+  margin-top: auto;
+  /* Push to bottom of the transparent 820px container */
   background: transparent;
   display: flex;
   flex-direction: column;
@@ -940,6 +953,7 @@ html.widget-window {
     opacity: 0;
     transform: translateY(30px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -974,7 +988,7 @@ html.widget-window {
   border-radius: var(--radius-xl);
   border: 1px solid var(--color-border);
   box-shadow: var(--shadow-lg);
-  
+
   /* Height transitions for floating calendar effect */
   height: 440px;
   transition: height 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
@@ -1027,8 +1041,8 @@ html.widget-window {
   justify-content: center;
   gap: var(--spacing-2);
   color: var(--color-text-secondary);
-  box-shadow: 
-    0 2px 8px rgba(0, 0, 0, 0.04), 
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.04),
     0 1px 2px rgba(0, 0, 0, 0.02);
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -1043,8 +1057,8 @@ html.widget-window {
 .action-button:hover {
   background: #ffffff;
   transform: translateY(-2px) scale(1.02);
-  box-shadow: 
-    0 8px 16px rgba(0, 0, 0, 0.06), 
+  box-shadow:
+    0 8px 16px rgba(0, 0, 0, 0.06),
     0 4px 8px rgba(0, 0, 0, 0.03);
   color: var(--color-text-primary);
   border-color: rgba(0, 0, 0, 0.08);
@@ -1059,9 +1073,10 @@ html.widget-window {
 .action-button.active {
   color: var(--color-accent);
   background: white;
-  border-color: rgba(167, 139, 250, 0.3); /* Subtle accent border */
-  box-shadow: 
-    0 2px 8px rgba(167, 139, 250, 0.15), 
+  border-color: rgba(167, 139, 250, 0.3);
+  /* Subtle accent border */
+  box-shadow:
+    0 2px 8px rgba(167, 139, 250, 0.15),
     0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
@@ -1100,8 +1115,8 @@ html.widget-window {
   max-width: 85%;
   padding: var(--spacing-2) var(--spacing-4);
   border-radius: var(--radius-lg);
-  font-size: 0.9rem;
-  line-height: 1.6;
+  font-size: 0.8rem;
+  line-height: 1.4;
   word-break: break-word;
   overflow-wrap: anywhere;
   position: relative;
@@ -1133,9 +1148,9 @@ html.widget-window {
 
 .chat-message.assistant {
   align-self: flex-start;
-  background: #fcfcfc;
-  color: var(--color-text-primary);
-  border-bottom-left-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  color: #000000; /* Darker text for readability */
+  border-bottom-left-radius: 4px;
   border-color: var(--color-border-light);
   box-shadow: none;
 }
@@ -1148,8 +1163,8 @@ html.widget-window {
 .markdown-content {
   max-width: 100%;
   overflow-x: hidden;
-  font-size: 0.9rem;
-  line-height: 1.6;
+  font-size: 0.8rem;
+  line-height: 1.4;
 }
 
 .markdown-content p {
@@ -1275,12 +1290,7 @@ html.widget-window {
   color: #ffffff !important;
 }
 
-.chat-message.assistant {
-  align-self: flex-start;
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-  border-bottom-left-radius: 4px;
-}
+/* Consolidated into previous assistant definition */
 
 .chat-input-container {
   display: flex;
@@ -1676,7 +1686,8 @@ html.snipper-window {
 .selection-box {
   position: absolute;
   border: 2px solid var(--color-accent);
-  background: rgba(167, 139, 250, 0.2); /* Pastel purple */
+  background: rgba(167, 139, 250, 0.2);
+  /* Pastel purple */
   /* Slight blue tint inside selection */
   pointer-events: none;
   /* Let clicks pass through if needed, though we handle drag on container */
@@ -1696,7 +1707,8 @@ html.snipper-window {
   min-height: 0;
   width: 100%;
   position: relative;
-  overflow: hidden; /* Stabilize scroll area */
+  overflow: hidden;
+  /* Stabilize scroll area */
 }
 
 .view-pane {
@@ -1716,7 +1728,8 @@ html.snipper-window {
 .view-pane.active {
   opacity: 1;
   pointer-events: auto;
-  z-index: 10; /* Ensure active view is on top */
+  z-index: 10;
+  /* Ensure active view is on top */
 }
 
 /* Ensure background color for calendar view layering */

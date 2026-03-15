@@ -112,7 +112,7 @@ function OverlayWindow() {
 
         // Post-layout scroll handling
         if (newView === 'chat') {
-            setTimeout(() => scrollToBottom(true), 80);
+            setTimeout(() => scrollToBottom(true), 150);
         } else if (newView === 'calendar') {
             setIsCalendarExpanded(true); // Extend by default
         }
