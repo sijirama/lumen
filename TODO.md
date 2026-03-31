@@ -2,8 +2,6 @@
 
 ### 🎨 UI & UX (Current Focus)
 - [ ] Add micro-animations to chat responses (fade-in, subtle bounce). ✨
-- [ ] Implement smooth transitions between Dashboard and Chat.
-- [ ] Polish the sidebar/navigation icons and hover states.
 
 ### 🧠 Intelligence & Memory
 - [ ] Fine-tune the "Past Memory Retrieval" logic (adjusting relevance scores). 🧬
@@ -11,10 +9,11 @@
 - [ ] Add "Deep Search" tool for scanning through all project files at once.
 
 ### 🔌 Integrations
-- [ ] Hook up additional daily tools (Slack, Discord, Notion?). 🛠️
-- [ ] Improve Google Tasks sync (allow marking tasks as complete).
 - [ ] Better error handling when an integration token expires.
 
-### 🍎 Maintenance
-- [ ] Final macOS `.dmg` build verification.
-- [ ] Ensure all local database paths are handled safely across OS updates.
+- [ ] work on better ai calling and tool calling, look into how other agents like openclaw did it 
+- [ ] able to render ful markdown like equations and shit
+- [ ] when thinking maybe show a cool thinking animation at the top or something
+
+
+- [ ] look for a better logo
