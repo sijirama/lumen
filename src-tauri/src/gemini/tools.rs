@@ -362,22 +362,298 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                     "required": ["path", "query"]
                 })),
             },
-            GeminiFunctionDeclaration {
-                name: "retrieve_past_memories".to_string(),
-                description: "Search the user's past memories and conversation history when you need context about their life, preferences, or past discussions.".to_string(),
-                parameters: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "The topic or keyword to search for in past memories."
-                        }
-                    },
-                    "required": ["query"]
-                })),
-            },
         ],
     }]
+}
+
+//INFO: Returns only filesystem/obsidian tools
+pub fn get_filesystem_tools() -> Vec<GeminiFunctionDeclaration> {
+    vec![
+        GeminiFunctionDeclaration {
+            name: "read_file".to_string(),
+            description: "Reads the content of a local file (e.g., an Obsidian note or daily task list).".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "The absolute path to the local file." }
+                },
+                "required": ["path"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "write_file".to_string(),
+            description: "Writes content to a local file. Use this for ticking tasks in daily notes OR updating vault content. Overwrites if it exists.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "The absolute path to the file." },
+                    "content": { "type": "string", "description": "The content to write to the local file." }
+                },
+                "required": ["path", "content"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "list_files".to_string(),
+            description: "Lists files in a directory.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "The absolute path to the directory." }
+                },
+                "required": ["path"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "search_notes".to_string(),
+            description: "Searches for a keyword inside all markdown files in a directory.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "The absolute path to the directory (usually the vault root)." },
+                    "query": { "type": "string", "description": "The keyword to search for." }
+                },
+                "required": ["path", "query"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "get_obsidian_vault_info".to_string(),
+            description: "Gets information about the configured Obsidian vault, including its root path.".to_string(),
+            parameters: None,
+        },
+        GeminiFunctionDeclaration {
+            name: "grep_file".to_string(),
+            description: "Searches for a pattern in a file and returns matching lines with line numbers.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the file." },
+                    "pattern": { "type": "string", "description": "The string to search for (case-insensitive)." }
+                },
+                "required": ["path", "pattern"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "edit_file_line".to_string(),
+            description: "Replaces a specific line in a file by line number (1-indexed).".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the file." },
+                    "line_number": { "type": "integer", "description": "The 1-based line number to replace." },
+                    "new_content": { "type": "string", "description": "The new content for that line." }
+                },
+                "required": ["path", "line_number", "new_content"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "insert_at_line".to_string(),
+            description: "Inserts a new line at a specific line number (1-indexed). Everything else shifts down.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the file." },
+                    "line_number": { "type": "integer", "description": "The 1-based line number to insert at." },
+                    "content": { "type": "string", "description": "The content to insert." }
+                },
+                "required": ["path", "line_number", "content"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "delete_file_line".to_string(),
+            description: "Deletes a specific line from a file by line number (1-indexed).".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the file." },
+                    "line_number": { "type": "integer", "description": "The 1-based line number to delete." }
+                },
+                "required": ["path", "line_number"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "read_file_lines".to_string(),
+            description: "Reads a specific range of lines from a file (1-indexed). Use this to verify context before editing.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the file." },
+                    "start_line": { "type": "integer", "description": "The first line to read." },
+                    "end_line": { "type": "integer", "description": "The last line to read." }
+                },
+                "required": ["path", "start_line", "end_line"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "get_file_metadata".to_string(),
+            description: "Gets metadata (size, last modified, creation time) for a local file.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the file." }
+                },
+                "required": ["path"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "search_filesystem".to_string(),
+            description: "Recursively searches for files matching a filename or extension in a directory.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Directory to search in." },
+                    "query": { "type": "string", "description": "The filename or extension to search for (e.g. 'resume.pdf' or '.js')." }
+                },
+                "required": ["path", "query"]
+            })),
+        },
+    ]
+}
+
+//INFO: Returns only Google integration tools (calendar, gmail, tasks)
+pub fn get_google_tools() -> Vec<GeminiFunctionDeclaration> {
+    vec![
+        GeminiFunctionDeclaration {
+            name: "get_google_calendar_events".to_string(),
+            description: "Lists Google Calendar events for a specific time range.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "time_min": { "type": "string", "description": "Start time in RFC3339 format (e.g. '2026-01-20T00:00:00Z')." },
+                    "time_max": { "type": "string", "description": "End time in RFC3339 format." }
+                },
+                "required": ["time_min", "time_max"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "get_unread_emails".to_string(),
+            description: "Lists recent emails from Gmail. Can filter by query (e.g. 'newer_than:1d', 'after:2026/01/20', 'from:person@example.com').".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "max_results": { "type": "integer", "description": "Maximum number of emails to fetch (default 5)." },
+                    "query": { "type": "string", "description": "Gmail search query. For today's emails use 'newer_than:1d'. Default is 'is:unread inbox'." }
+                }
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "send_email".to_string(),
+            description: "Sends an email using Gmail.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "to": { "type": "string", "description": "Recipient email address." },
+                    "subject": { "type": "string", "description": "Email subject." },
+                    "body": { "type": "string", "description": "Email body content." }
+                },
+                "required": ["to", "subject", "body"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "create_calendar_event".to_string(),
+            description: "Creates a new event in the user's primary Google Calendar. IMPORTANT: Use the current year and the user's timezone offset from the 'ISO' time provided in CONTEXT (e.g. '2026-01-20T14:00:00+01:00').".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "summary": { "type": "string", "description": "Event title." },
+                    "description": { "type": "string", "description": "Event description." },
+                    "start_time": { "type": "string", "description": "Start time in RFC3339 format with offset (e.g. '2026-01-20T14:00:00+01:00')." },
+                    "end_time": { "type": "string", "description": "End time in RFC3339 format with offset." },
+                    "location": { "type": "string", "description": "Physical or virtual location." }
+                },
+                "required": ["summary", "start_time", "end_time"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "delete_calendar_event".to_string(),
+            description: "Deletes an event from the user's primary Google Calendar using its unique event ID. IMPORTANT: You must first use 'get_google_calendar_events' to find the 'id' of the event you want to delete.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "event_id": { "type": "string", "description": "The unique ID of the event to delete." }
+                },
+                "required": ["event_id"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "list_google_tasks".to_string(),
+            description: "Lists pending tasks from the user's default Google Tasks list (Official cloud-stored items). DO NOT use this for checking local Obsidian daily notes or Markdown tasks.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "max_results": { "type": "integer", "description": "Maximum number of tasks to fetch (default 10)." }
+                }
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "create_google_task".to_string(),
+            description: "Creates a new official cloud-stored task in Google Tasks. DO NOT use this for updating local Obsidian files. IMPORTANT: For due dates, use the current year and offset from the 'ISO' time in CONTEXT.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Task title." },
+                    "notes": { "type": "string", "description": "Task notes/description." },
+                    "due": { "type": "string", "description": "Due date in RFC3339 format with offset (e.g. '2026-01-20T23:59:59+01:00')." }
+                },
+                "required": ["title"]
+            })),
+        },
+    ]
+}
+
+//INFO: Returns always-available core tools (search, vision, clipboard)
+pub fn get_core_tools() -> Vec<GeminiFunctionDeclaration> {
+    vec![
+        GeminiFunctionDeclaration {
+            name: "search_web".to_string(),
+            description: "Searches the web for high-quality information and direct answers using the Tavily API. This tool returns both a list of sources and a synthesized 'quick_answer' from an LLM. Use this for deep research and discovery.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "The specific research question or keywords." }
+                },
+                "required": ["query"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "get_weather".to_string(),
+            description: "Gets the current weather for a location.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "location": { "type": "string", "description": "The city or location." }
+                },
+                "required": ["location"]
+            })),
+        },
+        GeminiFunctionDeclaration {
+            name: "take_screenshot".to_string(),
+            description: "Captures a screenshot of the user's primary screen so you can 'see' what they are doing. Call this when they say 'look at my screen' or 'what am I doing'.".to_string(),
+            parameters: None,
+        },
+        GeminiFunctionDeclaration {
+            name: "search_clipboard".to_string(),
+            description: "Searches the user's historical clipboard (copy history) for a keyword or recent items. Use this to find things they copied recently like links, snippets, or text.".to_string(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "The keyword to search for in clipboard history. Leave empty to get the most recent items." },
+                    "limit": { "type": "integer", "description": "Maximum number of items to return (default 5)." }
+                }
+            })),
+        },
+    ]
+}
+
+//INFO: Builds the tool list for a given request based on what integrations are active
+pub fn build_tools_for_request(google_enabled: bool, obsidian_enabled: bool) -> Vec<GeminiTool> {
+    let mut declarations = get_core_tools();
+    if google_enabled {
+        declarations.extend(get_google_tools());
+    }
+    if obsidian_enabled {
+        declarations.extend(get_filesystem_tools());
+    }
+    vec![GeminiTool { function_declarations: declarations }]
 }
 
 //INFO: Execute a synchronous tool call and return the result as JSON

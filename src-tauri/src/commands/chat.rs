@@ -127,8 +127,16 @@ pub async fn send_chat_message(
         parts,
     });
 
-    //INFO: 5. Load Tools (serialize function declarations)
-    let function_tool_declarations = crate::gemini::tools::get_tool_declarations();
+    //INFO: 5. Load Tools based on active integrations
+    let (google_enabled, obsidian_enabled) = {
+        let connection = database.connection.lock();
+        let g = crate::database::queries::get_integration(&connection, "google")
+            .ok().flatten().map(|i| i.enabled).unwrap_or(false);
+        let o = crate::database::queries::get_integration(&connection, "obsidian")
+            .ok().flatten().map(|i| i.enabled).unwrap_or(false);
+        (g, o)
+    };
+    let function_tool_declarations = crate::gemini::tools::build_tools_for_request(google_enabled, obsidian_enabled);
     let tools_json: Vec<serde_json::Value> = function_tool_declarations
         .iter()
         .map(|t| serde_json::to_value(t).unwrap_or_default())
@@ -160,7 +168,23 @@ pub async fn send_chat_message(
         system_instruction.push_str("\n-------------------------------------------");
     }
 
-    //INFO: 6.5 Memory retrieval is now handled explicitly via the retrieve_past_memories tool.
+    //INFO: 6.5 Auto-inject relevant memories from the knowledge base
+    {
+        let memory_client = GeminiClient::new(api_key.clone());
+        if let Ok(embedding) = memory_client.generate_embedding(&request.message).await {
+            let connection = database.connection.lock();
+            if let Ok(memories) = crate::memory::core::retrieve_memories(&connection, &embedding, 10) {
+                if !memories.is_empty() {
+                    let memory_context = crate::memory::core::format_memories_for_prompt(&memories);
+                    system_instruction.push_str(&memory_context);
+                    for m in &memories {
+                        let _ = crate::memory::core::update_memory_access(&connection, &m.id);
+                    }
+                    println!("DEBUG: 🧠 Auto-injected {} memories into context.", memories.len());
+                }
+            }
+        }
+    }
 
     if let Some(config) = &obsidian_config {
         system_instruction.push_str("\n\n--- OBSIDIAN CONFIGURATION ---");
@@ -219,24 +243,23 @@ pub async fn send_chat_message(
     //NOTE: Only the FINAL response (no function calls) gets streamed to the UI
     println!("DEBUG: 🤖 Using Gemini API at: {}", crate::gemini::client::get_api_url());
 
-    let mut config = crate::gemini::client::GenerationConfig {
+    // Gemini 2.5 doesn't allow response_mime_type + tools in the same request.
+    // Use a plain config for tool rounds, structured config for the final text-only call.
+    let tool_round_config = crate::gemini::client::GenerationConfig {
+        max_output_tokens: Some(2048),
+        ..Default::default()
+    };
+    let text_only_config = crate::gemini::client::GenerationConfig {
         response_mime_type: Some("application/json".to_string()),
         response_schema: Some(get_chat_response_schema().clone()),
         max_output_tokens: Some(2048),
         ..Default::default()
     };
 
-    // Only use thinking config for 3.1 models
-    if crate::gemini::client::get_api_url().contains("gemini-3.1") {
-        config.thinking_config = Some(crate::gemini::client::ThinkingConfig {
-            thinking_level: "minimal".to_string(),
-        });
-    }
-
     //INFO: Per-tool call counter to prevent runaway tool loops
     let mut tool_call_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    const MAX_CALLS_PER_TOOL: usize = 5;
-    const MAX_TOOL_ROUNDS: usize = 7;
+    const MAX_CALLS_PER_TOOL: usize = 2;
+    const MAX_TOOL_ROUNDS: usize = 4;
 
     for _i in 0..MAX_TOOL_ROUNDS {
         // DEBUG: Log the full prompt state before sending to LLM
@@ -254,7 +277,7 @@ pub async fn send_chat_message(
                 current_messages.clone(),
                 Some(&system_instruction),
                 Some(tools.clone()),
-                Some(config.clone()),
+                Some(tool_round_config.clone()),
             )
             .await
             .map_err(|e| format!("Failed to get AI response: {}", e))?;
@@ -319,7 +342,6 @@ pub async fn send_chat_message(
                     || call.name == "list_google_tasks"
                     || call.name == "create_google_task"
                     || call.name == "take_screenshot"
-                    || call.name == "retrieve_past_memories"
                     || call.name == "delete_calendar_event"
                     || call.name == "search_web"
                 {
@@ -434,7 +456,7 @@ pub async fn send_chat_message(
                 current_messages.clone(),
                 Some(&system_instruction),
                 None, // No tools — forces a pure text response
-                Some(config.clone()),
+                Some(text_only_config.clone()),
             )
             .await
             .map_err(|e| format!("Failed to get forced response: {}", e))?;

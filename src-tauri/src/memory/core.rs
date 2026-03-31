@@ -148,11 +148,12 @@ pub fn retrieve_memories(
     top_k: usize,
 ) -> Result<Vec<MemoryItem>> {
     println!("DEBUG: 🧠 PULSE: Retrieval engine scanning 1000 most recent memories...");
-    // Step 1: Fetch the most recent 1000 memories (all types)
+
     let mut stmt = conn
         .prepare(
-            "SELECT m.id, m.type, m.content, m.importance, m.created_at, m.last_accessed, m.access_count
+            "SELECT m.id, m.type, m.content, m.importance, m.created_at, m.last_accessed, m.access_count, e.embedding
              FROM memories m
+             LEFT JOIN memory_embeddings e ON m.id = e.id
              ORDER BY m.last_accessed DESC
              LIMIT 1000",
         )
@@ -160,6 +161,16 @@ pub fn retrieve_memories(
 
     let mut memories: Vec<MemoryItem> = stmt
         .query_map([], |row| {
+            let emb_bytes: Option<Vec<u8>> = row.get(7)?;
+            let embedding = emb_bytes.and_then(|b| {
+                if b.len() % 4 == 0 {
+                    Some(b.chunks_exact(4)
+                        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                        .collect())
+                } else {
+                    None
+                }
+            });
             Ok(MemoryItem {
                 id: row.get(0)?,
                 memory_type: MemoryType::from_str(&row.get::<_, String>(1)?).unwrap_or(MemoryType::Observation),
@@ -168,7 +179,7 @@ pub fn retrieve_memories(
                 created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
                 last_accessed: DateTime::parse_from_rfc3339(&row.get::<_, String>(5)?).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
                 access_count: row.get(6)?,
-                embedding: None,
+                embedding,
                 score: 0.0,
             })
         })
@@ -180,25 +191,6 @@ pub fn retrieve_memories(
         return Ok(vec![]);
     }
 
-    // Step 2: Load embeddings for each memory
-    for memory in &mut memories {
-        if let Ok(emb_bytes) = conn.query_row(
-            "SELECT embedding FROM memory_embeddings WHERE id = ?1",
-            rusqlite::params![memory.id],
-            |row| row.get::<_, Vec<u8>>(0),
-        ) {
-            // Deserialize the byte blob into Vec<f32>
-            if emb_bytes.len() % 4 == 0 {
-                let floats: Vec<f32> = emb_bytes
-                    .chunks_exact(4)
-                    .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                    .collect();
-                memory.embedding = Some(floats);
-            }
-        }
-    }
-
-    // Step 3: Score using Recency + Importance + Relevance
     score_memories(&mut memories, situation_embedding, top_k)
 }
 
