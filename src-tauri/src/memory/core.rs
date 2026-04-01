@@ -347,6 +347,36 @@ pub fn get_current_bucket() -> &'static str {
     }
 }
 
+//INFO: Check if an embedding is a near-duplicate of any recent memory (within last 300)
+pub fn is_near_duplicate(conn: &Connection, embedding: &[f32], threshold: f32) -> bool {
+    let mut stmt = match conn.prepare(
+        "SELECT e.embedding FROM memory_embeddings e
+         INNER JOIN memories m ON m.id = e.id
+         ORDER BY m.created_at DESC LIMIT 300",
+    ) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let rows = match stmt.query_map([], |row| row.get::<_, Vec<u8>>(0)) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+
+    for row in rows.filter_map(|r| r.ok()) {
+        if row.len() % 4 == 0 {
+            let existing: Vec<f32> = row
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+            if cosine_similarity(embedding, &existing) > threshold {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 //INFO: Format retrieved memories for injection into a prompt
 pub fn format_memories_for_prompt(memories: &[MemoryItem]) -> String {
     if memories.is_empty() {

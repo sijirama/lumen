@@ -1,19 +1,8 @@
-# 🕯️ Lumen Development Roadmap
 
-### 🎨 UI & UX (Current Focus)
-- [ ] Add micro-animations to chat responses (fade-in, subtle bounce). ✨
+i don't like changes to the chat widget, there should be no new chat, there's only one chat that we're gonna keep using forever
 
-### 🧠 Intelligence & Memory
-- [ ] Fine-tune the "Past Memory Retrieval" logic (adjusting relevance scores). 🧬
-- [ ] Optimize the background memory extraction agent for lower CPU usage.
-- [ ] Add "Deep Search" tool for scanning through all project files at once.
+remove those buttons you added to that button row inbetween the input and chat section in the hat window 
 
-### 🔌 Integrations
-- [ ] Better error handling when an integration token expires.
-
-- [ ] work on better ai calling and tool calling, look into how other agents like openclaw did it 
-- [ ] able to render ful markdown like equations and shit
-- [ ] when thinking maybe show a cool thinking animation at the top or something
+those new buttons should be well designed at the top of the chat section window, leave the middle belt alone, add another row at the top and use that 
 
 
-- [ ] look for a better logo

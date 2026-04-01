@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { RefreshCw, Volume2, VolumeX, FileText } from 'lucide-react';
+import { RefreshCw, Volume2, VolumeX, FileText, Calendar, Brain } from 'lucide-react';
 import { format } from 'date-fns';
 import { invoke } from '@tauri-apps/api/core';
 import ReactMarkdown from 'react-markdown';
@@ -26,6 +26,8 @@ function Dashboard({ userName }: DashboardProps) {
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const [todayEvents, setTodayEvents] = useState<Array<{id: string, title: string, start_time: string, location?: string}>>([]);
+    const [memoryCount, setMemoryCount] = useState<number>(0);
 
     // Load voices on mount (required for Web Speech API)
     useEffect(() => {
@@ -146,6 +148,25 @@ function Dashboard({ userName }: DashboardProps) {
     //INFO: Fetch initial briefing on mount
     useEffect(() => {
         loadBriefing();
+    }, []);
+
+    //INFO: Load today's events and memory stats
+    useEffect(() => {
+        async function loadWidgetData() {
+            try {
+                const events = await invoke<Array<{id: string, title: string, start_time: string, location?: string}>>('get_todays_events_for_dashboard');
+                setTodayEvents(events);
+            } catch (e) {
+                // calendar may not be connected
+            }
+            try {
+                const count = await invoke<number>('get_memory_count');
+                setMemoryCount(count);
+            } catch (e) {
+                // ignore
+            }
+        }
+        loadWidgetData();
     }, []);
 
     async function loadBriefing() {
@@ -319,6 +340,47 @@ function Dashboard({ userName }: DashboardProps) {
                     </p>
                 </div>
             )}
+
+            {/* Dashboard Widgets */}
+            <div className="dashboard-widgets" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-4)', marginTop: 'var(--spacing-6)' }}>
+                {/* Today's Events Widget */}
+                <div className="widget-card" style={{ background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 'var(--spacing-4)', border: '1px solid var(--color-border)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)', color: 'var(--color-text-secondary)' }}>
+                        <Calendar size={14} />
+                        <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Today</span>
+                    </div>
+                    {todayEvents.length === 0 ? (
+                        <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' }}>No events today</p>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
+                            {todayEvents.slice(0, 4).map(event => {
+                                const time = (() => { try { return new Date(event.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ''; } })();
+                                return (
+                                    <div key={event.id} style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'baseline' }}>
+                                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-accent)', minWidth: '48px', fontVariantNumeric: 'tabular-nums' }}>{time}</span>
+                                        <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event.title}</span>
+                                    </div>
+                                );
+                            })}
+                            {todayEvents.length > 4 && (
+                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>+{todayEvents.length - 4} more</span>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Memory Widget */}
+                <div className="widget-card" style={{ background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 'var(--spacing-4)', border: '1px solid var(--color-border)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)', color: 'var(--color-text-secondary)' }}>
+                        <Brain size={14} />
+                        <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Memory</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
+                        <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--color-text-primary)', lineHeight: 1 }}>{memoryCount}</span>
+                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>memories stored</span>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }

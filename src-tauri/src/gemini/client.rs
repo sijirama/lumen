@@ -142,11 +142,12 @@ pub struct GeminiFunctionDeclaration {
 }
 
 //INFO: Content structure for messages
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    #[serde(default)]
     pub parts: Vec<GeminiPart>,
 }
 
@@ -259,6 +260,7 @@ pub struct GeminiResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiCandidate {
+    #[serde(default)]
     pub content: GeminiContent,
     pub grounding_metadata: Option<GroundingMetadata>,
 }

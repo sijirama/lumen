@@ -1,7 +1,36 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
-import { CheckCircle2, AlertCircle } from 'lucide-react';
+import { CheckCircle2, AlertCircle, ChevronDown } from 'lucide-react';
+
+//INFO: All tools with approval metadata
+const ALL_TOOLS: { key: string; label: string; description: string; defaultApproval: boolean }[] = [
+    // Google / comms — high risk, default ON
+    { key: 'send_email',              label: 'Send email',                  description: 'Send an email via Gmail.',                          defaultApproval: true },
+    { key: 'delete_calendar_event',   label: 'Delete calendar event',       description: 'Permanently remove a Google Calendar event.',       defaultApproval: true },
+    // Calendar — medium risk, default OFF
+    { key: 'create_calendar_event',   label: 'Create calendar event',       description: 'Add a new event to Google Calendar.',               defaultApproval: false },
+    { key: 'get_google_calendar_events', label: 'Read calendar events',    description: 'List upcoming events from Google Calendar.',        defaultApproval: false },
+    { key: 'get_unread_emails',       label: 'Read emails',                 description: 'Fetch unread or recent Gmail messages.',            defaultApproval: false },
+    // File ops — write risk ON, reads OFF
+    { key: 'write_file',              label: 'Write file',                  description: 'Write or overwrite a file on disk.',                defaultApproval: true },
+    { key: 'edit_file_line',          label: 'Edit file line',              description: 'Replace a specific line inside a file.',            defaultApproval: true },
+    { key: 'insert_at_line',          label: 'Insert at line',              description: 'Insert a new line into a file.',                   defaultApproval: true },
+    { key: 'delete_file_line',        label: 'Delete file line',            description: 'Remove a specific line from a file.',              defaultApproval: true },
+    { key: 'read_file',               label: 'Read file',                   description: 'Read the contents of a local file.',               defaultApproval: false },
+    { key: 'read_file_lines',         label: 'Read file lines',             description: 'Read a specific line range from a file.',          defaultApproval: false },
+    { key: 'list_files',              label: 'List files',                  description: 'List files in a directory.',                       defaultApproval: false },
+    { key: 'search_notes',            label: 'Search notes',                description: 'Search Obsidian vault markdown files.',             defaultApproval: false },
+    { key: 'grep_file',               label: 'Grep file',                   description: 'Search for a pattern inside a file.',              defaultApproval: false },
+    { key: 'get_file_metadata',       label: 'Get file metadata',           description: 'Read size and timestamps for a file.',             defaultApproval: false },
+    { key: 'search_filesystem',       label: 'Search filesystem',           description: 'Recursively find files matching a pattern.',       defaultApproval: false },
+    { key: 'get_obsidian_vault_info', label: 'Get vault info',              description: 'Read Obsidian vault root path.',                   defaultApproval: false },
+    // Core tools — all OFF by default
+    { key: 'search_web',              label: 'Search web',                  description: 'Run a Tavily web search.',                        defaultApproval: false },
+    { key: 'get_weather',             label: 'Get weather',                 description: 'Fetch current weather for a location.',           defaultApproval: false },
+    { key: 'take_screenshot',         label: 'Take screenshot',             description: 'Capture the primary screen.',                     defaultApproval: false },
+    { key: 'search_clipboard',        label: 'Search clipboard',            description: 'Search recent clipboard history.',                 defaultApproval: false },
+];
 
 //INFO: Types
 interface UserProfile {
@@ -44,6 +73,10 @@ function SettingsPage() {
     const [tavilyKeyConfigured, setTavilyKeyConfigured] = useState(false);
     const [databasePath, setDatabasePath] = useState('');
     const [autostartEnabled, setAutostartEnabled] = useState(false);
+
+    // Action approval settings — map of tool key → requires approval
+    const [approvals, setApprovals] = useState<Record<string, boolean>>({});
+    const [approvalsOpen, setApprovalsOpen] = useState(false);
 
     //INFO: UI state
     const [saving, setSaving] = useState(false);
@@ -91,8 +124,32 @@ function SettingsPage() {
 
             const isAutostart = await isEnabled();
             setAutostartEnabled(isAutostart);
+
+            // Load approval settings for all tools
+            const loaded: Record<string, boolean> = {};
+            await Promise.all(ALL_TOOLS.map(async ({ key, defaultApproval }) => {
+                try {
+                    const val = await invoke<string | null>('get_app_setting', { key: `approval_${key}` });
+                    loaded[key] = val !== null ? val === 'true' : defaultApproval;
+                } catch {
+                    loaded[key] = defaultApproval;
+                }
+            }));
+            setApprovals(loaded);
         } catch (err) {
             setError(`Failed to load settings: ${err}`);
+        }
+    }
+
+    async function toggleApproval(toolKey: string) {
+        const current = approvals[toolKey] ?? false;
+        const next = !current;
+        setApprovals(prev => ({ ...prev, [toolKey]: next }));
+        try {
+            await invoke('save_app_setting', { key: `approval_${toolKey}`, value: String(next) });
+        } catch (err) {
+            setApprovals(prev => ({ ...prev, [toolKey]: current }));
+            setError(`Failed to save setting: ${err}`);
         }
     }
 
@@ -509,6 +566,69 @@ function SettingsPage() {
                         </button>
                     </div>
                 </div>
+            </section>
+
+            {/* Action Approvals */}
+            <section style={{ marginBottom: 'var(--spacing-6)' }}>
+                <button
+                    onClick={() => setApprovalsOpen(o => !o)}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        width: '100%',
+                        background: 'none',
+                        border: 'none',
+                        padding: '0 0 var(--spacing-2) 0',
+                        cursor: 'pointer',
+                    }}
+                >
+                    <h4 style={{
+                        fontSize: '0.75rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        color: 'var(--color-text-tertiary)',
+                        fontWeight: 600,
+                        margin: 0,
+                    }}>
+                        Action Approvals
+                    </h4>
+                    <ChevronDown
+                        size={14}
+                        style={{
+                            color: 'var(--color-text-tertiary)',
+                            transform: approvalsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                            transition: 'transform 0.2s',
+                        }}
+                    />
+                </button>
+                {approvalsOpen && (
+                    <div className="settings-card" style={{ padding: 'var(--spacing-3) var(--spacing-4)' }}>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)', marginBottom: 'var(--spacing-3)', lineHeight: 1.4 }}>
+                            When enabled, Lumen will ask for your confirmation before running that tool.
+                        </p>
+                        {ALL_TOOLS.map(({ key, label, description }, i) => (
+                            <div
+                                key={key}
+                                className="settings-row"
+                                style={i < ALL_TOOLS.length - 1 ? { marginBottom: 'var(--spacing-3)' } : {}}
+                            >
+                                <div className="settings-row-info">
+                                    <span className="settings-row-title" style={{ fontSize: '0.875rem' }}>{label}</span>
+                                    <span className="settings-row-description" style={{ fontSize: '0.78rem' }}>{description}</span>
+                                </div>
+                                <label className="switch" style={{ transform: 'scale(0.8)', flexShrink: 0 }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={approvals[key] ?? false}
+                                        onChange={() => toggleApproval(key)}
+                                    />
+                                    <span className="slider"></span>
+                                </label>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </section>
 
             {/* Data */}

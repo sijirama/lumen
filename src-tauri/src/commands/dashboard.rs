@@ -422,3 +422,24 @@ pub async fn refresh_dashboard_briefing(
         audio_data: None,
     })
 }
+
+//INFO: Returns today's calendar events for the dashboard widget
+#[tauri::command]
+pub fn get_todays_events_for_dashboard(
+    database: State<'_, Database>,
+) -> Result<Vec<crate::database::queries::CalendarEvent>, String> {
+    let connection = database.connection.lock();
+    crate::database::queries::get_todays_calendar_events(&connection)
+        .map_err(|e| e.to_string())
+}
+
+//INFO: Returns total memory count for the dashboard widget
+#[tauri::command]
+pub fn get_memory_count(
+    database: State<'_, Database>,
+) -> Result<i64, String> {
+    let connection = database.connection.lock();
+    connection
+        .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+        .map_err(|e| e.to_string())
+}

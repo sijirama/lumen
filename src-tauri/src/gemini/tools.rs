@@ -218,43 +218,6 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                 })),
             },
             GeminiFunctionDeclaration {
-                name: "list_google_tasks".to_string(),
-                description: "Lists pending tasks from the user's default Google Tasks list (Official cloud-stored items). DO NOT use this for checking local Obsidian daily notes or Markdown tasks."
-                    .to_string(),
-                parameters: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "max_results": {
-                            "type": "integer",
-                            "description": "Maximum number of tasks to fetch (default 10)."
-                        }
-                    }
-                })),
-            },
-            GeminiFunctionDeclaration {
-                name: "create_google_task".to_string(),
-                description: "Creates a new official cloud-stored task in Google Tasks. DO NOT use this for updating local Obsidian files. IMPORTANT: For due dates, use the current year and offset from the 'ISO' time in CONTEXT."
-                    .to_string(),
-                parameters: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "title": {
-                            "type": "string",
-                            "description": "Task title."
-                        },
-                        "notes": {
-                            "type": "string",
-                            "description": "Task notes/description."
-                        },
-                        "due": {
-                            "type": "string",
-                            "description": "Due date in RFC3339 format with offset (e.g. '2026-01-20T23:59:59+01:00')."
-                        }
-                    },
-                    "required": ["title"]
-                })),
-            },
-            GeminiFunctionDeclaration {
                 name: "grep_file".to_string(),
                 description: "Searches for a pattern in a file and returns matching lines with line numbers.".to_string(),
                 parameters: Some(json!({
@@ -572,29 +535,6 @@ pub fn get_google_tools() -> Vec<GeminiFunctionDeclaration> {
                     "event_id": { "type": "string", "description": "The unique ID of the event to delete." }
                 },
                 "required": ["event_id"]
-            })),
-        },
-        GeminiFunctionDeclaration {
-            name: "list_google_tasks".to_string(),
-            description: "Lists pending tasks from the user's default Google Tasks list (Official cloud-stored items). DO NOT use this for checking local Obsidian daily notes or Markdown tasks.".to_string(),
-            parameters: Some(json!({
-                "type": "object",
-                "properties": {
-                    "max_results": { "type": "integer", "description": "Maximum number of tasks to fetch (default 10)." }
-                }
-            })),
-        },
-        GeminiFunctionDeclaration {
-            name: "create_google_task".to_string(),
-            description: "Creates a new official cloud-stored task in Google Tasks. DO NOT use this for updating local Obsidian files. IMPORTANT: For due dates, use the current year and offset from the 'ISO' time in CONTEXT.".to_string(),
-            parameters: Some(json!({
-                "type": "object",
-                "properties": {
-                    "title": { "type": "string", "description": "Task title." },
-                    "notes": { "type": "string", "description": "Task notes/description." },
-                    "due": { "type": "string", "description": "Due date in RFC3339 format with offset (e.g. '2026-01-20T23:59:59+01:00')." }
-                },
-                "required": ["title"]
             })),
         },
     ]
@@ -943,6 +883,52 @@ pub async fn execute_tool_async(
     args: &serde_json::Value,
     database: &crate::database::Database,
 ) -> serde_json::Value {
+    // Check per-tool approval settings (defaults: delete_calendar_event + send_email require approval)
+    let needs_approval = {
+        let setting_key = format!("approval_{}", name);
+        let conn = database.connection.lock();
+        match crate::database::queries::get_setting(&conn, &setting_key) {
+            Ok(Some(val)) => val == "true",
+            _ => matches!(name, "delete_calendar_event" | "send_email"),
+        }
+    };
+
+    if needs_approval {
+        let title = match name {
+            "create_calendar_event" => format!(
+                "Create calendar event: {}",
+                args.get("summary").and_then(|v| v.as_str()).unwrap_or("Untitled")
+            ),
+            "delete_calendar_event" => format!(
+                "Delete calendar event: {}",
+                args.get("event_id").and_then(|v| v.as_str()).unwrap_or("unknown")
+            ),
+            "write_file" => format!(
+                "Write file: {}",
+                args.get("path").and_then(|v| v.as_str()).unwrap_or("unknown path")
+            ),
+            "send_email" => format!(
+                "Send email to: {}",
+                args.get("to").and_then(|v| v.as_str()).unwrap_or("unknown recipient")
+            ),
+            _ => name.to_string(),
+        };
+
+        let conn = database.connection.lock();
+        match crate::database::queries::create_lumen_task(&conn, &title, name, &args.to_string()) {
+            Ok(task_id) => {
+                return serde_json::json!({
+                    "status": "queued",
+                    "task_id": task_id,
+                    "message": format!("I've queued '{}' for your confirmation. You'll see a task pending approval.", title)
+                });
+            }
+            Err(_) => {
+                // Fall through to direct execution if queuing fails
+            }
+        }
+    }
+
     match name {
         "get_weather" => {
             let location = args
@@ -1021,27 +1007,6 @@ pub async fn execute_tool_async(
             match crate::integrations::google_calendar::delete_calendar_event(database, event_id).await {
                 Ok(_) => json!({ "status": "success", "message": "Event deleted successfully." }),
                 Err(e) => json!({ "error": format!("Failed to delete event: {}", e) }),
-            }
-        }
-        "list_google_tasks" => {
-            let max_results = args
-                .get("max_results")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(10) as u32;
-            match crate::integrations::google_tasks::list_tasks(database, max_results).await {
-                Ok(tasks) => json!({ "tasks": tasks }),
-                Err(e) => json!({ "error": format!("Failed to fetch tasks: {}", e) }),
-            }
-        }
-        "create_google_task" => {
-            let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("");
-            let notes = args.get("notes").and_then(|v| v.as_str());
-            let due = args.get("due").and_then(|v| v.as_str());
-
-            match crate::integrations::google_tasks::create_task(database, title, notes, due).await
-            {
-                Ok(task) => json!({ "status": "success", "task": task }),
-                Err(e) => json!({ "error": format!("Failed to create task: {}", e) }),
             }
         }
         "search_web" => {

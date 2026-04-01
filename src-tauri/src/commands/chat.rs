@@ -302,14 +302,14 @@ pub async fn send_chat_message(
         let mut has_function_calls = false;
         let mut function_responses = Vec::new();
 
+        // Pass 1: extract text + collect tool calls (checking rate limits)
+        let mut async_calls: Vec<crate::gemini::client::GeminiFunctionCall> = Vec::new();
+        let mut sync_calls: Vec<crate::gemini::client::GeminiFunctionCall> = Vec::new();
+
         for part in &response_parts {
-            // Extract text from non-tool-call responses
             if let Some(text) = &part.text {
-                // Reset final text each round — only the last round's text matters
                 final_response_text.clear();
                 final_response_text.push_str(text);
-
-                // Emit to frontend for real-time display
                 let mut emit_text = text.clone();
                 if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text) {
                     if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
@@ -321,83 +321,92 @@ pub async fn send_chat_message(
 
             if let Some(call) = &part.function_call {
                 println!("DEBUG: 🛠️ Tool Call -> {} (args: {})", call.name, call.args);
-                // Check if this tool has been called too many times
                 let count = tool_call_counts.entry(call.name.clone()).or_insert(0);
                 *count += 1;
 
                 if *count > MAX_CALLS_PER_TOOL {
-                    println!("DEBUG: ⚠️ Tool '{}' hit call limit ({}), skipping.", call.name, MAX_CALLS_PER_TOOL);
+                    println!("DEBUG: ⚠️ Tool '{}' hit call limit, skipping.", call.name);
                     function_responses.push(crate::gemini::client::GeminiPart::function_response(
                         call.name.clone(),
-                        serde_json::json!({ "error": format!("Tool '{}' has already been called {} times this turn. Please provide your response now using the information you already have. Do not attempt another search.", call.name, MAX_CALLS_PER_TOOL) }),
+                        serde_json::json!({ "error": format!("Tool '{}' called too many times. Synthesize from what you have.", call.name) }),
                     ));
                 } else {
+                    has_function_calls = true;
+                    const ASYNC_TOOLS: &[&str] = &[
+                        "get_weather", "get_google_calendar_events", "get_unread_emails",
+                        "send_email", "create_calendar_event", "list_google_tasks",
+                        "create_google_task", "take_screenshot", "delete_calendar_event", "search_web",
+                    ];
+                    if ASYNC_TOOLS.contains(&call.name.as_str()) {
+                        async_calls.push(call.clone());
+                    } else {
+                        sync_calls.push(call.clone());
+                    }
+                }
+            }
+        }
 
-                has_function_calls = true;
-                if call.name == "get_weather"
-                    || call.name == "get_google_calendar_events"
-                    || call.name == "get_unread_emails"
-                    || call.name == "send_email"
-                    || call.name == "create_calendar_event"
-                    || call.name == "list_google_tasks"
-                    || call.name == "create_google_task"
-                    || call.name == "take_screenshot"
-                    || call.name == "delete_calendar_event"
-                    || call.name == "search_web"
-                {
-                    let res =
-                        crate::gemini::tools::execute_tool_async(&call.name, &call.args, &database)
-                            .await;
+        // Pass 2: execute — async tools in parallel, sync tools sequentially
+        if has_function_calls {
+            let _ = app_handle.emit("tool-execution-start", ());
 
-                    // Capture citations from search results
-                    if call.name == "search_web" {
-                        if let Some(results) = res.get("results").and_then(|r| r.as_array()) {
-                            for r in results {
-                                if let (Some(title), Some(url)) = (
-                                    r.get("title").and_then(|v| v.as_str()),
-                                    r.get("url").and_then(|v| v.as_str()),
-                                ) {
-                                    manual_citations.push(Citation {
-                                        title: title.to_string(),
-                                        url: url.to_string(),
-                                    });
-                                }
+            // Async tools run concurrently
+            let db_inner = database.inner().clone();
+            let async_results: Vec<(String, serde_json::Value)> = futures::future::join_all(
+                async_calls.into_iter().map(|call| {
+                    let db = db_inner.clone();
+                    async move {
+                        let res = crate::gemini::tools::execute_tool_async(&call.name, &call.args, &db).await;
+                        (call.name, res)
+                    }
+                })
+            ).await;
+
+            // Sync tools run sequentially (single DB lock for the batch)
+            let sync_results: Vec<(String, serde_json::Value)> = {
+                let connection = database.connection.lock();
+                sync_calls.into_iter().map(|call| {
+                    let res = crate::gemini::tools::execute_tool_sync(
+                        &call.name, &call.args,
+                        obsidian_config.as_ref(), &connection, &app_handle,
+                    );
+                    (call.name, res)
+                }).collect()
+            };
+
+            let _ = app_handle.emit("tool-execution-end", ());
+
+            // Emit tasks-updated if any tool was queued for confirmation
+            let has_queued = async_results.iter().chain(sync_results.iter())
+                .any(|(_, res)| res.get("status").and_then(|s| s.as_str()) == Some("queued"));
+            if has_queued {
+                let _ = app_handle.emit("tasks-updated", ());
+            }
+
+            // Pass 3: process results and build function_responses
+            for (name, res) in async_results.into_iter().chain(sync_results.into_iter()) {
+                println!("DEBUG: ✅ Tool '{}' Result: {}", name, res);
+
+                if name == "search_web" {
+                    if let Some(results) = res.get("results").and_then(|r| r.as_array()) {
+                        for r in results {
+                            if let (Some(title), Some(url)) = (
+                                r.get("title").and_then(|v| v.as_str()),
+                                r.get("url").and_then(|v| v.as_str()),
+                            ) {
+                                manual_citations.push(Citation { title: title.to_string(), url: url.to_string() });
                             }
                         }
                     }
-
-                    // Proactive signals for UI refreshes
-                    if call.name == "create_calendar_event" || call.name == "delete_calendar_event" {
-                        if res.get("status").and_then(|s| s.as_str()) == Some("success")
-                            || res.get("events").is_some()
-                        {
-                            let _ = app_handle.emit("calendar-updated", ());
-                        }
-                    }
-
-                    function_responses.push(crate::gemini::client::GeminiPart::function_response(
-                        call.name.clone(),
-                        res.clone(),
-                    ));
-                    println!("DEBUG: ✅ Tool '{}' Result: {}", call.name, res);
-                } else {
-                    let res = {
-                        let connection = database.connection.lock();
-                        crate::gemini::tools::execute_tool_sync(
-                            &call.name,
-                            &call.args,
-                            obsidian_config.as_ref(),
-                            &connection,
-                            &app_handle,
-                        )
-                    };
-                    function_responses.push(crate::gemini::client::GeminiPart::function_response(
-                        call.name.clone(),
-                        res.clone(),
-                    ));
-                    println!("DEBUG: ✅ Tool '{}' Result: {}", call.name, res);
                 }
-                } // Close the newly added else block
+
+                if name == "create_calendar_event" || name == "delete_calendar_event" {
+                    if res.get("status").and_then(|s| s.as_str()) == Some("success") || res.get("events").is_some() {
+                        let _ = app_handle.emit("calendar-updated", ());
+                    }
+                }
+
+                function_responses.push(crate::gemini::client::GeminiPart::function_response(name, res));
             }
         }
 
@@ -550,7 +559,7 @@ pub async fn send_chat_message(
         image_data: None,
         citations: citations.clone(),
         created_at: chrono::Utc::now().to_rfc3339(),
-        session_id: request.session_id,
+        session_id: request.session_id.clone(),
     };
 
     //INFO: Save messages to database
@@ -560,11 +569,18 @@ pub async fn send_chat_message(
             .map_err(|e| format!("Failed to save user message: {}", e))?;
         let assistant_id = save_chat_message(&connection, &assistant_message)
             .map_err(|e| format!("Failed to save assistant message: {}", e))?;
+
+        // Set session title from first user message (only sets if title is NULL)
+        if let Some(ref sid) = request.session_id {
+            let title = request.message.chars().take(60).collect::<String>();
+            let _ = crate::database::queries::update_session_title(&connection, sid, &title);
+        }
+
         (user_id, assistant_id)
     };
 
-    //INFO: Latent Memory Extraction Trigger (mod-based)
-    const MEMORY_EXTRACTION_THRESHOLD: i64 = 50;
+    //INFO: Memory Extraction Trigger — fires every 6 messages (3 exchanges)
+    const MEMORY_EXTRACTION_THRESHOLD: i64 = 6;
     {
         let connection = database.connection.lock();
         if let Ok(total_count) = crate::database::queries::count_chat_messages(&connection) {
@@ -651,8 +667,14 @@ pub async fn send_chat_message(
                                             }
                                         }
                                         
-                                        // Store in DB
+                                        // Store in DB with deduplication check
                                         let conn = db_clone.connection.lock();
+                                        if let Some(ref emb) = memory.embedding {
+                                            if crate::memory::core::is_near_duplicate(&conn, emb, 0.92) {
+                                                println!("DEBUG: 🧠 Skipping near-duplicate memory.");
+                                                continue;
+                                            }
+                                        }
                                         if let Err(e) = crate::memory::core::store_memory(&conn, memory) {
                                             println!("DEBUG: 🧠 Failed to store memory: {}", e);
                                         }
@@ -797,12 +819,263 @@ pub fn get_chat_history(
         .collect())
 }
 
-//INFO: Clears all chat history
+//INFO: Clears all chat history (optionally for a specific session), with background summary generation
 #[tauri::command]
-pub fn clear_chat_history(database: State<Database>) -> Result<(), String> {
-    let connection = database.connection.lock();
+pub async fn clear_chat_history(
+    database: State<'_, Database>,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    use crate::database::queries::{clear_chat_messages, get_chat_messages};
 
-    clear_chat_messages(&connection).map_err(|e| format!("Failed to clear chat history: {}", e))
+    // Grab recent messages for summary before clearing
+    let (messages_for_summary, api_key_opt, session_id_for_summary) = {
+        let conn = database.connection.lock();
+        let msgs = get_chat_messages(&conn, session_id.as_deref(), 30).unwrap_or_default();
+        let key = crate::database::queries::get_api_token(&conn, "gemini")
+            .ok()
+            .flatten()
+            .and_then(|enc| crate::crypto::decrypt_token(&enc).ok());
+        (msgs, key, session_id.clone())
+    };
+
+    // Clear the messages
+    {
+        let conn = database.connection.lock();
+        if let Some(ref sid) = session_id {
+            conn.execute(
+                "DELETE FROM chat_messages WHERE session_id = ?",
+                rusqlite::params![sid],
+            )
+            .map_err(|e| format!("Failed to clear session messages: {}", e))?;
+        } else {
+            clear_chat_messages(&conn).map_err(|e| format!("Failed to clear chat history: {}", e))?;
+        }
+    }
+
+    // Background: generate summary and store as memory
+    if !messages_for_summary.is_empty() {
+        if let Some(api_key) = api_key_opt {
+            let db_clone = database.inner().clone();
+            tokio::spawn(async move {
+                let transcript: Vec<String> = messages_for_summary
+                    .iter()
+                    .map(|m| format!("{}: {}", if m.role == "user" { "User" } else { "Lumen" }, m.content))
+                    .collect();
+                let prompt = format!(
+                    "Summarize this conversation in 2-3 sentences, capturing the key topics, decisions, and outcomes:\n\n{}",
+                    transcript.join("\n")
+                );
+                let client = crate::gemini::GeminiClient::new(api_key.clone());
+                if let Ok(resp) = client.send_chat(
+                    vec![crate::gemini::client::GeminiContent {
+                        role: Some("user".to_string()),
+                        parts: vec![crate::gemini::client::GeminiPart::text(prompt)],
+                    }],
+                    Some("You are a concise summarizer. Return only the summary text, no preamble."),
+                    None,
+                    None,
+                ).await {
+                    let summary = resp.parts.iter().filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
+                    if !summary.is_empty() {
+                        // Store as a memory
+                        let mut memory = crate::memory::extractor::create_memory(
+                            crate::memory::core::MemoryType::Observation,
+                            format!("Conversation summary: {}", summary),
+                            6.0,
+                        );
+                        if let Ok(emb) = client.generate_embedding(&memory.content).await {
+                            memory.embedding = Some(emb);
+                        }
+                        let conn = db_clone.connection.lock();
+                        let _ = crate::memory::core::store_memory(&conn, &memory);
+
+                        // Also store in session record if we have a session_id
+                        if let Some(ref sid) = session_id_for_summary {
+                            let _ = crate::database::queries::update_session_summary(&conn, sid, &summary);
+                        }
+                        println!("DEBUG: 🧠 Session summary stored as memory.");
+                    }
+                }
+            });
+        }
+    }
+
+    Ok(())
+}
+
+//INFO: Creates a new chat session and returns its ID
+#[tauri::command]
+pub fn create_new_session(database: State<Database>) -> Result<String, String> {
+    let connection = database.connection.lock();
+    crate::database::queries::create_session(&connection).map_err(|e| e.to_string())
+}
+
+//INFO: Returns all chat sessions ordered by most recent
+#[tauri::command]
+pub fn get_chat_sessions(database: State<Database>) -> Result<Vec<crate::database::queries::ChatSession>, String> {
+    let connection = database.connection.lock();
+    crate::database::queries::get_sessions(&connection).map_err(|e| e.to_string())
+}
+
+//INFO: Returns all pending lumen tasks awaiting user confirmation
+#[tauri::command]
+pub fn get_pending_tasks(database: State<Database>) -> Result<Vec<crate::database::queries::LumenTask>, String> {
+    let connection = database.connection.lock();
+    crate::database::queries::get_pending_lumen_tasks(&connection).map_err(|e| e.to_string())
+}
+
+//INFO: Rejects (cancels) a pending lumen task
+#[tauri::command]
+pub fn reject_lumen_task(database: State<Database>, task_id: i64) -> Result<(), String> {
+    let connection = database.connection.lock();
+    crate::database::queries::update_task_status(&connection, task_id, "failed")
+        .map_err(|e| e.to_string())
+}
+
+//INFO: Executes a pending lumen task that the user has approved
+#[tauri::command]
+pub async fn execute_lumen_task(
+    database: State<'_, Database>,
+    app_handle: tauri::AppHandle,
+    task_id: i64,
+) -> Result<(), String> {
+    use tauri::Emitter;
+
+    // Load task
+    let (task_type, payload, task_title) = {
+        let conn = database.connection.lock();
+        conn.query_row(
+            "SELECT task_type, payload, title FROM lumen_tasks WHERE id=?",
+            [task_id],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)),
+        )
+        .map_err(|e| e.to_string())?
+    };
+
+    // Mark as running
+    {
+        let conn = database.connection.lock();
+        let _ = conn.execute(
+            "UPDATE lumen_tasks SET status='running' WHERE id=?",
+            [task_id],
+        );
+    }
+
+    let args: serde_json::Value = serde_json::from_str(&payload).unwrap_or_default();
+
+    let result: Result<(), String> = match task_type.as_str() {
+        "create_calendar_event" => {
+            let summary = args.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+            let description = args.get("description").and_then(|v| v.as_str());
+            let start_time = args.get("start_time").and_then(|v| v.as_str()).unwrap_or("");
+            let end_time = args.get("end_time").and_then(|v| v.as_str()).unwrap_or("");
+            let location = args.get("location").and_then(|v| v.as_str());
+            match crate::integrations::google_calendar::create_calendar_event(
+                database.inner(),
+                summary,
+                description,
+                start_time,
+                end_time,
+                location,
+            )
+            .await
+            {
+                Ok(_) => {
+                    let _ = app_handle.emit("calendar-updated", ());
+                    Ok(())
+                }
+                Err(e) => Err(e.to_string()),
+            }
+        }
+        "delete_calendar_event" => {
+            let event_id = args.get("event_id").and_then(|v| v.as_str()).unwrap_or("");
+            match crate::integrations::google_calendar::delete_calendar_event(
+                database.inner(),
+                event_id,
+            )
+            .await
+            {
+                Ok(_) => {
+                    let _ = app_handle.emit("calendar-updated", ());
+                    Ok(())
+                }
+                Err(e) => Err(e.to_string()),
+            }
+        }
+        "write_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            std::fs::write(path, content).map_err(|e| e.to_string())
+        }
+        "send_email" => {
+            let to = args.get("to").and_then(|v| v.as_str()).unwrap_or("");
+            let subject = args.get("subject").and_then(|v| v.as_str()).unwrap_or("");
+            let body = args.get("body").and_then(|v| v.as_str()).unwrap_or("");
+            match crate::integrations::google_gmail::send_email(database.inner(), to, subject, body).await {
+                Ok(_) => Ok(()),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+        _ => Err(format!("Unknown task type: {}", task_type)),
+    };
+
+    // Update status
+    let status = if result.is_ok() { "done" } else { "failed" };
+    {
+        let conn = database.connection.lock();
+        let completed_at = chrono::Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "UPDATE lumen_tasks SET status=?, completed_at=? WHERE id=?",
+            rusqlite::params![status, completed_at, task_id],
+        );
+    }
+
+    let _ = app_handle.emit("tasks-updated", ());
+
+    // Notify the chat with a confirmation message
+    if result.is_ok() {
+        let confirmation = match task_type.as_str() {
+            "create_calendar_event" => format!("Done — event created: **{}**", task_title.trim_start_matches("Create calendar event: ")),
+            "delete_calendar_event" => "Done — calendar event deleted.".to_string(),
+            "write_file" => format!("Done — file written: **{}**", task_title.trim_start_matches("Write file: ")),
+            "send_email" => format!("Done — email sent to **{}**", task_title.trim_start_matches("Send email to: ")),
+            _ => format!("Done — **{}** completed.", task_title),
+        };
+        // Persist confirmation message to DB so it survives overlay close/reopen
+        {
+            let conn = database.connection.lock();
+            let msg = crate::database::queries::ChatMessage {
+                id: None,
+                role: "assistant".to_string(),
+                content: confirmation.clone(),
+                image_data: None,
+                citations: None,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                session_id: None,
+            };
+            let _ = crate::database::queries::save_chat_message(&conn, &msg);
+        }
+        let _ = app_handle.emit("task-completed", serde_json::json!({ "message": confirmation }));
+    } else if let Err(ref e) = result {
+        let error_text = format!("Action failed: {}", e);
+        // Persist error message too
+        {
+            let conn = database.connection.lock();
+            let msg = crate::database::queries::ChatMessage {
+                id: None,
+                role: "assistant".to_string(),
+                content: error_text.clone(),
+                image_data: None,
+                citations: None,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                session_id: None,
+            };
+            let _ = crate::database::queries::save_chat_message(&conn, &msg);
+        }
+        let _ = app_handle.emit("task-completed", serde_json::json!({ "error": error_text }));
+    }
+
+    result
 }
 
 //INFO: Bu//INFO: Helper to log prompt state for debugging

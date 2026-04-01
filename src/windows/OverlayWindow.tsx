@@ -4,9 +4,17 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, X, Loader2, FileText, Crosshair, CalendarDays, LayoutDashboard, MessageSquare } from 'lucide-react';
+import { Send, X, Loader2, FileText, Crosshair, CalendarDays, LayoutDashboard, MessageSquare, CheckSquare, Maximize2, Minimize2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import CalendarView from '../components/CalendarView';
+
+//INFO: Quick action prompts shown on empty chat
+const QUICK_ACTIONS = [
+    "What's on my calendar today?",
+    "Check my unread emails",
+    "What did we discuss last time?",
+    "Open my daily note",
+];
 
 //INFO: Chat message type
 interface ChatMessage {
@@ -26,6 +34,16 @@ interface SendMessageResponse {
     suggested_view?: string | null;
 }
 
+//INFO: Lumen task type
+interface LumenTask {
+    id: number;
+    title: string;
+    task_type: string;
+    payload: string;
+    status: string;
+    created_at: string;
+}
+
 //INFO: Helper to extract domain from URL
 const extractDomain = (url: string) => {
     try {
@@ -42,17 +60,17 @@ function CitationStack({ citations }: { citations: { title: string; url: string 
 
     return (
         <div className="citation-container">
-            <div 
-                className="citation-stack-trigger" 
+            <div
+                className="citation-stack-trigger"
                 onClick={() => setIsExpanded(!isExpanded)}
                 title={isExpanded ? "Collapse citations" : "View sources"}
             >
                 <div className="citation-avatar-stack">
                     {citations.slice(0, 3).map((cite, i) => (
                         <div key={i} className="citation-avatar" style={{ zIndex: 10 - i }}>
-                            <img 
-                                src={`https://www.google.com/s2/favicons?domain=${extractDomain(cite.url)}&sz=64`} 
-                                alt="" 
+                            <img
+                                src={`https://www.google.com/s2/favicons?domain=${extractDomain(cite.url)}&sz=64`}
+                                alt=""
                                 onError={(e) => (e.currentTarget.src = 'https://www.google.com/s2/favicons?domain=google.com&sz=64')}
                             />
                         </div>
@@ -71,17 +89,17 @@ function CitationStack({ citations }: { citations: { title: string; url: string 
             {isExpanded && (
                 <div className="citation-expanded-list">
                     {citations.map((cite, i) => (
-                        <a 
-                            key={i} 
-                            href={cite.url} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
+                        <a
+                            key={i}
+                            href={cite.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="citation-item"
                         >
                             <div className="citation-item-icon">
-                                <img 
-                                    src={`https://www.google.com/s2/favicons?domain=${extractDomain(cite.url)}&sz=64`} 
-                                    alt="" 
+                                <img
+                                    src={`https://www.google.com/s2/favicons?domain=${extractDomain(cite.url)}&sz=64`}
+                                    alt=""
                                 />
                             </div>
                             <div className="citation-info">
@@ -100,29 +118,35 @@ function OverlayWindow() {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isThinking, setIsThinking] = useState(false);
     const [isCapturing, setIsCapturing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
-    const [currentView, setCurrentView] = useState<'chat' | 'calendar'>('chat');
-    const [transitionView, setTransitionView] = useState<'chat' | 'calendar'>('chat');
+    const [currentView, setCurrentView] = useState<'chat' | 'calendar' | 'tasks'>('chat');
+    const [transitionView, setTransitionView] = useState<'chat' | 'calendar' | 'tasks'>('chat');
     const [isCalendarExpanded, setIsCalendarExpanded] = useState(false);
     const [suggestedDate, setSuggestedDate] = useState<string | undefined>(undefined);
+
+    // Task confirmation panel
+    const [pendingTasks, setPendingTasks] = useState<LumenTask[]>([]);
+
+    // Content size toggle
+    const [contentLarge, setContentLarge] = useState(false);
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
     //INFO: Orchestrate smooth view switching
-    const switchView = async (newView: 'chat' | 'calendar') => {
+    const switchView = async (newView: 'chat' | 'calendar' | 'tasks') => {
         if (newView === transitionView) return;
-
-        // Just toggle the state — CSS handles the crossfade, window stays at fixed 820px height
         setTransitionView(newView);
         setCurrentView(newView);
-
-        // Post-layout scroll handling
         if (newView === 'chat') {
-            setTimeout(() => scrollToBottom(true), 150);
+            setTimeout(() => scrollToBottom(true), 300);
         } else if (newView === 'calendar') {
-            setIsCalendarExpanded(true); // Extend by default
+            setIsCalendarExpanded(true);
+        } else if (newView === 'tasks') {
+            loadPendingTasks();
         }
     };
 
@@ -130,6 +154,36 @@ function OverlayWindow() {
     const handleCalendarExpansionToggle = (expanded: boolean) => {
         setIsCalendarExpanded(expanded);
     };
+
+    //INFO: Load pending tasks
+    async function loadPendingTasks() {
+        try {
+            const tasks = await invoke<LumenTask[]>('get_pending_tasks');
+            setPendingTasks(tasks);
+        } catch (err) {
+            console.error('Failed to load pending tasks:', err);
+        }
+    }
+
+    //INFO: Approve a task
+    async function approveTask(taskId: number) {
+        try {
+            await invoke('execute_lumen_task', { taskId });
+            await loadPendingTasks();
+        } catch (err) {
+            console.error('Failed to approve task:', err);
+        }
+    }
+
+    //INFO: Reject a task
+    async function rejectTask(taskId: number) {
+        try {
+            await invoke('reject_lumen_task', { taskId });
+            await loadPendingTasks();
+        } catch (err) {
+            console.error('Failed to reject task:', err);
+        }
+    }
 
     //INFO: Set transparent background for overlay window
     useEffect(() => {
@@ -143,6 +197,7 @@ function OverlayWindow() {
         });
 
         loadChatHistory();
+        loadPendingTasks();
 
         return () => {
             document.body.classList.remove('overlay-window');
@@ -151,7 +206,7 @@ function OverlayWindow() {
     }, []);
 
     const scrollToBottom = (instant = false) => {
-        // Use a small timeout for smooth scrolling to let layout settle, 
+        // Use a small timeout for smooth scrolling to let layout settle,
         // but go instant for view switches/mounts
         const performScroll = () => {
             messagesEndRef.current?.scrollIntoView({
@@ -167,11 +222,16 @@ function OverlayWindow() {
         }
     };
 
-    //INFO: Listen for streaming messages, clear events, and proactive updates
+    //INFO: Listen for streaming messages, clear events, proactive updates, tasks, and morning briefing
     useEffect(() => {
         let unlistenTurn: (() => void) | null = null;
         let unlistenClear: (() => void) | null = null;
         let unlistenMsg: (() => void) | null = null;
+        let unlistenToolStart: (() => void) | null = null;
+        let unlistenToolEnd: (() => void) | null = null;
+        let unlistenTasksUpdated: (() => void) | null = null;
+        let unlistenTaskCompleted: (() => void) | null = null;
+        let unlistenMorningBriefing: (() => void) | null = null;
 
         async function setup() {
             // @ts-ignore
@@ -211,12 +271,53 @@ function OverlayWindow() {
             unlistenMsg = await listen<ChatMessage>('assistant-message', (event) => {
                 setMessages(prev => [...prev.filter(m => m.id !== event.payload.id), event.payload]);
             });
+
+            // Tool execution state tracking
+            unlistenToolStart = await listen('tool-execution-start', () => {
+                setIsThinking(true);
+            });
+            unlistenToolEnd = await listen('tool-execution-end', () => {
+                setIsThinking(false);
+            });
+
+            // Tasks updated event — reload tasks
+            unlistenTasksUpdated = await listen('tasks-updated', () => {
+                loadPendingTasks();
+            });
+
+            // Task completed — reload chat from DB (message is persisted) and switch back
+            unlistenTaskCompleted = await listen<{ message?: string; error?: string }>('task-completed', () => {
+                loadChatHistory();
+                switchView('chat');
+            });
+
+            // Morning briefing proactive message
+            unlistenMorningBriefing = await listen('morning-briefing-ready', () => {
+                setMessages(prev => {
+                    // Don't duplicate if id -2 already exists
+                    if (prev.some(m => m.id === -2)) return prev;
+                    const briefingMessage: ChatMessage = {
+                        id: -2,
+                        role: 'assistant',
+                        content: "Good morning! Your daily briefing is ready. Ask me about your day or check the dashboard for details.",
+                        created_at: new Date().toISOString()
+                    };
+                    return [...prev, briefingMessage];
+                });
+            });
         }
+
         setup();
+
         return () => {
             if (unlistenTurn) unlistenTurn();
             if (unlistenClear) unlistenClear();
             if (unlistenMsg) unlistenMsg();
+            if (unlistenToolStart) unlistenToolStart();
+            if (unlistenToolEnd) unlistenToolEnd();
+            if (unlistenTasksUpdated) unlistenTasksUpdated();
+            if (unlistenTaskCompleted) unlistenTaskCompleted();
+            if (unlistenMorningBriefing) unlistenMorningBriefing();
         };
     }, []);
 
@@ -347,7 +448,7 @@ function OverlayWindow() {
             });
 
             setMessages(prev => {
-                // Filter out the temp user message (id: null) 
+                // Filter out the temp user message (id: null)
                 // and any streamed turns (id: -1) from this interaction
                 const filtered = prev.filter(m => m.id !== null && m.id !== -1);
                 return [
@@ -362,7 +463,7 @@ function OverlayWindow() {
                 if (response.suggested_date) {
                     setSuggestedDate(response.suggested_date);
                 }
-                
+
                 if (response.suggested_view !== transitionView && response.suggested_view !== currentView) {
                     console.log(`🧠 Lumen suggested view transition: ${response.suggested_view}`);
                     switchView(response.suggested_view as 'chat' | 'calendar');
@@ -373,6 +474,69 @@ function OverlayWindow() {
             setMessages(prev => prev.filter(m => m.id !== null && m.id !== -1));
         } finally {
             setIsLoading(false);
+            setIsThinking(false);
+        }
+    }
+
+    //INFO: Handle quick action chip click — set input and immediately send
+    async function handleQuickAction(action: string) {
+        if (isLoading) return;
+        setInputValue(action);
+        // Use a microtask to let state settle before sending
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        // We bypass the state-based send and directly invoke with the known value
+        const userMessage = action;
+        const base64Image = capturedImage;
+        setInputValue('');
+        setCapturedImage(null);
+        setError(null);
+        setIsLoading(true);
+
+        const tempMessage: ChatMessage = {
+            id: null,
+            role: 'user',
+            content: userMessage,
+            created_at: new Date().toISOString(),
+            image_data: base64Image || undefined
+        };
+        setMessages(prev => [...prev, tempMessage]);
+
+        if (transitionView !== 'chat') {
+            switchView('chat');
+        }
+
+        try {
+            const response = await invoke<SendMessageResponse>('send_chat_message', {
+                request: {
+                    message: userMessage,
+                    session_id: null,
+                    base64_image: base64Image
+                }
+            });
+
+            setMessages(prev => {
+                const filtered = prev.filter(m => m.id !== null && m.id !== -1);
+                return [
+                    ...filtered,
+                    response.user_message,
+                    response.assistant_message
+                ];
+            });
+
+            if (response.suggested_view) {
+                if (response.suggested_date) {
+                    setSuggestedDate(response.suggested_date);
+                }
+                if (response.suggested_view !== transitionView && response.suggested_view !== currentView) {
+                    switchView(response.suggested_view as 'chat' | 'calendar');
+                }
+            }
+        } catch (err) {
+            setError(String(err));
+            setMessages(prev => prev.filter(m => m.id !== null && m.id !== -1));
+        } finally {
+            setIsLoading(false);
+            setIsThinking(false);
         }
     }
 
@@ -394,11 +558,48 @@ function OverlayWindow() {
         }
     }
 
+
     return (
         <div className="overlay-container">
             <div className="overlay-panel">
+
                 {/* Messages / Calendar */}
-                <div className={`overlay-content ${transitionView === 'calendar' && isCalendarExpanded ? 'expanded' : ''}`}>
+                <div className={`overlay-content${transitionView === 'calendar' && isCalendarExpanded ? ' expanded' : ''}${contentLarge && transitionView === 'chat' ? ' large' : ''}`}>
+
+                    {/* ── Header row (inside the card) ── */}
+                    <div className="overlay-chat-header">
+                        {/* Left: status dot + wordmark */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                            <span className={`overlay-status-dot${isLoading || isThinking ? ' active' : ''}`} />
+                            <span className="overlay-wordmark">Lumen</span>
+                        </div>
+
+                        {/* Right: actions + resize */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {/* Actions / task queue button */}
+                            <button
+                                onClick={() => switchView(transitionView === 'tasks' ? 'chat' : 'tasks')}
+                                className={`overlay-header-btn${transitionView === 'tasks' ? ' active' : ''}`}
+                                title="Pending actions"
+                            >
+                                <CheckSquare size={12} />
+                                <span>Actions</span>
+                                {pendingTasks.length > 0 && (
+                                    <span className="overlay-badge">{pendingTasks.length}</span>
+                                )}
+                            </button>
+
+                            {/* Expand / shrink toggle */}
+                            <button
+                                onClick={() => setContentLarge(v => !v)}
+                                className="overlay-header-icon-btn"
+                                title={contentLarge ? 'Shrink' : 'Expand'}
+                            >
+                                {contentLarge ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                            </button>
+                        </div>
+                    </div>
+
                     <div className="view-transition-wrapper">
                         {/* Chat View — always rendered */}
                         <div className={`view-pane ${transitionView === 'chat' ? 'active' : ''} chat-messages`}>
@@ -407,6 +608,46 @@ function OverlayWindow() {
                                     <img src="/logo.png" alt="Lumen Logo" style={{ width: '48px', height: '48px', marginBottom: 'var(--spacing-3)', opacity: 0.8 }} />
                                     <p>Hi! I'm Lumen.</p>
                                     <p style={{ fontSize: 'var(--font-size-sm)' }}>Ask me anything.</p>
+                                    {/* Quick action chips */}
+                                    <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: '1fr 1fr',
+                                        gap: '8px',
+                                        marginTop: '16px',
+                                        width: '100%',
+                                        maxWidth: '320px'
+                                    }}>
+                                        {QUICK_ACTIONS.map((action, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => handleQuickAction(action)}
+                                                style={{
+                                                    padding: '6px 10px',
+                                                    borderRadius: '999px',
+                                                    border: '1px solid var(--color-border)',
+                                                    background: 'var(--color-surface)',
+                                                    color: 'var(--color-text-secondary)',
+                                                    fontSize: 'var(--font-size-xs, 11px)',
+                                                    cursor: 'pointer',
+                                                    textAlign: 'center',
+                                                    lineHeight: '1.3',
+                                                    transition: 'background 0.15s, color 0.15s',
+                                                    whiteSpace: 'normal',
+                                                    wordBreak: 'break-word'
+                                                }}
+                                                onMouseEnter={e => {
+                                                    (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-primary, #6366f1)';
+                                                    (e.currentTarget as HTMLButtonElement).style.color = '#fff';
+                                                }}
+                                                onMouseLeave={e => {
+                                                    (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-surface)';
+                                                    (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-secondary)';
+                                                }}
+                                            >
+                                                {action}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
 
@@ -475,6 +716,17 @@ function OverlayWindow() {
                                             {message.content}
                                         </ReactMarkdown>
                                     </div>
+                                    {message.role === 'assistant' && (
+                                        <div className="message-actions">
+                                            <button
+                                                className="msg-action-btn"
+                                                title="Copy"
+                                                onClick={() => navigator.clipboard.writeText(message.content)}
+                                            >
+                                                Copy
+                                            </button>
+                                        </div>
+                                    )}
                                     {message.role === 'assistant' && message.citations && message.citations.length > 0 && (
                                         <CitationStack citations={message.citations} />
                                     )}
@@ -483,11 +735,18 @@ function OverlayWindow() {
 
                             {isLoading && (
                                 <div className="chat-message assistant">
-                                    <div className="typing-indicator">
-                                        <div className="typing-dot"></div>
-                                        <div className="typing-dot"></div>
-                                        <div className="typing-dot"></div>
-                                    </div>
+                                    {isThinking ? (
+                                        <div className="thinking-indicator">
+                                            <div className="thinking-glyph">⚙</div>
+                                            <span className="thinking-label">Working on it...</span>
+                                        </div>
+                                    ) : (
+                                        <div className="typing-indicator">
+                                            <div className="typing-dot"></div>
+                                            <div className="typing-dot"></div>
+                                            <div className="typing-dot"></div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -497,20 +756,63 @@ function OverlayWindow() {
                             <div ref={messagesEndRef} />
                         </div>
 
-                        {/* Calendar View — always rendered */}
+                        {/* Calendar View */}
                         <div className={`view-pane ${transitionView === 'calendar' ? 'active' : ''} calendar-container`}>
-                            <CalendarView 
-                                isExpanded={isCalendarExpanded} 
+                            <CalendarView
+                                isExpanded={isCalendarExpanded}
                                 onToggleExpand={handleCalendarExpansionToggle}
                                 initialDate={suggestedDate}
-                                transitionView={transitionView}
+                                transitionView={transitionView === 'tasks' ? 'chat' : transitionView}
                             />
+                        </div>
+
+                        {/* Tasks View */}
+                        <div className={`view-pane tasks-pane ${transitionView === 'tasks' ? 'active' : ''}`}>
+                            <div className="tasks-pane-inner">
+                                <div className="tasks-pane-header">
+                                    <div>
+                                        <p className="tasks-pane-title">Pending Actions</p>
+                                        <p className="tasks-pane-subtitle">
+                                            {pendingTasks.length === 0
+                                                ? 'Nothing waiting for approval'
+                                                : `${pendingTasks.length} action${pendingTasks.length !== 1 ? 's' : ''} need your go-ahead`}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {pendingTasks.length === 0 ? (
+                                    <div className="tasks-empty-state">
+                                        <CheckSquare size={28} strokeWidth={1.5} />
+                                        <span>All clear</span>
+                                    </div>
+                                ) : (
+                                    <div className="tasks-list">
+                                        {pendingTasks.map(task => (
+                                            <div key={task.id} className="task-card">
+                                                <div className="task-card-top">
+                                                    <span className="task-card-title">{task.title}</span>
+                                                    <span className="task-type-badge">{task.task_type.replace(/_/g, ' ')}</span>
+                                                </div>
+                                                <div className="task-card-actions">
+                                                    <button className="task-btn approve" onClick={() => approveTask(task.id)}>
+                                                        Approve
+                                                    </button>
+                                                    <button className="task-btn reject" onClick={() => rejectTask(task.id)}>
+                                                        Reject
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 {/* Floating Action Bar */}
                 <div className="floating-action-bar">
+                    {/* 1. Camera */}
                     <button
                         className={`action-button camera-btn ${isCapturing ? 'loading' : ''}`}
                         onClick={handleCaptureScreen}
@@ -520,23 +822,56 @@ function OverlayWindow() {
                         {isCapturing ? <Loader2 size={18} className="loading-spinner" /> : <Crosshair size={18} />}
                     </button>
 
+                    {/* 2. Tasks toggle */}
                     <button
-                        className={`action-button ${transitionView === 'calendar' ? 'active' : ''} calendar-btn`}
-                        onClick={() => switchView(transitionView === 'chat' ? 'calendar' : 'chat')}
+                        className={`action-button ${transitionView === 'tasks' ? 'active' : ''}`}
+                        onClick={() => switchView(transitionView === 'tasks' ? 'chat' : 'tasks')}
+                        style={{ position: 'relative' }}
                     >
-                        {transitionView === 'chat' ? (
-                            <>
-                                <CalendarDays size={16} />
-                                <span>Calendar</span>
-                            </>
-                        ) : (
+                        {transitionView === 'tasks' ? (
                             <>
                                 <MessageSquare size={16} />
                                 <span>Chat</span>
                             </>
+                        ) : (
+                            <>
+                                <CheckSquare size={16} />
+                                <span>Actions</span>
+                            </>
+                        )}
+                        {pendingTasks.length > 0 && transitionView !== 'tasks' && (
+                            <span style={{
+                                position: 'absolute', top: '-4px', right: '-4px',
+                                background: 'var(--color-error, #ef4444)', color: '#fff',
+                                fontSize: '9px', fontWeight: 700, borderRadius: '999px',
+                                minWidth: '14px', height: '14px',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                padding: '0 3px', lineHeight: 1,
+                            }}>
+                                {pendingTasks.length}
+                            </span>
                         )}
                     </button>
 
+                    {/* 3. Calendar toggle */}
+                    <button
+                        className={`action-button ${transitionView === 'calendar' ? 'active' : ''} calendar-btn`}
+                        onClick={() => switchView(transitionView === 'calendar' ? 'chat' : 'calendar')}
+                    >
+                        {transitionView === 'calendar' ? (
+                            <>
+                                <MessageSquare size={16} />
+                                <span>Chat</span>
+                            </>
+                        ) : (
+                            <>
+                                <CalendarDays size={16} />
+                                <span>Calendar</span>
+                            </>
+                        )}
+                    </button>
+
+                    {/* 4. Home */}
                     <button
                         className="action-button home-btn"
                         onClick={() => invoke('show_main_window')}

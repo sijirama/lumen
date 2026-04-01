@@ -850,3 +850,223 @@ pub fn toggle_reminder_completion(connection: &Connection, id: i32, completed: b
         .context("Failed to update reminder completion")?;
     Ok(())
 }
+
+// ============================================================================
+// Calendar Reminder Sync Queries
+// ============================================================================
+
+//INFO: Get today's calendar events (for reminder sync)
+pub fn get_todays_calendar_events(connection: &Connection) -> Result<Vec<CalendarEvent>> {
+    let today_start = chrono::Local::now().format("%Y-%m-%dT00:00:00").to_string();
+    let today_end = chrono::Local::now().format("%Y-%m-%dT23:59:59").to_string();
+
+    let mut stmt = connection
+        .prepare(
+            "SELECT id, title, description, start_time, end_time, location, all_day
+             FROM calendar_events
+             WHERE start_time >= ?1 AND start_time <= ?2
+             ORDER BY start_time ASC",
+        )
+        .context("Failed to prepare today's calendar events query")?;
+
+    let events = stmt
+        .query_map(params![today_start, today_end], |row| {
+            Ok(CalendarEvent {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                description: row.get(2)?,
+                start_time: row.get(3)?,
+                end_time: row.get(4)?,
+                location: row.get(5)?,
+                all_day: row.get::<_, i32>(6)? == 1,
+            })
+        })
+        .context("Failed to query today's calendar events")?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(events)
+}
+
+//INFO: Check if a calendar-sourced reminder already exists for a given event id
+pub fn calendar_reminder_exists(connection: &Connection, event_id: &str) -> bool {
+    let search_pattern = format!("%[cal:{}]%", event_id);
+    connection
+        .query_row(
+            "SELECT COUNT(*) FROM reminders WHERE content LIKE ?1 AND completed = 0",
+            params![search_pattern],
+            |row| row.get::<_, i32>(0),
+        )
+        .unwrap_or(0) > 0
+}
+
+//INFO: Create a reminder (used by the scheduler for calendar-aware reminders)
+pub fn create_reminder(connection: &Connection, content: &str, due_at: Option<&str>) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    connection.execute(
+        "INSERT INTO reminders (content, due_at, completed, created_at) VALUES (?1, ?2, 0, ?3)",
+        params![content, due_at, now],
+    ).context("Failed to create reminder")?;
+    Ok(())
+}
+
+// ============================================================================
+// Lumen Tasks Queries
+// ============================================================================
+
+//INFO: Create a queued background task
+pub fn create_lumen_task(connection: &Connection, title: &str, task_type: &str, payload: &str) -> Result<i64> {
+    let now = Utc::now().to_rfc3339();
+    connection.execute(
+        "INSERT INTO lumen_tasks (title, task_type, payload, status, created_at) VALUES (?1, ?2, ?3, 'pending', ?4)",
+        params![title, task_type, payload, now],
+    ).context("Failed to create lumen task")?;
+    Ok(connection.last_insert_rowid())
+}
+
+//INFO: Get pending tasks
+pub fn get_pending_tasks(connection: &Connection) -> Result<Vec<(i64, String, String, String)>> {
+    let mut stmt = connection
+        .prepare("SELECT id, title, task_type, payload FROM lumen_tasks WHERE status = 'pending' ORDER BY created_at ASC")
+        .context("Failed to prepare pending tasks query")?;
+
+    let tasks = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .context("Failed to query pending tasks")?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(tasks)
+}
+
+// ============================================================================
+// Session Queries
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChatSession {
+    pub id: String,
+    pub title: Option<String>,
+    pub summary: Option<String>,
+    pub created_at: String,
+    pub message_count: i64,
+}
+
+pub fn create_session(connection: &Connection) -> Result<String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+    connection
+        .execute(
+            "INSERT INTO chat_sessions (id, created_at) VALUES (?1, ?2)",
+            params![id, now],
+        )
+        .context("Failed to create chat session")?;
+    Ok(id)
+}
+
+pub fn get_sessions(connection: &Connection) -> Result<Vec<ChatSession>> {
+    let mut stmt = connection
+        .prepare(
+            "SELECT s.id, s.title, s.summary, s.created_at, COUNT(m.id) as message_count
+             FROM chat_sessions s
+             LEFT JOIN chat_messages m ON m.session_id = s.id
+             GROUP BY s.id
+             ORDER BY s.created_at DESC
+             LIMIT 50",
+        )
+        .context("Failed to prepare get_sessions query")?;
+
+    let sessions = stmt
+        .query_map([], |row| {
+            Ok(ChatSession {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                summary: row.get(2)?,
+                created_at: row.get(3)?,
+                message_count: row.get(4)?,
+            })
+        })
+        .context("Failed to query sessions")?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(sessions)
+}
+
+/// Sets the session title only if it has never been set before (first message wins).
+pub fn update_session_title(connection: &Connection, session_id: &str, title: &str) -> Result<()> {
+    connection
+        .execute(
+            "UPDATE chat_sessions SET title=?1 WHERE id=?2 AND title IS NULL",
+            params![title, session_id],
+        )
+        .context("Failed to update session title")?;
+    Ok(())
+}
+
+pub fn update_session_summary(connection: &Connection, session_id: &str, summary: &str) -> Result<()> {
+    connection
+        .execute(
+            "UPDATE chat_sessions SET summary=?1 WHERE id=?2",
+            params![summary, session_id],
+        )
+        .context("Failed to update session summary")?;
+    Ok(())
+}
+
+// ============================================================================
+// LumenTask (proper struct version)
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LumenTask {
+    pub id: i64,
+    pub title: String,
+    pub task_type: String,
+    pub payload: String,
+    pub status: String,
+    pub created_at: String,
+}
+
+pub fn get_pending_lumen_tasks(connection: &Connection) -> Result<Vec<LumenTask>> {
+    let mut stmt = connection
+        .prepare(
+            "SELECT id, title, task_type, payload, status, created_at
+             FROM lumen_tasks
+             WHERE status = 'pending'
+             ORDER BY created_at ASC",
+        )
+        .context("Failed to prepare pending tasks query")?;
+
+    let tasks = stmt
+        .query_map([], |row| {
+            Ok(LumenTask {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                task_type: row.get(2)?,
+                payload: row.get(3)?,
+                status: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })
+        .context("Failed to query pending tasks")?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(tasks)
+}
+
+pub fn update_task_status(connection: &Connection, task_id: i64, status: &str) -> Result<()> {
+    let completed_at = if status == "done" || status == "failed" || status == "cancelled" {
+        Some(Utc::now().to_rfc3339())
+    } else {
+        None
+    };
+    connection
+        .execute(
+            "UPDATE lumen_tasks SET status=?1, completed_at=?2 WHERE id=?3",
+            params![status, completed_at, task_id],
+        )
+        .context("Failed to update task status")?;
+    Ok(())
+}

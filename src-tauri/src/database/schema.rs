@@ -242,6 +242,54 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
         )
         .context("Failed to create web_search_cache table")?;
 
+    //INFO: Create lumen_tasks table — for queued background tasks Lumen wants to execute
+    connection
+        .execute(
+            "CREATE TABLE IF NOT EXISTS lumen_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            task_type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'failed')),
+            created_at TEXT NOT NULL,
+            completed_at TEXT
+        )",
+            [],
+        )
+        .context("Failed to create lumen_tasks table")?;
+
+    //INFO: Create chat_sessions table — tracks conversation sessions
+    connection
+        .execute(
+            "CREATE TABLE IF NOT EXISTS chat_sessions (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            summary TEXT,
+            created_at TEXT NOT NULL
+        )",
+            [],
+        )
+        .context("Failed to create chat_sessions table")?;
+
+    //INFO: Migration — add session_id column to chat_messages if missing
+    {
+        let mut statement = connection.prepare("PRAGMA table_info(chat_messages)")?;
+        let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+        let mut has_session_id = false;
+        for col in columns {
+            if let Ok(name) = col {
+                if name == "session_id" {
+                    has_session_id = true;
+                    break;
+                }
+            }
+        }
+        if !has_session_id {
+            connection.execute("ALTER TABLE chat_messages ADD COLUMN session_id TEXT", [])
+                .context("Failed to migrate chat_messages table (adding session_id column)")?;
+        }
+    }
+
     Ok(())
 }
 

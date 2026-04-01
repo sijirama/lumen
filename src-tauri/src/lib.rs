@@ -9,6 +9,7 @@ pub mod gemini;
 pub mod integrations;
 pub mod memory;
 pub mod oauth;
+pub mod scheduler;
 
 use commands::{auth, calendar, chat, dashboard, settings, setup, vision, window};
 use database::{initialize_database, Database};
@@ -54,6 +55,13 @@ pub fn run() {
             let db_clipboard = db_clone.clone();
             tauri::async_runtime::spawn(async move {
                 agent::clipboard::start_clipboard_manager(db_clipboard).await;
+            });
+
+            // Start scheduler (morning briefing, calendar reminder sync)
+            let db_scheduler = db_clone.clone();
+            let app_scheduler = app.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                scheduler::start_scheduler(app_scheduler, db_scheduler).await;
             });
 
             //INFO: Setup global hotkey listener
@@ -115,6 +123,11 @@ pub fn run() {
             chat::send_chat_message,
             chat::get_chat_history,
             chat::clear_chat_history,
+            chat::create_new_session,
+            chat::get_chat_sessions,
+            chat::get_pending_tasks,
+            chat::execute_lumen_task,
+            chat::reject_lumen_task,
             // Window commands
             window::show_overlay,
             window::hide_overlay,
@@ -128,6 +141,8 @@ pub fn run() {
             // Dashboard commands
             dashboard::get_dashboard_briefing,
             dashboard::refresh_dashboard_briefing,
+            dashboard::get_todays_events_for_dashboard,
+            dashboard::get_memory_count,
             // Auth commands
             auth::get_google_auth_status,
             auth::save_google_config,
