@@ -3,6 +3,7 @@
 
 use crate::gemini::client::{GeminiFunctionDeclaration, GeminiTool};
 use serde_json::json;
+use tauri::Manager;
 use std::fs;
 use walkdir::WalkDir;
 use anyhow::Result;
@@ -323,6 +324,24 @@ pub fn get_tool_declarations() -> Vec<GeminiTool> {
                         "query": { "type": "string", "description": "The filename or extension to search for (e.g. 'resume.pdf' or '.js')." }
                     },
                     "required": ["path", "query"]
+                })),
+            },
+            GeminiFunctionDeclaration {
+                name: "set_reminder".to_string(),
+                description: "Sets a reminder that fires a system notification at a specific time. Use this when the user says things like 'remind me', 'don't let me forget', or 'alert me at'. Always resolve relative times (e.g. 'in 2 hours', 'at 3pm') to an absolute ISO 8601 timestamp using the current time from CONTEXT.".to_string(),
+                parameters: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "content": {
+                            "type": "string",
+                            "description": "The reminder message to show the user when it fires."
+                        },
+                        "due_at": {
+                            "type": "string",
+                            "description": "When to trigger the reminder, as an ISO 8601 timestamp with timezone offset (e.g. '2026-04-01T15:00:00+01:00')."
+                        }
+                    },
+                    "required": ["content", "due_at"]
                 })),
             },
         ],
@@ -882,6 +901,7 @@ pub async fn execute_tool_async(
     name: &str,
     args: &serde_json::Value,
     database: &crate::database::Database,
+    app_handle: &tauri::AppHandle,
 ) -> serde_json::Value {
     // Check per-tool approval settings (defaults: delete_calendar_event + send_email require approval)
     let needs_approval = {
@@ -1061,6 +1081,25 @@ pub async fn execute_tool_async(
                     println!("DEBUG: 🧠 Embedding Generation Failed! Error: {:#?}", e);
                     json!({ "error": format!("Failed to generate embedding for memory search: {}", e) })
                 }
+            }
+        }
+        "set_reminder" => {
+            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("Reminder");
+            let due_at = args.get("due_at").and_then(|v| v.as_str());
+            let conn = database.connection.lock();
+            match crate::database::queries::save_reminder(&conn, content, due_at) {
+                Ok(_) => {
+                    // Wake the reminder daemon so it re-scans without waiting
+                    if let Some(manager) = app_handle.try_state::<crate::agent::reminders::ReminderManager>() {
+                        manager.trigger_update();
+                    }
+                    let time_str = due_at.unwrap_or("soon");
+                    json!({
+                        "status": "ok",
+                        "message": format!("Reminder set for {}", time_str)
+                    })
+                }
+                Err(e) => json!({ "error": format!("Failed to set reminder: {}", e) }),
             }
         }
         _ => json!({ "error": format!("Unknown asynchronous tool: {}", name) }),

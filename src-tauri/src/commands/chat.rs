@@ -352,11 +352,13 @@ pub async fn send_chat_message(
 
             // Async tools run concurrently
             let db_inner = database.inner().clone();
+            let app_handle_inner = app_handle.clone();
             let async_results: Vec<(String, serde_json::Value)> = futures::future::join_all(
                 async_calls.into_iter().map(|call| {
                     let db = db_inner.clone();
+                    let ah = app_handle_inner.clone();
                     async move {
-                        let res = crate::gemini::tools::execute_tool_async(&call.name, &call.args, &db).await;
+                        let res = crate::gemini::tools::execute_tool_async(&call.name, &call.args, &db, &ah).await;
                         (call.name, res)
                     }
                 })

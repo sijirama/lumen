@@ -671,14 +671,24 @@ function OverlayWindow() {
                                         <ReactMarkdown
                                             remarkPlugins={[remarkGfm]}
                                             components={{
-                                                code: ({ node, ...props }: any) => {
-                                                    const { inline, ...rest } = props;
-                                                    return (
-                                                        <code
-                                                            className={inline ? 'inline-code' : 'block-code'}
-                                                            {...rest}
-                                                        />
-                                                    );
+                                                pre: ({ children }: any) => (
+                                                    <pre className="code-block-pre">{children}</pre>
+                                                ),
+                                                code: ({ node, className, children, ...props }: any) => {
+                                                    // v10: no inline prop — detect via position spanning multiple lines
+                                                    const isBlock = node?.position
+                                                        ? node.position.end.line > node.position.start.line
+                                                        : !!className;
+                                                    const lang = (className || '').replace('language-', '');
+                                                    if (isBlock) {
+                                                        return (
+                                                            <span className="block-code-wrapper">
+                                                                {lang && <span className="code-lang-label">{lang}</span>}
+                                                                <code className="block-code" {...props}>{children}</code>
+                                                            </span>
+                                                        );
+                                                    }
+                                                    return <code className="inline-code" {...props}>{children}</code>;
                                                 },
                                                 a: ({ node, ...props }) => {
                                                     const href = props.href || '';

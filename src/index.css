@@ -1292,31 +1292,65 @@ html.widget-window {
   opacity: 0.9;
 }
 
-.markdown-content pre {
-  max-width: 100%;
-  overflow-x: auto;
-  background: var(--color-bg-tertiary);
-  padding: var(--spacing-3);
+.code-block-pre {
+  margin: var(--spacing-3) 0;
   border-radius: var(--radius-md);
-  margin: var(--spacing-4) 0;
   border: 1px solid var(--color-border-light);
+  overflow: hidden;
+}
+
+.block-code-wrapper {
+  display: block;
+  background: rgba(0, 0, 0, 0.04);
+  padding: var(--spacing-3);
+  overflow-x: auto;
+  position: relative;
+}
+
+.code-lang-label {
+  display: block;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--spacing-2);
+  user-select: none;
 }
 
 .markdown-content code {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 0.9em;
+  font-size: 0.82em;
 }
 
 .inline-code {
-  background: var(--color-bg-tertiary);
-  padding: 2px 4px;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 5px;
   border-radius: var(--radius-sm);
   color: var(--color-accent);
+  font-size: 0.85em;
 }
 
 .block-code {
   display: block;
-  overflow-x: auto;
+  white-space: pre;
+  color: var(--color-text-primary);
+  line-height: 1.6;
+}
+
+/* User message code overrides */
+.chat-message.user .inline-code {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.chat-message.user .block-code-wrapper {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.chat-message.user .block-code,
+.chat-message.user .code-lang-label {
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .markdown-content blockquote {
