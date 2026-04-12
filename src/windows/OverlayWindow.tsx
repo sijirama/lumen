@@ -383,6 +383,7 @@ function OverlayWindow() {
             scrollToBottom(true);
         } catch (err) {
             console.error('Failed to load chat history:', err);
+            setError('Failed to load chat history. Try reopening the overlay.');
         }
     }
 
@@ -620,29 +621,8 @@ function OverlayWindow() {
                                         {QUICK_ACTIONS.map((action, i) => (
                                             <button
                                                 key={i}
+                                                className="quick-action-chip"
                                                 onClick={() => handleQuickAction(action)}
-                                                style={{
-                                                    padding: '6px 10px',
-                                                    borderRadius: '999px',
-                                                    border: '1px solid var(--color-border)',
-                                                    background: 'var(--color-surface)',
-                                                    color: 'var(--color-text-secondary)',
-                                                    fontSize: 'var(--font-size-xs, 11px)',
-                                                    cursor: 'pointer',
-                                                    textAlign: 'center',
-                                                    lineHeight: '1.3',
-                                                    transition: 'background 0.15s, color 0.15s',
-                                                    whiteSpace: 'normal',
-                                                    wordBreak: 'break-word'
-                                                }}
-                                                onMouseEnter={e => {
-                                                    (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-primary, #6366f1)';
-                                                    (e.currentTarget as HTMLButtonElement).style.color = '#fff';
-                                                }}
-                                                onMouseLeave={e => {
-                                                    (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-surface)';
-                                                    (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-secondary)';
-                                                }}
                                             >
                                                 {action}
                                             </button>

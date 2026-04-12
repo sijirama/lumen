@@ -49,7 +49,9 @@ pub async fn search(db: &Database, query: &str) -> Result<serde_json::Value> {
     };
 
     // 4. Request
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
     let response = client
         .post("https://api.tavily.com/search")
         .json(&json!({

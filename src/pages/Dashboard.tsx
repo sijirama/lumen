@@ -28,6 +28,7 @@ function Dashboard({ userName }: DashboardProps) {
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [todayEvents, setTodayEvents] = useState<Array<{id: string, title: string, start_time: string, location?: string}>>([]);
     const [memoryCount, setMemoryCount] = useState<number>(0);
+    const [briefingError, setBriefingError] = useState<string | null>(null);
 
     // Load voices on mount (required for Web Speech API)
     useEffect(() => {
@@ -172,6 +173,7 @@ function Dashboard({ userName }: DashboardProps) {
     async function loadBriefing() {
         try {
             setLoading(true);
+            setBriefingError(null);
             const result = await invoke<Briefing | null>('get_dashboard_briefing');
             setBriefing(result);
 
@@ -181,6 +183,7 @@ function Dashboard({ userName }: DashboardProps) {
             }
         } catch (err) {
             console.error('Failed to load briefing:', err);
+            setBriefingError('Failed to load briefing. Check your connection.');
         } finally {
             setLoading(false);
         }
@@ -190,10 +193,12 @@ function Dashboard({ userName }: DashboardProps) {
         if (refreshing) return;
         try {
             setRefreshing(true);
+            setBriefingError(null);
             const result = await invoke<Briefing>('refresh_dashboard_briefing');
             setBriefing(result);
         } catch (err) {
             console.error('Failed to refresh briefing:', err);
+            setBriefingError('Failed to refresh briefing. Check your API key and connection.');
         } finally {
             setRefreshing(false);
         }
@@ -272,7 +277,9 @@ function Dashboard({ userName }: DashboardProps) {
                 </div>
 
                 <div className="briefing-content markdown-content">
-                    {briefing ? (
+                    {briefingError ? (
+                        <p style={{ color: 'var(--color-error)', fontSize: 'var(--font-size-sm)' }}>{briefingError}</p>
+                    ) : briefing ? (
                         <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{

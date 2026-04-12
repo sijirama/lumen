@@ -334,8 +334,8 @@ pub async fn send_chat_message(
                     has_function_calls = true;
                     const ASYNC_TOOLS: &[&str] = &[
                         "get_weather", "get_google_calendar_events", "get_unread_emails",
-                        "send_email", "create_calendar_event", "list_google_tasks",
-                        "create_google_task", "take_screenshot", "delete_calendar_event", "search_web",
+                        "send_email", "create_calendar_event",
+                        "take_screenshot", "delete_calendar_event", "search_web",
                     ];
                     if ASYNC_TOOLS.contains(&call.name.as_str()) {
                         async_calls.push(call.clone());

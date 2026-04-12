@@ -59,9 +59,6 @@ impl GoogleAuth {
                 "https://www.googleapis.com/auth/gmail.readonly".to_string(),
             ))
             .add_scope(Scope::new(
-                "https://www.googleapis.com/auth/tasks".to_string(),
-            ))
-            .add_scope(Scope::new(
                 "https://www.googleapis.com/auth/userinfo.email".to_string(),
             ))
             .add_extra_param("access_type", "offline")
@@ -75,38 +72,40 @@ impl GoogleAuth {
         let server = Server::http("127.0.0.1:18247")
             .map_err(|e| anyhow!("Failed to start local server: {}", e))?;
 
-        if let Some(request) = server.incoming_requests().next() {
-            let url = format!("http://localhost:18247{}", request.url());
-            let parsed_url = Url::parse(&url)?;
+        let request = server
+            .recv_timeout(std::time::Duration::from_secs(120))
+            .map_err(|e| anyhow!("OAuth listener error: {}", e))?
+            .ok_or_else(|| anyhow!("OAuth timed out — no callback received within 2 minutes. Did you complete sign-in in the browser?"))?;
 
-            let code = parsed_url
-                .query_pairs()
-                .find(|(key, _)| key == "code")
-                .map(|(_, value)| value.into_owned());
+        let url = format!("http://localhost:18247{}", request.url());
+        let parsed_url = Url::parse(&url)?;
 
-            let state = parsed_url
-                .query_pairs()
-                .find(|(key, _)| key == "state")
-                .map(|(_, value)| value.into_owned());
+        let code = parsed_url
+            .query_pairs()
+            .find(|(key, _)| key == "code")
+            .map(|(_, value)| value.into_owned());
 
-            match (code, state) {
-                (Some(c), Some(s)) if s == expected_state => {
-                    let response = Response::from_string(
-                        "Authentication successful! You can close this window now.",
-                    );
-                    request.respond(response)?;
-                    return Ok(c);
-                }
-                _ => {
-                    let response = Response::from_string(
-                        "Authentication failed. State mismatch or no code received.",
-                    );
-                    request.respond(response)?;
-                    return Err(anyhow!("OAuth callback failed"));
-                }
+        let state = parsed_url
+            .query_pairs()
+            .find(|(key, _)| key == "state")
+            .map(|(_, value)| value.into_owned());
+
+        match (code, state) {
+            (Some(c), Some(s)) if s == expected_state => {
+                let response = Response::from_string(
+                    "Authentication successful! You can close this window now.",
+                );
+                request.respond(response)?;
+                Ok(c)
+            }
+            _ => {
+                let response = Response::from_string(
+                    "Authentication failed. State mismatch or no code received.",
+                );
+                request.respond(response)?;
+                Err(anyhow!("OAuth callback failed: state mismatch or missing code"))
             }
         }
-        Err(anyhow!("No request received"))
     }
 
     pub async fn exchange_code(&self, code: String) -> Result<GoogleTokens> {
