@@ -47,6 +47,19 @@ pub struct Citation {
     pub url: String,
 }
 
+//INFO: One tool call's persisted trace — what was invoked, with what args,
+//      what came back, and how long it took. Surfaces in the chat UI as a
+//      collapsible card so the user can audit what Lumen actually did.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ToolInvocation {
+    pub name: String,
+    pub args: serde_json::Value,
+    pub result: serde_json::Value,
+    pub duration_ms: u64,
+    pub started_at: String, // RFC3339
+    pub succeeded: bool,
+}
+
 //INFO: Chat message data structure
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
@@ -55,6 +68,7 @@ pub struct ChatMessage {
     pub content: String,
     pub image_data: Option<String>,
     pub citations: Option<Vec<Citation>>,
+    pub tool_invocations: Option<Vec<ToolInvocation>>,
     pub created_at: String,
     pub session_id: Option<String>,
 }
@@ -283,14 +297,52 @@ pub fn has_api_token(connection: &Connection, provider: &str) -> Result<bool> {
 // Chat Message Queries
 // ============================================================================
 
+//INFO: Per-result size cap when persisting tool invocations. Keeps the chat_messages
+//      row from bloating if a tool returns a huge payload (e.g. read_file on a big note).
+//      The full result is still available to the model in its message history during the
+//      turn — this only affects what's persisted for the user to inspect later.
+const MAX_PERSISTED_RESULT_BYTES: usize = 4096;
+
+fn truncate_tool_result_for_storage(name: &str, value: &serde_json::Value) -> serde_json::Value {
+    // take_screenshot intentionally bypasses truncation — the b64 image_data
+    // is what powers the inline thumbnail in the tool trace.
+    if name == "take_screenshot" {
+        return value.clone();
+    }
+    match serde_json::to_string(value) {
+        Ok(s) if s.len() > MAX_PERSISTED_RESULT_BYTES => serde_json::json!({
+            "_truncated": true,
+            "original_size_bytes": s.len(),
+            "preview": s.chars().take(MAX_PERSISTED_RESULT_BYTES).collect::<String>()
+        }),
+        _ => value.clone(),
+    }
+}
+
 //INFO: Saves a chat message
 pub fn save_chat_message(connection: &Connection, message: &ChatMessage) -> Result<i64> {
     let now = Utc::now().to_rfc3339();
     let citations_json = message.citations.as_ref().and_then(|c| serde_json::to_string(c).ok());
-    
+
+    // Truncate oversized tool results before persistence so the DB row stays sane.
+    let tool_invocations_json = message.tool_invocations.as_ref().and_then(|invocations| {
+        let trimmed: Vec<ToolInvocation> = invocations
+            .iter()
+            .map(|inv| ToolInvocation {
+                name: inv.name.clone(),
+                args: inv.args.clone(),
+                result: truncate_tool_result_for_storage(&inv.name, &inv.result),
+                duration_ms: inv.duration_ms,
+                started_at: inv.started_at.clone(),
+                succeeded: inv.succeeded,
+            })
+            .collect();
+        serde_json::to_string(&trimmed).ok()
+    });
+
     connection.execute(
-        "INSERT INTO chat_messages (role, content, image_data, citations, created_at, session_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![message.role, message.content, message.image_data, citations_json, now, message.session_id],
+        "INSERT INTO chat_messages (role, content, image_data, citations, tool_invocations, created_at, session_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![message.role, message.content, message.image_data, citations_json, tool_invocations_json, now, message.session_id],
     ).context("Failed to save chat message")?;
 
     Ok(connection.last_insert_rowid())
@@ -308,14 +360,16 @@ pub fn get_chat_messages(
     match session_id {
         Some(sid) => {
             let mut statement = connection.prepare(
-                "SELECT id, role, content, image_data, created_at, session_id, citations FROM chat_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2"
+                "SELECT id, role, content, image_data, created_at, session_id, citations, tool_invocations FROM chat_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2"
             ).context("Failed to prepare chat messages query")?;
 
             let rows = statement
                 .query_map(params![sid, limit], |row| {
                     let citations_json: Option<String> = row.get(6)?;
                     let citations = citations_json.and_then(|s| serde_json::from_str(&s).ok());
-                    
+                    let tool_invocations_json: Option<String> = row.get(7)?;
+                    let tool_invocations = tool_invocations_json.and_then(|s| serde_json::from_str(&s).ok());
+
                     Ok(ChatMessage {
                         id: Some(row.get(0)?),
                         role: row.get(1)?,
@@ -324,6 +378,7 @@ pub fn get_chat_messages(
                         created_at: row.get(4)?,
                         session_id: row.get(5)?,
                         citations,
+                        tool_invocations,
                     })
                 })
                 .context("Failed to query chat messages")?;
@@ -334,14 +389,16 @@ pub fn get_chat_messages(
         }
         None => {
             let mut statement = connection.prepare(
-                "SELECT id, role, content, image_data, created_at, session_id, citations FROM chat_messages ORDER BY created_at DESC LIMIT ?1"
+                "SELECT id, role, content, image_data, created_at, session_id, citations, tool_invocations FROM chat_messages ORDER BY created_at DESC LIMIT ?1"
             ).context("Failed to prepare chat messages query")?;
 
             let rows = statement
                 .query_map(params![limit], |row| {
                     let citations_json: Option<String> = row.get(6)?;
                     let citations = citations_json.and_then(|s| serde_json::from_str(&s).ok());
-                    
+                    let tool_invocations_json: Option<String> = row.get(7)?;
+                    let tool_invocations = tool_invocations_json.and_then(|s| serde_json::from_str(&s).ok());
+
                     Ok(ChatMessage {
                         id: Some(row.get(0)?),
                         role: row.get(1)?,
@@ -350,6 +407,7 @@ pub fn get_chat_messages(
                         created_at: row.get(4)?,
                         session_id: row.get(5)?,
                         citations,
+                        tool_invocations,
                     })
                 })
                 .context("Failed to query chat messages")?;
@@ -910,34 +968,6 @@ pub fn create_reminder(connection: &Connection, content: &str, due_at: Option<&s
     Ok(())
 }
 
-// ============================================================================
-// Lumen Tasks Queries
-// ============================================================================
-
-//INFO: Create a queued background task
-pub fn create_lumen_task(connection: &Connection, title: &str, task_type: &str, payload: &str) -> Result<i64> {
-    let now = Utc::now().to_rfc3339();
-    connection.execute(
-        "INSERT INTO lumen_tasks (title, task_type, payload, status, created_at) VALUES (?1, ?2, ?3, 'pending', ?4)",
-        params![title, task_type, payload, now],
-    ).context("Failed to create lumen task")?;
-    Ok(connection.last_insert_rowid())
-}
-
-//INFO: Get pending tasks
-pub fn get_pending_tasks(connection: &Connection) -> Result<Vec<(i64, String, String, String)>> {
-    let mut stmt = connection
-        .prepare("SELECT id, title, task_type, payload FROM lumen_tasks WHERE status = 'pending' ORDER BY created_at ASC")
-        .context("Failed to prepare pending tasks query")?;
-
-    let tasks = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
-        .context("Failed to query pending tasks")?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(tasks)
-}
 
 // ============================================================================
 // Session Queries
@@ -1014,59 +1044,3 @@ pub fn update_session_summary(connection: &Connection, session_id: &str, summary
     Ok(())
 }
 
-// ============================================================================
-// LumenTask (proper struct version)
-// ============================================================================
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LumenTask {
-    pub id: i64,
-    pub title: String,
-    pub task_type: String,
-    pub payload: String,
-    pub status: String,
-    pub created_at: String,
-}
-
-pub fn get_pending_lumen_tasks(connection: &Connection) -> Result<Vec<LumenTask>> {
-    let mut stmt = connection
-        .prepare(
-            "SELECT id, title, task_type, payload, status, created_at
-             FROM lumen_tasks
-             WHERE status = 'pending'
-             ORDER BY created_at ASC",
-        )
-        .context("Failed to prepare pending tasks query")?;
-
-    let tasks = stmt
-        .query_map([], |row| {
-            Ok(LumenTask {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                task_type: row.get(2)?,
-                payload: row.get(3)?,
-                status: row.get(4)?,
-                created_at: row.get(5)?,
-            })
-        })
-        .context("Failed to query pending tasks")?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(tasks)
-}
-
-pub fn update_task_status(connection: &Connection, task_id: i64, status: &str) -> Result<()> {
-    let completed_at = if status == "done" || status == "failed" || status == "cancelled" {
-        Some(Utc::now().to_rfc3339())
-    } else {
-        None
-    };
-    connection
-        .execute(
-            "UPDATE lumen_tasks SET status=?1, completed_at=?2 WHERE id=?3",
-            params![status, completed_at, task_id],
-        )
-        .context("Failed to update task status")?;
-    Ok(())
-}

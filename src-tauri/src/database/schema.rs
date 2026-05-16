@@ -75,6 +75,7 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
             content TEXT NOT NULL,
             image_data TEXT,
             citations TEXT,
+            tool_invocations TEXT,
             created_at TEXT NOT NULL,
             session_id TEXT
         )",
@@ -82,23 +83,23 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
         )
         .context("Failed to create chat_messages table")?;
 
-    //INFO: Migration - Add citations column if it doesn't exist (for existing databases)
+    //INFO: Migrations — add columns that older databases don't have.
     {
         let mut statement = connection.prepare("PRAGMA table_info(chat_messages)")?;
-        let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
-        let mut has_citations = false;
-        for col in columns {
-            if let Ok(name) = col {
-                if name == "citations" {
-                    has_citations = true;
-                    break;
-                }
-            }
-        }
-        if !has_citations {
+        let columns: Vec<String> = statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|c| c.ok())
+            .collect();
+
+        if !columns.iter().any(|n| n == "citations") {
             println!("DEBUG: 🛠️ Migrating chat_messages table (adding citations column)");
             connection.execute("ALTER TABLE chat_messages ADD COLUMN citations TEXT", [])
                 .context("Failed to migrate chat_messages table (adding citations column)")?;
+        }
+        if !columns.iter().any(|n| n == "tool_invocations") {
+            println!("DEBUG: 🛠️ Migrating chat_messages table (adding tool_invocations column)");
+            connection.execute("ALTER TABLE chat_messages ADD COLUMN tool_invocations TEXT", [])
+                .context("Failed to migrate chat_messages table (adding tool_invocations column)")?;
         }
     }
 

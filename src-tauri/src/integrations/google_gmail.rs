@@ -42,9 +42,7 @@ pub async fn send_email(database: &Database, to: &str, subject: &str, body: &str
         "raw": encoded
     });
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
+    let client = crate::integrations::http::shared_client();
     let response = client
         .post(url)
         .header(AUTHORIZATION, format!("Bearer {}", tokens.access_token))
@@ -95,9 +93,7 @@ pub async fn fetch_recent_emails_with_query(
         tokens = refresh_google_tokens(database, &tokens).await?;
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
+    let client = crate::integrations::http::shared_client();
 
     // Build query - default to unread inbox, but allow custom queries
     let q = query.unwrap_or("is:unread inbox");
@@ -194,9 +190,7 @@ async fn fetch_recent_emails_with_tokens(
     max_results: u32,
     query: Option<&str>,
 ) -> Result<Vec<GmailMessage>> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
+    let client = crate::integrations::http::shared_client();
     let q = query.unwrap_or("is:unread inbox");
     let encoded_q = urlencoding::encode(q);
 

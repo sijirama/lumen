@@ -231,22 +231,19 @@ a:hover {
   width: 100%;
   align-items: center;
   gap: 12px;
-  padding: 6px 14px;
-  background: #31264d;
-  /* Darker pastel purple */
-  border: 1px solid rgba(167, 139, 250, 0.5);
+  padding: 7px 14px;
+  background: #453a6e;
+  /* Soft pastel lavender */
+  border: 1px solid rgba(196, 181, 253, 0.25);
   border-radius: var(--radius-lg);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   user-select: none;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
 }
 
 .citation-stack-trigger:hover {
-  border-color: rgba(167, 139, 250, 0.8);
-  transform: translateY(-1px);
+  background: #4e4279;
+  border-color: rgba(196, 181, 253, 0.4);
 }
 
 .citation-avatar-stack {
@@ -368,6 +365,201 @@ a:hover {
   color: var(--color-text-muted);
   text-transform: lowercase;
   opacity: 0.7;
+}
+
+/* Tool Trace — collapsible audit of what tools ran for this turn */
+.tool-trace {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tool-trace-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  background: #453a6e;
+  /* Soft pastel lavender — same family as citations */
+  border: 1px solid rgba(196, 181, 253, 0.25);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+  user-select: none;
+}
+
+.tool-trace-trigger:hover {
+  background: #4e4279;
+  border-color: rgba(196, 181, 253, 0.4);
+  color: #ffffff;
+}
+
+.tool-trace-icon {
+  opacity: 0.7;
+}
+
+.tool-trace-label {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.tool-trace-total {
+  margin-left: auto;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-trace-warn {
+  color: #f59e0b;
+}
+
+.tool-trace-chevron {
+  opacity: 0.5;
+  transition: transform 0.15s ease;
+}
+
+.tool-trace.open .tool-trace-chevron {
+  transform: rotate(180deg);
+}
+
+.tool-trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  animation: slideInUp 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tool-row {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.tool-row.err {
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.tool-row-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font-size: 11px;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.12s ease;
+}
+
+.tool-row-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tool-row-icon {
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+.tool-row-name {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--color-text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-row-status {
+  flex-shrink: 0;
+}
+
+.tool-row.ok .tool-row-status {
+  color: #4ade80;
+}
+
+.tool-row.err .tool-row-status {
+  color: #ef4444;
+}
+
+.tool-row-duration {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.tool-row-chevron {
+  opacity: 0.4;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.tool-row.open .tool-row-chevron {
+  transform: rotate(180deg);
+}
+
+.tool-row-body {
+  padding: 0 10px 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: slideInUp 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tool-row-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tool-row-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+.tool-row-pre {
+  margin: 0;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-sm, 4px);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--color-text-primary);
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-row-thumb {
+  display: block;
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.25);
 }
 
 @keyframes slideInUp {
@@ -1490,6 +1682,16 @@ html.widget-window {
 .chat-send-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Stop state — replaces Send while a request is in flight */
+.chat-send-btn.is-stop {
+  background: #ef4444;
+  /* Soft red so it reads as 'cancel' without screaming */
+}
+
+.chat-send-btn.is-stop:hover {
+  background: #dc2626;
 }
 
 /* ============================================================================

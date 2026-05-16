@@ -115,7 +115,7 @@ pub async fn generate_audio(database: &Database, text: &str) -> Result<Vec<u8>> 
         TTS_MODEL, api_key
     );
 
-    let client = reqwest::Client::new();
+    let client = crate::integrations::http::shared_client();
     let response = client
         .post(&url)
         .json(&request)

@@ -4,7 +4,8 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, X, Loader2, FileText, Crosshair, CalendarDays, LayoutDashboard, MessageSquare, CheckSquare, Maximize2, Minimize2 } from 'lucide-react';
+import { Send, Square, X, Loader2, FileText, Crosshair, CalendarDays, LayoutDashboard, MessageSquare, CheckSquare, Maximize2, Minimize2, ChevronDown, Wrench, Mail, Camera, Globe, Bell, Brain, Clipboard, Cloud, CheckCircle2, AlertCircle } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import CalendarView from '../components/CalendarView';
 
@@ -16,6 +17,16 @@ const QUICK_ACTIONS = [
     "Open my daily note",
 ];
 
+//INFO: One tool call's audit trail — what Lumen ran, with what args, and what came back.
+interface ToolInvocation {
+    name: string;
+    args: unknown;
+    result: unknown;
+    duration_ms: number;
+    started_at: string;
+    succeeded: boolean;
+}
+
 //INFO: Chat message type
 interface ChatMessage {
     id: number | null;
@@ -24,6 +35,7 @@ interface ChatMessage {
     created_at: string;
     image_data?: string;
     citations?: { title: string; url: string }[];
+    tool_invocations?: ToolInvocation[];
 }
 
 //INFO: Response type for send_chat_message command
@@ -32,16 +44,6 @@ interface SendMessageResponse {
     assistant_message: ChatMessage;
     suggested_date?: string | null;
     suggested_view?: string | null;
-}
-
-//INFO: Lumen task type
-interface LumenTask {
-    id: number;
-    title: string;
-    task_type: string;
-    payload: string;
-    status: string;
-    created_at: string;
 }
 
 //INFO: Helper to extract domain from URL
@@ -114,6 +116,142 @@ function CitationStack({ citations }: { citations: { title: string; url: string 
     );
 }
 
+//INFO: Per-tool icon lookup — keeps the trace visually scannable.
+const TOOL_ICON_MAP: Record<string, LucideIcon> = {
+    get_unread_emails: Mail,
+    send_email: Mail,
+    take_screenshot: Camera,
+    search_web: Globe,
+    set_reminder: Bell,
+    retrieve_past_memories: Brain,
+    search_clipboard: Clipboard,
+    get_weather: Cloud,
+    get_google_calendar_events: CalendarDays,
+    create_calendar_event: CalendarDays,
+    delete_calendar_event: CalendarDays,
+    list_google_tasks: CheckSquare,
+    create_google_task: CheckSquare,
+    read_file: FileText,
+    write_file: FileText,
+    read_file_lines: FileText,
+    list_files: FileText,
+    search_notes: FileText,
+    search_filesystem: FileText,
+    grep_file: FileText,
+    edit_file_line: FileText,
+    insert_at_line: FileText,
+    delete_file_line: FileText,
+    get_file_metadata: FileText,
+    get_obsidian_vault_info: FileText,
+};
+
+function formatDuration(ms: number): string {
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
+}
+
+function prettyJson(value: unknown): string {
+    try {
+        return JSON.stringify(value, null, 2);
+    } catch {
+        return String(value);
+    }
+}
+
+//INFO: Pull a base64 PNG out of a tool result so it can be previewed inline.
+//      Only screenshots set image_data — everything else returns null.
+function getInlineImage(inv: ToolInvocation): string | null {
+    if (inv.name !== 'take_screenshot') return null;
+    const r = inv.result as { image_data?: unknown } | null | undefined;
+    return r && typeof r.image_data === 'string' && r.image_data.length > 0 ? r.image_data : null;
+}
+
+//INFO: One row in the tool trace — click to expand args + result.
+function ToolInvocationRow({ inv }: { inv: ToolInvocation }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const Icon = TOOL_ICON_MAP[inv.name] ?? Wrench;
+    const StatusIcon = inv.succeeded ? CheckCircle2 : AlertCircle;
+    const inlineImage = getInlineImage(inv);
+
+    // For screenshot trace rows, the b64 in `result` is huge and useless to
+    // print — strip it out before stringifying for the JSON view.
+    const displayResult = inlineImage
+        ? { ...(inv.result as Record<string, unknown>), image_data: '[png, shown above]' }
+        : inv.result;
+
+    return (
+        <div className={`tool-row ${inv.succeeded ? 'ok' : 'err'} ${isOpen ? 'open' : ''}`}>
+            <button
+                type="button"
+                className="tool-row-header"
+                onClick={() => setIsOpen(o => !o)}
+                title={isOpen ? 'Collapse details' : 'Show args + result'}
+            >
+                <Icon size={13} className="tool-row-icon" />
+                <span className="tool-row-name">{inv.name}</span>
+                <StatusIcon size={11} className="tool-row-status" />
+                <span className="tool-row-duration">{formatDuration(inv.duration_ms)}</span>
+                <ChevronDown size={12} className="tool-row-chevron" />
+            </button>
+            {isOpen && (
+                <div className="tool-row-body">
+                    {inlineImage && (
+                        <div className="tool-row-section">
+                            <div className="tool-row-label">Capture</div>
+                            <img
+                                src={`data:image/png;base64,${inlineImage}`}
+                                alt="Screenshot"
+                                className="tool-row-thumb"
+                            />
+                        </div>
+                    )}
+                    <div className="tool-row-section">
+                        <div className="tool-row-label">Args</div>
+                        <pre className="tool-row-pre">{prettyJson(inv.args)}</pre>
+                    </div>
+                    <div className="tool-row-section">
+                        <div className="tool-row-label">Result</div>
+                        <pre className="tool-row-pre">{prettyJson(displayResult)}</pre>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+//INFO: The outer collapsible — "N tools used (Xms total)" with rows inside.
+function ToolTrace({ invocations }: { invocations: ToolInvocation[] }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const total = invocations.reduce((sum, inv) => sum + inv.duration_ms, 0);
+    const anyFailed = invocations.some(inv => !inv.succeeded);
+
+    return (
+        <div className={`tool-trace ${isOpen ? 'open' : ''}`}>
+            <button
+                type="button"
+                className="tool-trace-trigger"
+                onClick={() => setIsOpen(o => !o)}
+                title={isOpen ? 'Collapse tool trace' : 'Show tool trace'}
+            >
+                <Wrench size={12} className="tool-trace-icon" />
+                <span className="tool-trace-label">
+                    {invocations.length} {invocations.length === 1 ? 'tool' : 'tools'} used
+                </span>
+                <span className="tool-trace-total">{formatDuration(total)}</span>
+                {anyFailed && <AlertCircle size={11} className="tool-trace-warn" />}
+                <ChevronDown size={12} className="tool-trace-chevron" />
+            </button>
+            {isOpen && (
+                <div className="tool-trace-list">
+                    {invocations.map((inv, i) => (
+                        <ToolInvocationRow key={i} inv={inv} />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function OverlayWindow() {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputValue, setInputValue] = useState('');
@@ -122,13 +260,10 @@ function OverlayWindow() {
     const [isCapturing, setIsCapturing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
-    const [currentView, setCurrentView] = useState<'chat' | 'calendar' | 'tasks'>('chat');
-    const [transitionView, setTransitionView] = useState<'chat' | 'calendar' | 'tasks'>('chat');
+    const [currentView, setCurrentView] = useState<'chat' | 'calendar'>('chat');
+    const [transitionView, setTransitionView] = useState<'chat' | 'calendar'>('chat');
     const [isCalendarExpanded, setIsCalendarExpanded] = useState(false);
     const [suggestedDate, setSuggestedDate] = useState<string | undefined>(undefined);
-
-    // Task confirmation panel
-    const [pendingTasks, setPendingTasks] = useState<LumenTask[]>([]);
 
     // Content size toggle
     const [contentLarge, setContentLarge] = useState(false);
@@ -137,7 +272,7 @@ function OverlayWindow() {
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
     //INFO: Orchestrate smooth view switching
-    const switchView = async (newView: 'chat' | 'calendar' | 'tasks') => {
+    const switchView = async (newView: 'chat' | 'calendar') => {
         if (newView === transitionView) return;
         setTransitionView(newView);
         setCurrentView(newView);
@@ -145,8 +280,6 @@ function OverlayWindow() {
             setTimeout(() => scrollToBottom(true), 300);
         } else if (newView === 'calendar') {
             setIsCalendarExpanded(true);
-        } else if (newView === 'tasks') {
-            loadPendingTasks();
         }
     };
 
@@ -154,36 +287,6 @@ function OverlayWindow() {
     const handleCalendarExpansionToggle = (expanded: boolean) => {
         setIsCalendarExpanded(expanded);
     };
-
-    //INFO: Load pending tasks
-    async function loadPendingTasks() {
-        try {
-            const tasks = await invoke<LumenTask[]>('get_pending_tasks');
-            setPendingTasks(tasks);
-        } catch (err) {
-            console.error('Failed to load pending tasks:', err);
-        }
-    }
-
-    //INFO: Approve a task
-    async function approveTask(taskId: number) {
-        try {
-            await invoke('execute_lumen_task', { taskId });
-            await loadPendingTasks();
-        } catch (err) {
-            console.error('Failed to approve task:', err);
-        }
-    }
-
-    //INFO: Reject a task
-    async function rejectTask(taskId: number) {
-        try {
-            await invoke('reject_lumen_task', { taskId });
-            await loadPendingTasks();
-        } catch (err) {
-            console.error('Failed to reject task:', err);
-        }
-    }
 
     //INFO: Set transparent background for overlay window
     useEffect(() => {
@@ -197,7 +300,6 @@ function OverlayWindow() {
         });
 
         loadChatHistory();
-        loadPendingTasks();
 
         return () => {
             document.body.classList.remove('overlay-window');
@@ -229,8 +331,6 @@ function OverlayWindow() {
         let unlistenMsg: (() => void) | null = null;
         let unlistenToolStart: (() => void) | null = null;
         let unlistenToolEnd: (() => void) | null = null;
-        let unlistenTasksUpdated: (() => void) | null = null;
-        let unlistenTaskCompleted: (() => void) | null = null;
         let unlistenMorningBriefing: (() => void) | null = null;
 
         async function setup() {
@@ -280,17 +380,6 @@ function OverlayWindow() {
                 setIsThinking(false);
             });
 
-            // Tasks updated event — reload tasks
-            unlistenTasksUpdated = await listen('tasks-updated', () => {
-                loadPendingTasks();
-            });
-
-            // Task completed — reload chat from DB (message is persisted) and switch back
-            unlistenTaskCompleted = await listen<{ message?: string; error?: string }>('task-completed', () => {
-                loadChatHistory();
-                switchView('chat');
-            });
-
             // Morning briefing proactive message
             unlistenMorningBriefing = await listen('morning-briefing-ready', () => {
                 setMessages(prev => {
@@ -315,8 +404,6 @@ function OverlayWindow() {
             if (unlistenMsg) unlistenMsg();
             if (unlistenToolStart) unlistenToolStart();
             if (unlistenToolEnd) unlistenToolEnd();
-            if (unlistenTasksUpdated) unlistenTasksUpdated();
-            if (unlistenTaskCompleted) unlistenTaskCompleted();
             if (unlistenMorningBriefing) unlistenMorningBriefing();
         };
     }, []);
@@ -575,22 +662,8 @@ function OverlayWindow() {
                             <span className="overlay-wordmark">Lumen</span>
                         </div>
 
-                        {/* Right: actions + resize */}
+                        {/* Right: resize */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {/* Actions / task queue button */}
-                            <button
-                                onClick={() => switchView(transitionView === 'tasks' ? 'chat' : 'tasks')}
-                                className={`overlay-header-btn${transitionView === 'tasks' ? ' active' : ''}`}
-                                title="Pending actions"
-                            >
-                                <CheckSquare size={12} />
-                                <span>Actions</span>
-                                {pendingTasks.length > 0 && (
-                                    <span className="overlay-badge">{pendingTasks.length}</span>
-                                )}
-                            </button>
-
-                            {/* Expand / shrink toggle */}
                             <button
                                 onClick={() => setContentLarge(v => !v)}
                                 className="overlay-header-icon-btn"
@@ -717,6 +790,9 @@ function OverlayWindow() {
                                             </button>
                                         </div>
                                     )}
+                                    {message.role === 'assistant' && message.tool_invocations && message.tool_invocations.length > 0 && (
+                                        <ToolTrace invocations={message.tool_invocations} />
+                                    )}
                                     {message.role === 'assistant' && message.citations && message.citations.length > 0 && (
                                         <CitationStack citations={message.citations} />
                                     )}
@@ -752,51 +828,10 @@ function OverlayWindow() {
                                 isExpanded={isCalendarExpanded}
                                 onToggleExpand={handleCalendarExpansionToggle}
                                 initialDate={suggestedDate}
-                                transitionView={transitionView === 'tasks' ? 'chat' : transitionView}
+                                transitionView={transitionView}
                             />
                         </div>
 
-                        {/* Tasks View */}
-                        <div className={`view-pane tasks-pane ${transitionView === 'tasks' ? 'active' : ''}`}>
-                            <div className="tasks-pane-inner">
-                                <div className="tasks-pane-header">
-                                    <div>
-                                        <p className="tasks-pane-title">Pending Actions</p>
-                                        <p className="tasks-pane-subtitle">
-                                            {pendingTasks.length === 0
-                                                ? 'Nothing waiting for approval'
-                                                : `${pendingTasks.length} action${pendingTasks.length !== 1 ? 's' : ''} need your go-ahead`}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {pendingTasks.length === 0 ? (
-                                    <div className="tasks-empty-state">
-                                        <CheckSquare size={28} strokeWidth={1.5} />
-                                        <span>All clear</span>
-                                    </div>
-                                ) : (
-                                    <div className="tasks-list">
-                                        {pendingTasks.map(task => (
-                                            <div key={task.id} className="task-card">
-                                                <div className="task-card-top">
-                                                    <span className="task-card-title">{task.title}</span>
-                                                    <span className="task-type-badge">{task.task_type.replace(/_/g, ' ')}</span>
-                                                </div>
-                                                <div className="task-card-actions">
-                                                    <button className="task-btn approve" onClick={() => approveTask(task.id)}>
-                                                        Approve
-                                                    </button>
-                                                    <button className="task-btn reject" onClick={() => rejectTask(task.id)}>
-                                                        Reject
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
                     </div>
                 </div>
 
@@ -812,38 +847,7 @@ function OverlayWindow() {
                         {isCapturing ? <Loader2 size={18} className="loading-spinner" /> : <Crosshair size={18} />}
                     </button>
 
-                    {/* 2. Tasks toggle */}
-                    <button
-                        className={`action-button ${transitionView === 'tasks' ? 'active' : ''}`}
-                        onClick={() => switchView(transitionView === 'tasks' ? 'chat' : 'tasks')}
-                        style={{ position: 'relative' }}
-                    >
-                        {transitionView === 'tasks' ? (
-                            <>
-                                <MessageSquare size={16} />
-                                <span>Chat</span>
-                            </>
-                        ) : (
-                            <>
-                                <CheckSquare size={16} />
-                                <span>Actions</span>
-                            </>
-                        )}
-                        {pendingTasks.length > 0 && transitionView !== 'tasks' && (
-                            <span style={{
-                                position: 'absolute', top: '-4px', right: '-4px',
-                                background: 'var(--color-error, #ef4444)', color: '#fff',
-                                fontSize: '9px', fontWeight: 700, borderRadius: '999px',
-                                minWidth: '14px', height: '14px',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                padding: '0 3px', lineHeight: 1,
-                            }}>
-                                {pendingTasks.length}
-                            </span>
-                        )}
-                    </button>
-
-                    {/* 3. Calendar toggle */}
+                    {/* 2. Calendar toggle */}
                     <button
                         className={`action-button ${transitionView === 'calendar' ? 'active' : ''} calendar-btn`}
                         onClick={() => switchView(transitionView === 'calendar' ? 'chat' : 'calendar')}
@@ -922,11 +926,14 @@ function OverlayWindow() {
                             disabled={isLoading}
                         />
                         <button
-                            className="chat-send-btn"
-                            onClick={handleSendMessage}
-                            disabled={(!inputValue.trim() && !capturedImage) || isLoading}
+                            className={`chat-send-btn${isLoading ? ' is-stop' : ''}`}
+                            onClick={isLoading
+                                ? () => { invoke('cancel_chat').catch(err => console.error('cancel_chat failed:', err)); }
+                                : handleSendMessage}
+                            disabled={!isLoading && !inputValue.trim() && !capturedImage}
+                            title={isLoading ? 'Stop generating' : 'Send'}
                         >
-                            {isLoading ? <Loader2 size={16} className="loading-spinner" /> : <Send size={16} />}
+                            {isLoading ? <Square size={14} fill="currentColor" /> : <Send size={16} />}
                         </button>
                     </div>
                 </div>

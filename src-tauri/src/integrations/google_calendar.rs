@@ -50,9 +50,7 @@ pub async fn fetch_google_calendar_events(
         ("orderBy", "startTime"),
     ];
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
+    let client = crate::integrations::http::shared_client();
     let response = client
         .get(url)
         .header(AUTHORIZATION, format!("Bearer {}", tokens.access_token))
@@ -117,9 +115,7 @@ pub async fn create_calendar_event(
         "end": { "dateTime": end_time }
     });
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
+    let client = crate::integrations::http::shared_client();
     let response = client
         .post(url)
         .header(AUTHORIZATION, format!("Bearer {}", tokens.access_token))
@@ -163,9 +159,7 @@ pub async fn delete_calendar_event(
 
     let url = format!("https://www.googleapis.com/calendar/v3/calendars/primary/events/{}", event_id);
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
+    let client = crate::integrations::http::shared_client();
     let response = client
         .delete(&url)
         .header(AUTHORIZATION, format!("Bearer {}", tokens.access_token))

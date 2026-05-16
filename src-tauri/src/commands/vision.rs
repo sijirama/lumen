@@ -1,29 +1,53 @@
 use base64::{engine::general_purpose, Engine as _};
+use screenshots::image::{DynamicImage, ImageFormat, imageops::FilterType};
 use screenshots::Screen;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 //INFO: Cache for the screenshot we are snipping
-static LAST_SCREENSHOT: Mutex<Option<screenshots::image::DynamicImage>> = Mutex::new(None);
+static LAST_SCREENSHOT: Mutex<Option<DynamicImage>> = Mutex::new(None);
+
+//INFO: Max width for screenshots sent to Gemini / persisted in the chat trace.
+//      Native captures at 4K make b64 strings ~5MB; 1280px keeps text readable
+//      while dropping size by ~10x and shaving image tokens too. Aspect ratio
+//      is preserved (height auto-scales). Lanczos3 is slow but preserves text
+//      sharpness — and screenshots aren't a hot path.
+const MAX_SCREENSHOT_WIDTH: u32 = 1280;
+
+fn downscale_if_huge(img: DynamicImage) -> DynamicImage {
+    if img.width() <= MAX_SCREENSHOT_WIDTH {
+        return img;
+    }
+    img.resize(MAX_SCREENSHOT_WIDTH, u32::MAX, FilterType::Lanczos3)
+}
+
+fn encode_png_b64(img: &DynamicImage) -> Result<String, String> {
+    use std::io::Cursor;
+    let mut buffer = Vec::new();
+    let mut cursor = Cursor::new(&mut buffer);
+    img.write_to(&mut cursor, ImageFormat::Png)
+        .map_err(|e: screenshots::image::ImageError| e.to_string())?;
+    Ok(general_purpose::STANDARD.encode(buffer))
+}
 
 #[tauri::command]
 pub async fn capture_primary_screen() -> Result<String, String> {
-    use std::io::Cursor;
     let start = Instant::now();
     let screens = Screen::all().map_err(|e| e.to_string())?;
 
     if let Some(screen) = screens.first() {
-        let capture = screen.capture().map_err(|e| e.to_string())?;
-
-        let mut buffer = Vec::new();
-        let mut cursor = Cursor::new(&mut buffer);
-        capture
-            .write_to(&mut cursor, screenshots::image::ImageFormat::Png)
-            .map_err(|e: screenshots::image::ImageError| e.to_string())?;
-
-        let b64 = general_purpose::STANDARD.encode(buffer);
-        println!("Captured screen in {:?}", start.elapsed());
+        let raw = screen.capture().map_err(|e| e.to_string())?;
+        let (raw_w, raw_h) = (raw.width(), raw.height());
+        let resized = downscale_if_huge(DynamicImage::ImageRgba8(raw));
+        let b64 = encode_png_b64(&resized)?;
+        println!(
+            "Captured screen ({}x{} → {}x{}, {} KB b64) in {:?}",
+            raw_w, raw_h,
+            resized.width(), resized.height(),
+            b64.len() / 1024,
+            start.elapsed(),
+        );
         Ok(b64)
     } else {
         Err("No screens found".to_string())
@@ -113,8 +137,6 @@ pub async fn capture_region(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
-    use std::io::Cursor;
-
     // 1. Get cached image
     let mut image = {
         let cache = LAST_SCREENSHOT.lock().map_err(|_| "Failed to lock cache")?;
@@ -157,16 +179,13 @@ pub async fn capture_region(
 
     let cropped = image.crop(cx, cy, cw, ch);
 
-    // 3. Encode to Base64
-    let mut buffer = Vec::new();
-    let mut cursor = Cursor::new(&mut buffer);
-    cropped
-        .write_to(&mut cursor, screenshots::image::ImageFormat::Png)
-        .map_err(|e| e.to_string())?;
+    // 3. Downscale if the user grabbed a huge region (same threshold as full captures)
+    let resized = downscale_if_huge(cropped);
 
-    let b64 = general_purpose::STANDARD.encode(buffer);
+    // 4. Encode to Base64
+    let b64 = encode_png_b64(&resized)?;
 
-    // 4. Emit to overlay
+    // 5. Emit to overlay
     app.emit("snipped-image", b64).map_err(|e| e.to_string())?;
 
     // 5. Close Window

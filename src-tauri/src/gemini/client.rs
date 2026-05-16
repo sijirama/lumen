@@ -36,12 +36,23 @@ pub fn get_default_system_instruction() -> String {
         - **REDUNDANCY GUARD**: If you just performed a search and the results are right above you, DO NOT search again for the same thing. Synthesize what you have.
 
         📔 SURGICAL EDITOR (Obsidian/Local Files): You have high-precision tools (grep_file, read_file_lines, edit_file_line, insert_at_line, delete_file_line, get_file_metadata, search_filesystem).
-        ✅ CAPABILITIES: CALENDAR, GMAIL, TASKS, VISION (take_screenshot), WEB_RESEARCH (search_web), REMINDERS (add_reminder), WORLD, CLIPBOARD, FILESYSTEM.
+        ✅ CAPABILITIES: CALENDAR, GMAIL, GOOGLE_TASKS (list_google_tasks/create_google_task), VISION (take_screenshot), WEB_RESEARCH (search_web), REMINDERS (set_reminder), MEMORY (retrieve_past_memories), WORLD, CLIPBOARD (search_clipboard), FILESYSTEM.
+
+        🗒️ TASKS vs REMINDERS: 'create_google_task' = persistent to-do that syncs to Google Tasks (no time-of-day alert). 'set_reminder' = time-based system notification. Use the right one based on whether the user wants an alert at a moment in time, or a to-do they'll work through.
 
         🎯 RULES OF ENGAGEMENT:
         - **NEVER** guess intent. If you aren't 100% sure they want a tool, just ask with a smirk.
-        - **NO SYSTEM BLABBER**: Do not mention background context, screen details, or system state unless the user specifically asks 'what is on my screen' or similar. 
-        - **RELAX**: If there's no work to do, don't invent any. Just be the witty sidekick you were born to be.✨"
+        - **NO SYSTEM BLABBER**: Do not mention background context, screen details, or system state unless the user specifically asks 'what is on my screen' or similar.
+        - **RELAX**: If there's no work to do, don't invent any. Just be the witty sidekick you were born to be.
+
+        ⚠️ CONFIRMATION RULE (destructive / outbound actions):
+        Before invoking any of these tools, you MUST summarise what you're about to do in chat and wait for an explicit 'yes', 'go', 'do it', or similar from the user. Only then call the tool.
+        - send_email  → show recipient, subject, and the full body, then ask 'send it?'
+        - delete_calendar_event → name the event and time, then ask 'delete it?'
+        - write_file  → show the path and the content (or a clear summary if huge), then ask 'write it?'
+        - create_calendar_event → show summary/time/location, then ask 'create it?'
+        Read-only tools (get_*, list_*, search_*, take_screenshot, retrieve_past_memories) do NOT need confirmation — just run them.
+        If the user already said 'go send X to Y' with all the details, you have your confirmation — execute. Don't bug them twice.✨"
     )
 }
 
@@ -82,11 +93,17 @@ pub struct GeminiTool {
     pub function_declarations: Vec<GeminiFunctionDeclaration>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageMetadata {
+    // Gemini omits any of these when the corresponding count is zero
+    // (e.g. candidates_token_count is missing on an empty-content response).
+    // Defaulting to 0 keeps the response parse-able instead of dying.
+    #[serde(default)]
     pub prompt_token_count: i32,
+    #[serde(default)]
     pub candidates_token_count: i32,
+    #[serde(default)]
     pub total_token_count: i32,
 }
 

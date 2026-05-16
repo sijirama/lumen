@@ -121,13 +121,11 @@ pub fn run() {
             settings::save_app_setting,
             // Chat commands
             chat::send_chat_message,
+            chat::cancel_chat,
             chat::get_chat_history,
             chat::clear_chat_history,
             chat::create_new_session,
             chat::get_chat_sessions,
-            chat::get_pending_tasks,
-            chat::execute_lumen_task,
-            chat::reject_lumen_task,
             // Window commands
             window::show_overlay,
             window::hide_overlay,

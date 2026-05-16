@@ -4,7 +4,7 @@
 use crate::crypto::decrypt_token;
 use crate::database::queries::{
     clear_chat_messages, get_api_token, get_calendar_events, get_chat_messages, get_integration,
-    get_user_profile, save_chat_message, ChatMessage, Citation,
+    get_user_profile, save_chat_message, ChatMessage, Citation, ToolInvocation,
 };
 use crate::database::Database;
 use crate::gemini::{client::get_default_system_instruction, GeminiClient};
@@ -14,6 +14,19 @@ use std::sync::OnceLock;
 use tauri::State;
 
 static CHAT_RESPONSE_SCHEMA: OnceLock<serde_json::Value> = OnceLock::new();
+
+//INFO: Shared cancellation flag for the in-flight chat request. Set by the
+//      `cancel_chat` command, checked between tool rounds in send_chat_message.
+//      Only one chat runs at a time from the overlay so a single global flag
+//      is enough — keeps the wiring trivial.
+static CHAT_CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+//INFO: Command invoked by the Stop button. The currently-running chat loop
+//      will notice the flag and bail out at the next round boundary.
+#[tauri::command]
+pub fn cancel_chat() {
+    CHAT_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
+}
 
 fn get_chat_response_schema() -> &'static serde_json::Value {
     CHAT_RESPONSE_SCHEMA.get_or_init(|| {
@@ -48,6 +61,7 @@ pub struct ChatMessageResponse {
     pub image_data: Option<String>,
     pub created_at: String,
     pub citations: Option<Vec<Citation>>,
+    pub tool_invocations: Option<Vec<ToolInvocation>>,
 }
 
 
@@ -68,6 +82,33 @@ pub struct SendMessageResponse {
     pub suggested_date: Option<String>,
 }
 
+//INFO: Turn the raw accumulated model text into what the user actually sees.
+//      Each `\n\n`-separated chunk is treated independently:
+//        - prose chunks pass through unchanged
+//        - JSON chunks (our structured output) are reduced to their `response`
+//          field — the other fields (suggestedView/Date) get extracted elsewhere
+//        - JSON chunks with no `response` field are dropped (likely tool plumbing)
+//      This is what fixes the multi-round text-loss bug: every round's prose
+//      survives into the final display.
+fn render_text_for_display(raw: &str) -> String {
+    raw.split("\n\n")
+        .filter_map(|chunk| {
+            let trimmed = chunk.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                return json_val
+                    .get("response")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+            }
+            Some(chunk.to_string())
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 //INFO: Sends a message to the AI and returns the response
 #[tauri::command]
 pub async fn send_chat_message(
@@ -76,6 +117,9 @@ pub async fn send_chat_message(
     request: SendMessageRequest,
 ) -> Result<SendMessageResponse, String> {
     use tauri::Emitter;
+
+    // Reset cancellation flag — this turn starts fresh.
+    CHAT_CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
 
     //INFO: Get the Gemini API key from the database
     let api_key = {
@@ -168,23 +212,9 @@ pub async fn send_chat_message(
         system_instruction.push_str("\n-------------------------------------------");
     }
 
-    //INFO: 6.5 Auto-inject relevant memories from the knowledge base
-    {
-        let memory_client = GeminiClient::new(api_key.clone());
-        if let Ok(embedding) = memory_client.generate_embedding(&request.message).await {
-            let connection = database.connection.lock();
-            if let Ok(memories) = crate::memory::core::retrieve_memories(&connection, &embedding, 10) {
-                if !memories.is_empty() {
-                    let memory_context = crate::memory::core::format_memories_for_prompt(&memories);
-                    system_instruction.push_str(&memory_context);
-                    for m in &memories {
-                        let _ = crate::memory::core::update_memory_access(&connection, &m.id);
-                    }
-                    println!("DEBUG: 🧠 Auto-injected {} memories into context.", memories.len());
-                }
-            }
-        }
-    }
+    //INFO: Memory retrieval is now opt-in via the `retrieve_past_memories` tool.
+    //      The previous auto-embed-on-every-turn added a full embedding API
+    //      round-trip to every chat turn — removed for latency and cost.
 
     if let Some(config) = &obsidian_config {
         system_instruction.push_str("\n\n--- OBSIDIAN CONFIGURATION ---");
@@ -237,6 +267,9 @@ pub async fn send_chat_message(
     let mut final_response_text = String::new();
     let mut final_grounding_metadata: Option<crate::gemini::client::GroundingMetadata> = None;
     let mut manual_citations: Vec<Citation> = Vec::new();
+    // Accumulates the full audit trail of tool calls across all rounds so the user
+    // can see (and inspect) what Lumen actually did to produce the final reply.
+    let mut tool_invocations: Vec<ToolInvocation> = Vec::new();
 
 
     //INFO: Tool execution loop — uses non-streaming for tool rounds
@@ -256,12 +289,20 @@ pub async fn send_chat_message(
         ..Default::default()
     };
 
-    //INFO: Per-tool call counter to prevent runaway tool loops
+    //INFO: Per-tool call counter to prevent runaway tool loops.
+    //      Worst-case budget: MAX_TOOL_ROUNDS × (tools per round) ≈ deep research.
+    //      Latency is the trade-off — each round is one Gemini API call.
     let mut tool_call_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    const MAX_CALLS_PER_TOOL: usize = 2;
-    const MAX_TOOL_ROUNDS: usize = 4;
+    const MAX_CALLS_PER_TOOL: usize = 8;
+    const MAX_TOOL_ROUNDS: usize = 10;
 
     for _i in 0..MAX_TOOL_ROUNDS {
+        // Cancellation check at round boundary — user clicked Stop.
+        if CHAT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+            println!("DEBUG: 🛑 Chat cancelled by user before round {}", _i + 1);
+            break;
+        }
+
         // DEBUG: Log the full prompt state before sending to LLM
         log_prompt_debug(
             &request.message,
@@ -272,6 +313,7 @@ pub async fn send_chat_message(
         );
 
         // Use non-streaming send_chat for tool execution rounds
+        let round_start = std::time::Instant::now();
         let chat_response = client
             .send_chat(
                 current_messages.clone(),
@@ -281,6 +323,7 @@ pub async fn send_chat_message(
             )
             .await
             .map_err(|e| format!("Failed to get AI response: {}", e))?;
+        let llm_elapsed = round_start.elapsed();
 
         let response_parts = chat_response.parts;
 
@@ -290,7 +333,9 @@ pub async fn send_chat_message(
         }
 
         if let Some(usage) = &chat_response.usage {
-            println!("DEBUG: ⚡ Round {} Tokens -> Prompt: {}, Candidates: {}, Total: {}", _i + 1, usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
+            println!("DEBUG: ⚡ Round {} LLM call: {:.2?} | Tokens -> Prompt: {}, Candidates: {}, Total: {}", _i + 1, llm_elapsed, usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
+        } else {
+            println!("DEBUG: ⚡ Round {} LLM call: {:.2?}", _i + 1, llm_elapsed);
         }
 
         // Record the model's response in history
@@ -308,15 +353,16 @@ pub async fn send_chat_message(
 
         for part in &response_parts {
             if let Some(text) = &part.text {
-                final_response_text.clear();
-                final_response_text.push_str(text);
-                let mut emit_text = text.clone();
-                if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text) {
-                    if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
-                        emit_text = resp.to_string();
-                    }
+                // Accumulate across rounds AND across parts within a round so
+                // prose from earlier turns isn't overwritten by later ones.
+                if !final_response_text.is_empty() {
+                    final_response_text.push_str("\n\n");
                 }
-                let _ = app_handle.emit("assistant-reply-turn", emit_text);
+                final_response_text.push_str(text);
+                let _ = app_handle.emit(
+                    "assistant-reply-turn",
+                    render_text_for_display(&final_response_text),
+                );
             }
 
             if let Some(call) = &part.function_call {
@@ -332,12 +378,7 @@ pub async fn send_chat_message(
                     ));
                 } else {
                     has_function_calls = true;
-                    const ASYNC_TOOLS: &[&str] = &[
-                        "get_weather", "get_google_calendar_events", "get_unread_emails",
-                        "send_email", "create_calendar_event",
-                        "take_screenshot", "delete_calendar_event", "search_web",
-                    ];
-                    if ASYNC_TOOLS.contains(&call.name.as_str()) {
+                    if crate::gemini::tools::is_async(&call.name) {
                         async_calls.push(call.clone());
                     } else {
                         sync_calls.push(call.clone());
@@ -350,47 +391,51 @@ pub async fn send_chat_message(
         if has_function_calls {
             let _ = app_handle.emit("tool-execution-start", ());
 
-            // Async tools run concurrently
+            // Async tools run concurrently. Per-tool wall-clock timing is logged
+            // so we can see which integrations are dragging out chat turns.
+            // Tuple shape: (name, args, result, duration_ms, started_at_rfc3339)
             let db_inner = database.inner().clone();
             let app_handle_inner = app_handle.clone();
-            let async_results: Vec<(String, serde_json::Value)> = futures::future::join_all(
+            let async_results: Vec<(String, serde_json::Value, crate::gemini::tools::ToolResult, u64, String)> = futures::future::join_all(
                 async_calls.into_iter().map(|call| {
                     let db = db_inner.clone();
                     let ah = app_handle_inner.clone();
                     async move {
+                        let started_at = chrono::Utc::now().to_rfc3339();
+                        let start = std::time::Instant::now();
                         let res = crate::gemini::tools::execute_tool_async(&call.name, &call.args, &db, &ah).await;
-                        (call.name, res)
+                        let elapsed = start.elapsed();
+                        println!("DEBUG: ⏱️  Tool '{}' (async) took {:.2?}", call.name, elapsed);
+                        (call.name, call.args, res, elapsed.as_millis() as u64, started_at)
                     }
                 })
             ).await;
 
             // Sync tools run sequentially (single DB lock for the batch)
-            let sync_results: Vec<(String, serde_json::Value)> = {
+            let sync_results: Vec<(String, serde_json::Value, crate::gemini::tools::ToolResult, u64, String)> = {
                 let connection = database.connection.lock();
                 sync_calls.into_iter().map(|call| {
+                    let started_at = chrono::Utc::now().to_rfc3339();
+                    let start = std::time::Instant::now();
                     let res = crate::gemini::tools::execute_tool_sync(
                         &call.name, &call.args,
                         obsidian_config.as_ref(), &connection, &app_handle,
                     );
-                    (call.name, res)
+                    let elapsed = start.elapsed();
+                    println!("DEBUG: ⏱️  Tool '{}' (sync) took {:.2?}", call.name, elapsed);
+                    (call.name, call.args, res, elapsed.as_millis() as u64, started_at)
                 }).collect()
             };
 
             let _ = app_handle.emit("tool-execution-end", ());
 
-            // Emit tasks-updated if any tool was queued for confirmation
-            let has_queued = async_results.iter().chain(sync_results.iter())
-                .any(|(_, res)| res.get("status").and_then(|s| s.as_str()) == Some("queued"));
-            if has_queued {
-                let _ = app_handle.emit("tasks-updated", ());
-            }
-
-            // Pass 3: process results and build function_responses
-            for (name, res) in async_results.into_iter().chain(sync_results.into_iter()) {
-                println!("DEBUG: ✅ Tool '{}' Result: {}", name, res);
+            // Pass 3: process results, collect inline attachments, build function_responses
+            let mut attachments: Vec<crate::gemini::tools::ToolAttachment> = Vec::new();
+            for (name, args, res, duration_ms, started_at) in async_results.into_iter().chain(sync_results.into_iter()) {
+                println!("DEBUG: ✅ Tool '{}' Result: {}", name, res.response);
 
                 if name == "search_web" {
-                    if let Some(results) = res.get("results").and_then(|r| r.as_array()) {
+                    if let Some(results) = res.response.get("results").and_then(|r| r.as_array()) {
                         for r in results {
                             if let (Some(title), Some(url)) = (
                                 r.get("title").and_then(|v| v.as_str()),
@@ -403,63 +448,81 @@ pub async fn send_chat_message(
                 }
 
                 if name == "create_calendar_event" || name == "delete_calendar_event" {
-                    if res.get("status").and_then(|s| s.as_str()) == Some("success") || res.get("events").is_some() {
+                    if res.response.get("status").and_then(|s| s.as_str()) == Some("success") || res.response.get("events").is_some() {
                         let _ = app_handle.emit("calendar-updated", ());
                     }
                 }
 
-                function_responses.push(crate::gemini::client::GeminiPart::function_response(name, res));
-            }
-        }
+                // Record this call for the persisted trace. Success = no top-level "error" key.
+                let succeeded = res.response.get("error").is_none();
+                tool_invocations.push(ToolInvocation {
+                    name: name.clone(),
+                    args,
+                    result: res.response.clone(),
+                    duration_ms,
+                    started_at,
+                    succeeded,
+                });
 
-        if has_function_calls {
-            // Clear the streaming bubble so it doesn't show stale tool-call text
-            let _ = app_handle.emit("assistant-reply-clear", ());
+                if let Some(att) = res.attachment {
+                    attachments.push(att);
+                }
 
-            let mut screenshot_data = None;
-            for resp in &mut function_responses {
-                if let Some(f_resp) = &mut resp.function_response {
-                    if f_resp.name == "take_screenshot" {
-                        if let Some(obj) = f_resp.response.as_object_mut() {
-                            if let Some(b64) = obj
-                                .get("image_data")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string())
-                            {
-                                screenshot_data = Some(b64);
-                                obj.remove("image_data");
-                                obj.insert("info".into(), serde_json::json!("Screenshot captured successfully. You can now see the image in this Turn."));
-                            }
-                        }
+                // Strip any fields that exist only for the persisted trace, not for
+                // the model. Right now this is just take_screenshot's `image_data` —
+                // it's already going to Gemini as a proper `inline_data` part, and
+                // including the b64 inside the function_response would double-count
+                // the tokens (and easily blow past Gemini's 1M-token input cap on
+                // any reasonably-sized screenshot).
+                let response_for_model = if name == "take_screenshot" {
+                    let mut cleaned = res.response.clone();
+                    if let Some(obj) = cleaned.as_object_mut() {
+                        obj.remove("image_data");
                     }
+                    cleaned
+                } else {
+                    res.response
+                };
+                function_responses.push(crate::gemini::client::GeminiPart::function_response(name, response_for_model));
+            }
+
+            // NOTE: we deliberately DO NOT emit `assistant-reply-clear` here.
+            // Prose from this round needs to stay visible while the next round
+            // runs more tools and appends its own prose.
+
+            // Merge function responses AND any binary attachments (e.g. screenshots)
+            // into a SINGLE user turn. Two consecutive user turns confuse Gemini —
+            // it tends to STOP with empty content. One turn with mixed parts works.
+            let mut combined_parts = function_responses;
+            if !attachments.is_empty() {
+                combined_parts.push(crate::gemini::client::GeminiPart::text(
+                    "[VISUAL CONTEXT ATTACHED]".to_string(),
+                ));
+                for att in attachments {
+                    combined_parts.push(crate::gemini::client::GeminiPart::inline_data(att.mime_type, att.data));
                 }
             }
-
             current_messages.push(crate::gemini::client::GeminiContent {
                 role: Some("user".to_string()),
-                parts: function_responses,
+                parts: combined_parts,
             });
-            if let Some(b64) = screenshot_data {
-                current_messages.push(crate::gemini::client::GeminiContent {
-                    role: Some("user".to_string()),
-                    parts: vec![
-                        crate::gemini::client::GeminiPart::text("[VISUAL CONTEXT ATTACHED]".to_string()),
-                        crate::gemini::client::GeminiPart::inline_data(
-                            "image/png".to_string(),
-                            b64,
-                        ),
-                    ],
-                });
-            }
             continue;
         } else {
             break;
         }
     }
 
+    // If the user cancelled and we already have some text, save what we have.
+    // Otherwise drop in a short placeholder so the chat doesn't look broken.
+    let was_cancelled = CHAT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst);
+    if was_cancelled && final_response_text.is_empty() {
+        final_response_text = "_(stopped)_".to_string();
+    }
+
     //INFO: Safety net — if the model used tools but never produced text,
     //      force one last call WITHOUT tools so it MUST reply with text.
-    if final_response_text.is_empty() {
+    //      Skip when the user cancelled — no point burning another API call.
+    if final_response_text.is_empty() && !was_cancelled {
         println!("DEBUG: ⚠️ No text after tool loop. Forcing a final text-only call...");
 
         let forced_response = client
@@ -474,16 +537,14 @@ pub async fn send_chat_message(
 
         for part in &forced_response.parts {
             if let Some(text) = &part.text {
-                final_response_text = text.clone();
-
-                // Emit to frontend
-                let mut emit_text = text.clone();
-                if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text) {
-                    if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
-                        emit_text = resp.to_string();
-                    }
+                if !final_response_text.is_empty() {
+                    final_response_text.push_str("\n\n");
                 }
-                let _ = app_handle.emit("assistant-reply-turn", emit_text);
+                final_response_text.push_str(text);
+                let _ = app_handle.emit(
+                    "assistant-reply-turn",
+                    render_text_for_display(&final_response_text),
+                );
             }
         }
 
@@ -501,29 +562,29 @@ pub async fn send_chat_message(
         content: request.message.clone(),
         image_data: request.base64_image.clone(),
         citations: None,
+        tool_invocations: None,
         created_at: now.clone(),
         session_id: request.session_id.clone(),
     };
 
-    //INFO: Parse Structured JSON output BEFORE saving to DB
-    let mut actual_final_text = final_response_text.clone();
+    //INFO: Build the user-visible message from the full accumulated text
+    //      (prose chunks kept, JSON chunks reduced to their `response` field)
+    //      and extract structured fields (suggestedView/Date) from any JSON chunk.
+    let actual_final_text = render_text_for_display(&final_response_text);
     let mut suggested_view = None;
     let mut suggested_date = None;
-
-    // We might have multiple chunks in final_response_text separated by \n\n
-    // Find the last valid JSON chunk
-    for text_chunk in final_response_text.rsplit("\n\n") {
-        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text_chunk) {
-            if let Some(resp) = json_val.get("response").and_then(|v| v.as_str()) {
-                actual_final_text = resp.to_string();
-            }
+    for text_chunk in final_response_text.split("\n\n") {
+        let trimmed = text_chunk.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(trimmed) {
             if let Some(view) = json_val.get("suggestedView").and_then(|v| v.as_str()) {
                 suggested_view = Some(view.to_string());
             }
             if let Some(date) = json_val.get("suggestedDate").and_then(|v| v.as_str()) {
                 suggested_date = Some(date.to_string());
             }
-            break;
         }
     }
 
@@ -554,12 +615,19 @@ pub async fn send_chat_message(
         }
     }
 
+    let persisted_invocations = if tool_invocations.is_empty() {
+        None
+    } else {
+        Some(tool_invocations.clone())
+    };
+
     let assistant_message = ChatMessage {
         id: None,
         role: "assistant".to_string(),
         content: actual_final_text.clone(),
         image_data: None,
         citations: citations.clone(),
+        tool_invocations: persisted_invocations.clone(),
         created_at: chrono::Utc::now().to_rfc3339(),
         session_id: request.session_id.clone(),
     };
@@ -781,6 +849,7 @@ pub async fn send_chat_message(
             image_data: user_message.image_data,
             created_at: user_message.created_at,
             citations: None,
+            tool_invocations: None,
         },
         assistant_message: ChatMessageResponse {
             id: Some(assistant_id),
@@ -789,6 +858,7 @@ pub async fn send_chat_message(
             image_data: None,
             created_at: assistant_message.created_at,
             citations,
+            tool_invocations: persisted_invocations,
         },
         suggested_view,
         suggested_date,
@@ -817,6 +887,7 @@ pub fn get_chat_history(
             image_data: m.image_data,
             created_at: m.created_at,
             citations: m.citations,
+            tool_invocations: m.tool_invocations,
         })
         .collect())
 }
@@ -919,168 +990,7 @@ pub fn get_chat_sessions(database: State<Database>) -> Result<Vec<crate::databas
     crate::database::queries::get_sessions(&connection).map_err(|e| e.to_string())
 }
 
-//INFO: Returns all pending lumen tasks awaiting user confirmation
-#[tauri::command]
-pub fn get_pending_tasks(database: State<Database>) -> Result<Vec<crate::database::queries::LumenTask>, String> {
-    let connection = database.connection.lock();
-    crate::database::queries::get_pending_lumen_tasks(&connection).map_err(|e| e.to_string())
-}
-
-//INFO: Rejects (cancels) a pending lumen task
-#[tauri::command]
-pub fn reject_lumen_task(database: State<Database>, task_id: i64) -> Result<(), String> {
-    let connection = database.connection.lock();
-    crate::database::queries::update_task_status(&connection, task_id, "failed")
-        .map_err(|e| e.to_string())
-}
-
-//INFO: Executes a pending lumen task that the user has approved
-#[tauri::command]
-pub async fn execute_lumen_task(
-    database: State<'_, Database>,
-    app_handle: tauri::AppHandle,
-    task_id: i64,
-) -> Result<(), String> {
-    use tauri::Emitter;
-
-    // Load task
-    let (task_type, payload, task_title) = {
-        let conn = database.connection.lock();
-        conn.query_row(
-            "SELECT task_type, payload, title FROM lumen_tasks WHERE id=?",
-            [task_id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)),
-        )
-        .map_err(|e| e.to_string())?
-    };
-
-    // Mark as running
-    {
-        let conn = database.connection.lock();
-        let _ = conn.execute(
-            "UPDATE lumen_tasks SET status='running' WHERE id=?",
-            [task_id],
-        );
-    }
-
-    let args: serde_json::Value = serde_json::from_str(&payload).unwrap_or_default();
-
-    let result: Result<(), String> = match task_type.as_str() {
-        "create_calendar_event" => {
-            let summary = args.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-            let description = args.get("description").and_then(|v| v.as_str());
-            let start_time = args.get("start_time").and_then(|v| v.as_str()).unwrap_or("");
-            let end_time = args.get("end_time").and_then(|v| v.as_str()).unwrap_or("");
-            let location = args.get("location").and_then(|v| v.as_str());
-            match crate::integrations::google_calendar::create_calendar_event(
-                database.inner(),
-                summary,
-                description,
-                start_time,
-                end_time,
-                location,
-            )
-            .await
-            {
-                Ok(_) => {
-                    let _ = app_handle.emit("calendar-updated", ());
-                    Ok(())
-                }
-                Err(e) => Err(e.to_string()),
-            }
-        }
-        "delete_calendar_event" => {
-            let event_id = args.get("event_id").and_then(|v| v.as_str()).unwrap_or("");
-            match crate::integrations::google_calendar::delete_calendar_event(
-                database.inner(),
-                event_id,
-            )
-            .await
-            {
-                Ok(_) => {
-                    let _ = app_handle.emit("calendar-updated", ());
-                    Ok(())
-                }
-                Err(e) => Err(e.to_string()),
-            }
-        }
-        "write_file" => {
-            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            std::fs::write(path, content).map_err(|e| e.to_string())
-        }
-        "send_email" => {
-            let to = args.get("to").and_then(|v| v.as_str()).unwrap_or("");
-            let subject = args.get("subject").and_then(|v| v.as_str()).unwrap_or("");
-            let body = args.get("body").and_then(|v| v.as_str()).unwrap_or("");
-            match crate::integrations::google_gmail::send_email(database.inner(), to, subject, body).await {
-                Ok(_) => Ok(()),
-                Err(e) => Err(e.to_string()),
-            }
-        }
-        _ => Err(format!("Unknown task type: {}", task_type)),
-    };
-
-    // Update status
-    let status = if result.is_ok() { "done" } else { "failed" };
-    {
-        let conn = database.connection.lock();
-        let completed_at = chrono::Utc::now().to_rfc3339();
-        let _ = conn.execute(
-            "UPDATE lumen_tasks SET status=?, completed_at=? WHERE id=?",
-            rusqlite::params![status, completed_at, task_id],
-        );
-    }
-
-    let _ = app_handle.emit("tasks-updated", ());
-
-    // Notify the chat with a confirmation message
-    if result.is_ok() {
-        let confirmation = match task_type.as_str() {
-            "create_calendar_event" => format!("Done — event created: **{}**", task_title.trim_start_matches("Create calendar event: ")),
-            "delete_calendar_event" => "Done — calendar event deleted.".to_string(),
-            "write_file" => format!("Done — file written: **{}**", task_title.trim_start_matches("Write file: ")),
-            "send_email" => format!("Done — email sent to **{}**", task_title.trim_start_matches("Send email to: ")),
-            _ => format!("Done — **{}** completed.", task_title),
-        };
-        // Persist confirmation message to DB so it survives overlay close/reopen
-        {
-            let conn = database.connection.lock();
-            let msg = crate::database::queries::ChatMessage {
-                id: None,
-                role: "assistant".to_string(),
-                content: confirmation.clone(),
-                image_data: None,
-                citations: None,
-                created_at: chrono::Utc::now().to_rfc3339(),
-                session_id: None,
-            };
-            let _ = crate::database::queries::save_chat_message(&conn, &msg);
-        }
-        let _ = app_handle.emit("task-completed", serde_json::json!({ "message": confirmation }));
-    } else if let Err(ref e) = result {
-        let error_text = format!("Action failed: {}", e);
-        // Persist error message too
-        {
-            let conn = database.connection.lock();
-            let msg = crate::database::queries::ChatMessage {
-                id: None,
-                role: "assistant".to_string(),
-                content: error_text.clone(),
-                image_data: None,
-                citations: None,
-                created_at: chrono::Utc::now().to_rfc3339(),
-                session_id: None,
-            };
-            let _ = crate::database::queries::save_chat_message(&conn, &msg);
-        }
-        let _ = app_handle.emit("task-completed", serde_json::json!({ "error": error_text }));
-    }
-
-    result
-}
-
-//INFO: Bu//INFO: Helper to log prompt state for debugging
+//INFO: Helper to log prompt state for debugging
 fn log_prompt_debug(
     message: &str,
     system: &str,
