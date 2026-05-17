@@ -249,9 +249,21 @@ function IntegrationsPage() {
                         {!google?.enabled ? (
                             <div className="config-section">
                                 <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 'var(--spacing-2)' }}>API Configuration</div>
-                                <p style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-4)' }}>
+                                <p style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-3)' }}>
                                     Lumen uses local OAuth authentication. You need to provide your own Google Cloud Project credentials.
                                 </p>
+                                <details className="setup-details">
+                                    <summary>How to get these credentials</summary>
+                                    <ol>
+                                        <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer">console.cloud.google.com</a> and create a new project (or pick an existing one).</li>
+                                        <li><strong>APIs & Services → Library</strong> → enable <em>Gmail API</em>, <em>Google Calendar API</em>, and <em>Tasks API</em>.</li>
+                                        <li><strong>APIs & Services → OAuth consent screen</strong> → choose <em>External</em>, fill in the basics, and add your own Google account as a test user.</li>
+                                        <li><strong>APIs & Services → Credentials → Create credentials → OAuth client ID</strong>. Application type: <em>Web application</em>.</li>
+                                        <li>Under <em>Authorized redirect URIs</em>, add exactly: <code>http://127.0.0.1:18247</code></li>
+                                        <li>Copy the Client ID and Client Secret into the fields below.</li>
+                                    </ol>
+                                    <p className="setup-note">Tip: the redirect URI must match exactly — no trailing slash, no http<strong>s</strong>.</p>
+                                </details>
                                 <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
                                     <div>
                                         <label className="input-label" style={{ marginBottom: '4px', display: 'block' }}>Client ID</label>

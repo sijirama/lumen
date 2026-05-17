@@ -1,8 +1,7 @@
+the system tray icon is toooo fucking small, wtffff 
 
-i don't like changes to the chat widget, there should be no new chat, there's only one chat that we're gonna keep using forever
+search menu icon is now warped not that cool tbh
 
-remove those buttons you added to that button row inbetween the input and chat section in the hat window 
+for the google integration, add a short set of instructions (collapsible) on how to get those keys to add, because me myself i don't remember okay
 
-those new buttons should be well designed at the top of the chat section window, leave the middle belt alone, add another row at the top and use that 
-
-
+advice the asgent in the prompt to always get before an edit or delete to get updated, refreshed data okay, sinc it can call 2 tools at once

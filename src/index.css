@@ -1815,6 +1815,79 @@ html.widget-window {
   margin-bottom: var(--spacing-1);
 }
 
+/* Collapsible setup walkthrough — sits between the intro paragraph and the
+   credentials inputs on each integration card. */
+.setup-details {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  margin-bottom: var(--spacing-3);
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.setup-details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  padding: 2px 0;
+  user-select: none;
+  list-style: none;
+}
+
+.setup-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.setup-details > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+
+.setup-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.setup-details ol {
+  margin: 10px 0 6px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.5;
+}
+
+.setup-details ol li {
+  margin: 0;
+}
+
+.setup-details a {
+  color: var(--color-accent, #a78bfa);
+  text-decoration: underline;
+}
+
+.setup-details code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.7rem;
+}
+
+.setup-note {
+  margin: 8px 0 0 0;
+  padding: 6px 8px;
+  background: rgba(167, 139, 250, 0.08);
+  border-left: 2px solid rgba(167, 139, 250, 0.5);
+  border-radius: 3px;
+  font-size: 0.7rem;
+  color: var(--color-text-secondary);
+}
+
 .config-title {
   font-size: 11px;
   text-transform: uppercase;
