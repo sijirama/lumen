@@ -807,9 +807,8 @@ input:checked+.slider:before {
 }
 
 .app-logo-icon {
-  width: 28px;
-  height: 28px;
-  background: var(--color-accent);
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
@@ -1210,40 +1209,6 @@ html.widget-window {
   flex-shrink: 0;
 }
 
-.overlay-status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--color-primary, #6366f1);
-  display: inline-block;
-  box-shadow: 0 0 5px color-mix(in srgb, var(--color-primary, #6366f1) 50%, transparent);
-  transition: box-shadow 0.3s;
-  flex-shrink: 0;
-}
-
-.overlay-status-dot.active {
-  animation: statusPulse 1.2s ease-in-out infinite;
-}
-
-@keyframes statusPulse {
-  0%, 100% {
-    box-shadow: 0 0 4px color-mix(in srgb, var(--color-primary, #6366f1) 60%, transparent);
-    opacity: 1;
-  }
-  50% {
-    box-shadow: 0 0 10px color-mix(in srgb, var(--color-primary, #6366f1) 80%, transparent);
-    opacity: 0.7;
-  }
-}
-
-.overlay-wordmark {
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  color: var(--color-text-secondary);
-  user-select: none;
-}
-
 .overlay-header-btn {
   display: inline-flex;
   align-items: center;
@@ -1403,11 +1368,49 @@ html.widget-window {
   box-sizing: border-box;
   overflow-y: auto;
   scrollbar-width: none;
-  padding: var(--spacing-3) var(--spacing-4) 0 var(--spacing-4);
+  /* Slim left padding so the avatar isn't pushed in from the wall;
+     keep the right padding so user bubbles don't crowd the edge. */
+  padding: var(--spacing-3) var(--spacing-4) 0 var(--spacing-2);
 }
 
 .chat-messages::-webkit-scrollbar {
   display: none;
+}
+
+/* Row that wraps each message — handles avatar-on-left for assistant,
+   right-alignment for user. Bubble + avatar sit in this flex row. */
+.chat-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.chat-row.user {
+  justify-content: flex-end;
+}
+
+.chat-row.assistant {
+  justify-content: flex-start;
+}
+
+/* Lumen's avatar — sits left of every assistant message. Logo sits
+   directly on the (light) bubble background, no backdrop or border. */
+.chat-avatar {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.chat-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .chat-message {

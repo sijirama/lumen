@@ -331,7 +331,6 @@ function OverlayWindow() {
         let unlistenMsg: (() => void) | null = null;
         let unlistenToolStart: (() => void) | null = null;
         let unlistenToolEnd: (() => void) | null = null;
-        let unlistenMorningBriefing: (() => void) | null = null;
 
         async function setup() {
             // @ts-ignore
@@ -380,20 +379,6 @@ function OverlayWindow() {
                 setIsThinking(false);
             });
 
-            // Morning briefing proactive message
-            unlistenMorningBriefing = await listen('morning-briefing-ready', () => {
-                setMessages(prev => {
-                    // Don't duplicate if id -2 already exists
-                    if (prev.some(m => m.id === -2)) return prev;
-                    const briefingMessage: ChatMessage = {
-                        id: -2,
-                        role: 'assistant',
-                        content: "Good morning! Your daily briefing is ready. Ask me about your day or check the dashboard for details.",
-                        created_at: new Date().toISOString()
-                    };
-                    return [...prev, briefingMessage];
-                });
-            });
         }
 
         setup();
@@ -404,7 +389,6 @@ function OverlayWindow() {
             if (unlistenMsg) unlistenMsg();
             if (unlistenToolStart) unlistenToolStart();
             if (unlistenToolEnd) unlistenToolEnd();
-            if (unlistenMorningBriefing) unlistenMorningBriefing();
         };
     }, []);
 
@@ -656,14 +640,8 @@ function OverlayWindow() {
 
                     {/* ── Header row (inside the card) ── */}
                     <div className="overlay-chat-header">
-                        {/* Left: status dot + wordmark */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                            <span className={`overlay-status-dot${isLoading || isThinking ? ' active' : ''}`} />
-                            <span className="overlay-wordmark">Lumen</span>
-                        </div>
-
                         {/* Right: resize */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
                             <button
                                 onClick={() => setContentLarge(v => !v)}
                                 className="overlay-header-icon-btn"
@@ -705,7 +683,13 @@ function OverlayWindow() {
                             )}
 
                             {messages.map((message, index) => (
-                                <div key={message.id || index} className={`chat-message ${message.role}`}>
+                                <div key={message.id || index} className={`chat-row ${message.role}`}>
+                                    {message.role === 'assistant' && (
+                                        <div className="chat-avatar" aria-hidden="true">
+                                            <img src="/logo.png" alt="" />
+                                        </div>
+                                    )}
+                                    <div className={`chat-message ${message.role}`}>
                                     {message.image_data && (
                                         <div className="chat-message-image" style={{ marginBottom: 'var(--spacing-2)' }}>
                                             <img
@@ -796,23 +780,29 @@ function OverlayWindow() {
                                     {message.role === 'assistant' && message.citations && message.citations.length > 0 && (
                                         <CitationStack citations={message.citations} />
                                     )}
+                                    </div>
                                 </div>
                             ))}
 
                             {isLoading && (
-                                <div className="chat-message assistant">
-                                    {isThinking ? (
-                                        <div className="thinking-indicator">
-                                            <div className="thinking-glyph">⚙</div>
-                                            <span className="thinking-label">Working on it...</span>
-                                        </div>
-                                    ) : (
-                                        <div className="typing-indicator">
-                                            <div className="typing-dot"></div>
-                                            <div className="typing-dot"></div>
-                                            <div className="typing-dot"></div>
-                                        </div>
-                                    )}
+                                <div className="chat-row assistant">
+                                    <div className="chat-avatar" aria-hidden="true">
+                                        <img src="/logo.png" alt="" />
+                                    </div>
+                                    <div className="chat-message assistant">
+                                        {isThinking ? (
+                                            <div className="thinking-indicator">
+                                                <div className="thinking-glyph">⚙</div>
+                                                <span className="thinking-label">Working on it...</span>
+                                            </div>
+                                        ) : (
+                                            <div className="typing-indicator">
+                                                <div className="typing-dot"></div>
+                                                <div className="typing-dot"></div>
+                                                <div className="typing-dot"></div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 

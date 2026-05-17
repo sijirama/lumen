@@ -160,21 +160,6 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
         )
         .context("Failed to create reminders table")?;
 
-    //INFO: Create briefing_summaries table for the dashboard
-    connection
-        .execute(
-            "CREATE TABLE IF NOT EXISTS briefing_summaries (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            content TEXT NOT NULL,
-            data_hash TEXT NOT NULL,
-            audio_data BLOB,
-            created_at TEXT NOT NULL,
-            is_final_of_day INTEGER NOT NULL DEFAULT 0
-        )",
-            [],
-        )
-        .context("Failed to create briefing_summaries table")?;
-
     //INFO: Create clipboard_history table
     connection
         .execute(
@@ -214,21 +199,6 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
             [],
         )
         .context("Failed to create memory_embeddings virtual table")?;
-
-    //INFO: Create briefing_buckets table - stores time-bucketed briefings (Morning/Afternoon/Evening/Night)
-    connection
-        .execute(
-            "CREATE TABLE IF NOT EXISTS briefing_buckets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            bucket TEXT NOT NULL CHECK (bucket IN ('morning', 'afternoon', 'evening', 'night')),
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            UNIQUE(date, bucket)
-        )",
-            [],
-        )
-        .context("Failed to create briefing_buckets table")?;
 
     //INFO: Create web_search_cache table - stores search results to save API credits
     connection

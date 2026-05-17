@@ -2,7 +2,7 @@
 //NOTE: Implements the Generative Agents scoring function: Score = Recency + Importance + Relevance
 
 use anyhow::{Context, Result};
-use chrono::{DateTime, Timelike, Utc};
+use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use zerocopy::AsBytes;
@@ -305,46 +305,6 @@ pub fn should_trigger_reflection(conn: &Connection) -> Result<bool> {
 //INFO: Get the last N DailySummary memories ordered by date
 pub fn get_recent_daily_summaries(conn: &Connection, limit: usize) -> Result<Vec<MemoryItem>> {
     get_recent_memories_by_type(conn, &MemoryType::DailySummary, limit)
-}
-
-//INFO: Store or overwrite a briefing bucket entry
-pub fn upsert_briefing_bucket(conn: &Connection, date: &str, bucket: &str, content: &str) -> Result<()> {
-    conn.execute(
-        "INSERT INTO briefing_buckets (date, bucket, content, created_at)
-         VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT(date, bucket) DO UPDATE SET content = ?3, created_at = ?4",
-        rusqlite::params![date, bucket, content, Utc::now().to_rfc3339()],
-    )
-    .context("Failed to upsert briefing bucket")?;
-    Ok(())
-}
-
-//INFO: Get all briefing buckets for a specific date
-pub fn get_briefing_buckets_for_date(conn: &Connection, date: &str) -> Result<Vec<(String, String)>> {
-    let mut stmt = conn
-        .prepare("SELECT bucket, content FROM briefing_buckets WHERE date = ?1 ORDER BY CASE bucket WHEN 'morning' THEN 1 WHEN 'afternoon' THEN 2 WHEN 'evening' THEN 3 WHEN 'night' THEN 4 END")
-        .context("Failed to prepare briefing buckets query")?;
-
-    let results = stmt
-        .query_map(rusqlite::params![date], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .context("Failed to query briefing buckets")?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(results)
-}
-
-//INFO: Determine the current time bucket
-pub fn get_current_bucket() -> &'static str {
-    let hour = chrono::Local::now().hour();
-    match hour {
-        5..=11 => "morning",
-        12..=16 => "afternoon",
-        17..=20 => "evening",
-        _ => "night",
-    }
 }
 
 //INFO: Check if an embedding is a near-duplicate of any recent memory (within last 300)

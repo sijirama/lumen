@@ -58,6 +58,9 @@ else
     [ -f "$DESKTOP_FILE" ] && rm "$DESKTOP_FILE"
     [ -f "$ICON_FILE" ] && rm "$ICON_FILE"
     rm -f "$HOME/.config/autostart/lumen.desktop"
+
+    # 2.2 Clean webview cache (just HTTPS / cookies state — not user data)
+    rm -rf "$HOME/.local/share/lumen"
 fi
 
 # 3. Clean up data

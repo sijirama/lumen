@@ -104,17 +104,6 @@ pub struct Integration {
     pub status: String,
 }
 
-//INFO: Briefing summary data structure
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct BriefingSummary {
-    pub id: i32,
-    pub content: String,
-    pub data_hash: String,
-    pub audio_data: Option<Vec<u8>>,
-    pub created_at: String,
-    pub is_final_of_day: bool,
-}
-
 // ============================================================================
 // User Profile Queries
 // ============================================================================
@@ -612,102 +601,6 @@ pub fn clear_calendar_events(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-// ============================================================================
-// Briefing Queries
-// ============================================================================
-
-// INFO: Saves a new briefing summary
-pub fn save_briefing_summary(
-    connection: &Connection,
-    content: &str,
-    data_hash: &str,
-    audio_data: Option<&[u8]>,
-) -> Result<()> {
-    let now = Utc::now().to_rfc3339();
-    connection.execute(
-        "INSERT INTO briefing_summaries (content, data_hash, audio_data, created_at) VALUES (?, ?, ?, ?)",
-        params![content, data_hash, audio_data, now],
-    )?;
-    Ok(())
-}
-
-// INFO: Gets the latest briefing summary
-pub fn get_latest_briefing_summary(connection: &Connection) -> Result<Option<BriefingSummary>> {
-    connection.query_row(
-        "SELECT id, content, data_hash, audio_data, created_at, is_final_of_day FROM briefing_summaries ORDER BY created_at DESC LIMIT 1",
-        [],
-        |row| Ok(BriefingSummary {
-            id: row.get(0)?,
-            content: row.get(1)?,
-            data_hash: row.get(2)?,
-            audio_data: row.get(3)?,
-            created_at: row.get(4)?,
-            is_final_of_day: row.get::<_, i32>(5)? != 0,
-        })
-    ).optional().context("Failed to get latest briefing summary")
-}
-
-// INFO: Gets the last briefing from before today for evolutionary context
-pub fn get_yesterdays_final_briefing(connection: &Connection) -> Result<Option<BriefingSummary>> {
-    // Search for the most recent summary created before today's start
-    connection
-        .query_row(
-            "SELECT id, content, data_hash, audio_data, created_at, is_final_of_day 
-         FROM briefing_summaries 
-         WHERE created_at < date('now', 'start of day')
-         ORDER BY created_at DESC LIMIT 1",
-            [],
-            |row| {
-                Ok(BriefingSummary {
-                    id: row.get(0)?,
-                    content: row.get(1)?,
-                    data_hash: row.get(2)?,
-                    audio_data: row.get(3)?,
-                    created_at: row.get(4)?,
-                    is_final_of_day: row.get::<_, i32>(5)? != 0,
-                })
-            },
-        )
-        .optional()
-        .context("Failed to get historical briefing context")
-}
-
-// INFO: Gets all summaries from today for evolution context
-pub fn get_todays_briefings(connection: &Connection) -> Result<Vec<BriefingSummary>> {
-    let today = Utc::now().format("%Y-%m-%d").to_string();
-
-    let mut stmt = connection.prepare(
-        "SELECT id, content, data_hash, audio_data, created_at, is_final_of_day 
-         FROM briefing_summaries 
-         WHERE created_at LIKE ? 
-         ORDER BY created_at ASC",
-    )?;
-
-    let briefings = stmt
-        .query_map([format!("{}%", today)], |row| {
-            Ok(BriefingSummary {
-                id: row.get(0)?,
-                content: row.get(1)?,
-                data_hash: row.get(2)?,
-                audio_data: row.get(3)?,
-                created_at: row.get(4)?,
-                is_final_of_day: row.get::<_, i32>(5)? != 0,
-            })
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(briefings)
-}
-
-// INFO: Marks a briefing as final (e.g. at the end of the day)
-pub fn mark_briefing_as_final(connection: &Connection, id: i32) -> Result<()> {
-    connection.execute(
-        "UPDATE briefing_summaries SET is_final_of_day = 1 WHERE id = ?",
-        params![id],
-    )?;
-    Ok(())
-}
 //INFO: Count total clipboard items (used for mod-trigger memory extraction)
 pub fn count_clipboard_items(connection: &Connection) -> Result<i64> {
     let count: i64 = connection
