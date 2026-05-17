@@ -21,7 +21,7 @@ $LATEST_RELEASE = $releases.tag_name
 
 if (-not $LATEST_RELEASE) {
     Write-Host "Couldn't find a release tagged on GitHub. Fallback to v0.2.0" -ForegroundColor Yellow
-    $LATEST_RELEASE = "v0.3.2"
+    $LATEST_RELEASE = "v0.3.3"
 }
 
 # 2. Download and Install

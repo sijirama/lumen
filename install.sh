@@ -106,7 +106,7 @@ LATEST_RELEASE=$(curl -s https://api.github.com/repos/$REPO/releases/latest | gr
 if [ -z "$LATEST_RELEASE" ]; then
     # Fallback if API fails or no release exists yet
     echo -e "${YELLOW}Couldn't find a release tagged on GitHub. Checking binary in local build...${NC}"
-    LATEST_RELEASE="v0.3.2"
+    LATEST_RELEASE="v0.3.3"
 fi
 
 # 4. Download and Install
@@ -175,10 +175,14 @@ if [ "$OS" == "Linux" ]; then
     rm -f "$AUTOSTART_DIR/Lumen.desktop" "$AUTOSTART_DIR/lumen.desktop"
 
     # Download or Copy icon
-    if [ -f "./public/logo.png" ]; then
-        cp "./public/logo.png" "$ICON_DIR/lumen.png"
+    # Prefer the gradient version for the launcher — it contrasts against any
+    # panel background (dark or light), unlike the solid black in-app logo.
+    if [ -f "./lumen_logo_dark.png" ]; then
+        cp "./lumen_logo_dark.png" "$ICON_DIR/lumen.png"
     elif [ -f "./src-tauri/icons/128x128.png" ]; then
         cp "./src-tauri/icons/128x128.png" "$ICON_DIR/lumen.png"
+    elif [ -f "./public/logo.png" ]; then
+        cp "./public/logo.png" "$ICON_DIR/lumen.png"
     else
         curl -s -L -o "$ICON_DIR/lumen.png" "$ICON_URL"
     fi
