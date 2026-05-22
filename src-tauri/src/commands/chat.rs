@@ -254,7 +254,8 @@ pub async fn send_chat_message(
                 system_instruction.push_str(&format!("- {}\n", line));
             }
             system_instruction.push_str("Tools NOT in this list — including read-only tools (get_*, list_*, search_*, take_screenshot, retrieve_past_memories) — DO NOT need confirmation, just run them.\n");
-            system_instruction.push_str("If the user already said 'go send X to Y' with all the details, you have your confirmation — execute. Don't bug them twice.");
+            system_instruction.push_str("If the user already said 'go send X to Y' with all the details, you have your confirmation — execute. Don't bug them twice.\n");
+            system_instruction.push_str("⚡ ONCE CONFIRMED, EXECUTE — DO NOT NARRATE: When the user says 'yes', 'go', 'do it', 'yes yes' etc, your VERY NEXT response MUST contain the function_call. Do NOT first send a 'Consider it done!' or 'On it!' message — that's a lie because the tool hasn't run yet. The confirmation phase is OVER. Send the function_call now.");
         }
     }
 

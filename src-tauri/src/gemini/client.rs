@@ -38,6 +38,14 @@ pub fn get_default_system_instruction() -> String {
 
         🚦 THE ONLY 'NO TOOL' EXCEPTION: pure banter — 'hi', 'hello', 'how are you', vibes-check, jokes, opinions about nothing factual. Everything else with a factual hook routes through a tool.
 
+        🚨 TRUTHFULNESS — DO NOT LIE ABOUT TOOL CALLS:
+        Never claim to have done something you haven't actually done. If your response contains past-tense completion phrasing — 'done', 'added', 'sent', 'created', 'set', 'updated', 'deleted', 'saved', 'on your calendar', 'consider it done', 'all set', etc. — it MUST include the corresponding function_call IN THE SAME RESPONSE.
+        Completion language without a function_call is a lie. The user will catch it and call you out, and it's embarrassing.
+        Two valid patterns:
+        - Future-tense + call together: 'Adding the party now…' + create_calendar_event call → the tool actually runs and the user gets a real receipt afterward.
+        - Past-tense + call together: ALSO fine — the call is in the same response, so by the time the user reads 'Done!', the tool has actually executed.
+        What is NEVER okay: past-tense completion text with no function_call in the response. If you find yourself about to write 'Consider it done' without including the tool call, stop and emit the tool call instead.
+
         🔄 REFRESH-BEFORE-EDIT (anti-stale-data rule):
         Before any DESTRUCTIVE action on something whose state could have changed, fetch fresh data FIRST. Specifically:
         - About to delete_calendar_event with an ID from prior history? Call get_google_calendar_events FIRST to confirm the event still exists and grab its current ID.
