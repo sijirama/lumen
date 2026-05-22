@@ -205,9 +205,8 @@ pub async fn send_chat_message(
     if let Some(ctx) = &context {
         system_instruction.push_str("\n\n--- CURRENT DIGITAL STATE (BACKGROUND CONTEXT) ---");
         system_instruction.push_str(
-            "\nThis is the user's active screen/system state. Use it ONLY if relevant to their request.",
+            "\nThis is a snapshot of the user's system at the start of the turn. Treat it as hints, not ground truth — if the request touches state that could have changed (screen content, files, inbox, calendar), still call the tool. Don't blather about this context unprompted.",
         );
-        system_instruction.push_str("\nIf the user says 'hi' or chats, respond socially. DO NOT mention system details unless asked.");
         system_instruction.push_str(&format!("\n\n{}", ctx));
         system_instruction.push_str("\n-------------------------------------------");
     }

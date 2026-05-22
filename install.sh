@@ -106,7 +106,7 @@ LATEST_RELEASE=$(curl -s https://api.github.com/repos/$REPO/releases/latest | gr
 if [ -z "$LATEST_RELEASE" ]; then
     # Fallback if API fails or no release exists yet
     echo -e "${YELLOW}Couldn't find a release tagged on GitHub. Checking binary in local build...${NC}"
-    LATEST_RELEASE="v0.3.3"
+    LATEST_RELEASE="v0.3.4"
 fi
 
 # 4. Download and Install
