@@ -1,6 +1,6 @@
 [package]
 name = "lumen"
-version = "0.3.5"
+version = "0.4.0"
 description = "Lumen - Your AI-powered desktop assistant"
 authors = ["sijirama"]
 edition = "2021"

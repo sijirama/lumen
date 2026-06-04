@@ -3,15 +3,16 @@
 //      settings and integrations. No dashboard / digest page anymore.
 
 import { useState } from 'react';
-import { Settings, Plug } from 'lucide-react';
+import { Settings, Plug, Brain } from 'lucide-react';
 import SettingsPage from '../pages/Settings';
 import IntegrationsPage from '../pages/Integrations';
+import MemoryPage from '../pages/Memory';
 
 interface MainWindowProps {
     userName: string | null;
 }
 
-type PageType = 'settings' | 'integrations';
+type PageType = 'settings' | 'integrations' | 'memory';
 
 function MainWindow({ userName: _userName }: MainWindowProps) {
     const [activePage, setActivePage] = useState<PageType>('settings');
@@ -22,6 +23,8 @@ function MainWindow({ userName: _userName }: MainWindowProps) {
                 return <SettingsPage />;
             case 'integrations':
                 return <IntegrationsPage />;
+            case 'memory':
+                return <MemoryPage />;
             default:
                 return <SettingsPage />;
         }
@@ -51,6 +54,13 @@ function MainWindow({ userName: _userName }: MainWindowProps) {
                         >
                             <Plug size={14} style={{ marginRight: '4px' }} />
                             Integrations
+                        </button>
+                        <button
+                            className={`nav-link ${activePage === 'memory' ? 'active' : ''}`}
+                            onClick={() => setActivePage('memory')}
+                        >
+                            <Brain size={14} style={{ marginRight: '4px' }} />
+                            Memory
                         </button>
                     </nav>
                 </div>

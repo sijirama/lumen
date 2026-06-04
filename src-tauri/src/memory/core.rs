@@ -95,6 +95,77 @@ pub fn store_memory(conn: &Connection, memory: &MemoryItem) -> Result<()> {
     Ok(())
 }
 
+//INFO: List all memories (any type), newest first — for the inspector UI.
+pub fn list_all_memories(conn: &Connection, limit: usize) -> Result<Vec<MemoryItem>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, type, content, importance, created_at, last_accessed, access_count
+             FROM memories ORDER BY created_at DESC LIMIT ?1",
+        )
+        .context("Failed to prepare list_all_memories query")?;
+
+    let memories = stmt
+        .query_map(rusqlite::params![limit as i64], |row| {
+            Ok(MemoryItem {
+                id: row.get(0)?,
+                memory_type: MemoryType::from_str(&row.get::<_, String>(1)?).unwrap_or(MemoryType::Observation),
+                content: row.get(2)?,
+                importance: row.get(3)?,
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
+                last_accessed: DateTime::parse_from_rfc3339(&row.get::<_, String>(5)?).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
+                access_count: row.get(6)?,
+                embedding: None,
+                score: 0.0,
+            })
+        })
+        .context("Failed to query all memories")?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(memories)
+}
+
+//INFO: Update a memory's content (and its embedding if a fresh one is supplied,
+//      so semantic retrieval stays correct after an edit).
+pub fn update_memory_content(
+    conn: &Connection,
+    id: &str,
+    content: &str,
+    embedding: Option<&[f32]>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE memories SET content = ?1 WHERE id = ?2",
+        rusqlite::params![content, id],
+    )
+    .context("Failed to update memory content")?;
+    if let Some(emb) = embedding {
+        conn.execute(
+            "INSERT OR REPLACE INTO memory_embeddings (id, embedding) VALUES (?1, ?2)",
+            rusqlite::params![id, emb.as_bytes()],
+        )
+        .context("Failed to update memory embedding")?;
+    }
+    Ok(())
+}
+
+//INFO: Delete a single memory and its embedding.
+pub fn delete_memory(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM memories WHERE id = ?1", rusqlite::params![id])
+        .context("Failed to delete memory")?;
+    conn.execute("DELETE FROM memory_embeddings WHERE id = ?1", rusqlite::params![id])
+        .context("Failed to delete memory embedding")?;
+    Ok(())
+}
+
+//INFO: Wipe every memory and embedding. Used by "forget everything".
+pub fn clear_all_memories(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM memories", [])
+        .context("Failed to clear memories")?;
+    conn.execute("DELETE FROM memory_embeddings", [])
+        .context("Failed to clear memory embeddings")?;
+    Ok(())
+}
+
 //INFO: Get total count of memories of a specific type
 pub fn count_memories_by_type(conn: &Connection, memory_type: &MemoryType) -> Result<i64> {
     let count: i64 = conn
@@ -141,113 +212,79 @@ pub fn get_recent_memories_by_type(
     Ok(memories)
 }
 
-//INFO: Retrieve top K memories scored by Recency + Importance + Relevance
+//INFO: Retrieve top K memories scored by Recency + Importance + Relevance.
+//      Candidates come from the vec0 KNN index — which scans ALL embedded
+//      memories by vector distance, not just the most-recently-accessed slice —
+//      so long-dormant but relevant memories can still surface. We over-fetch
+//      (4×top_k) so the recency+importance re-rank below has room to reorder.
 pub fn retrieve_memories(
     conn: &Connection,
     situation_embedding: &[f32],
     top_k: usize,
 ) -> Result<Vec<MemoryItem>> {
-    println!("DEBUG: 🧠 PULSE: Retrieval engine scanning 1000 most recent memories...");
+    let knn = (top_k.max(1) * 4).max(50) as i64;
+    println!("DEBUG: 🧠 PULSE: vec0 KNN retrieving {} candidates...", knn);
 
     let mut stmt = conn
         .prepare(
-            "SELECT m.id, m.type, m.content, m.importance, m.created_at, m.last_accessed, m.access_count, e.embedding
-             FROM memories m
-             LEFT JOIN memory_embeddings e ON m.id = e.id
-             ORDER BY m.last_accessed DESC
-             LIMIT 1000",
+            "SELECT m.id, m.type, m.content, m.importance, m.created_at, m.last_accessed, m.access_count, e.distance
+             FROM memory_embeddings e
+             JOIN memories m ON m.id = e.id
+             WHERE e.embedding MATCH ?1 AND k = ?2
+             ORDER BY e.distance",
         )
-        .context("Failed to prepare retrieval query")?;
+        .context("Failed to prepare KNN retrieval query")?;
 
-    let mut memories: Vec<MemoryItem> = stmt
-        .query_map([], |row| {
-            let emb_bytes: Option<Vec<u8>> = row.get(7)?;
-            let embedding = emb_bytes.and_then(|b| {
-                if b.len() % 4 == 0 {
-                    Some(b.chunks_exact(4)
-                        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                        .collect())
-                } else {
-                    None
-                }
-            });
-            Ok(MemoryItem {
-                id: row.get(0)?,
-                memory_type: MemoryType::from_str(&row.get::<_, String>(1)?).unwrap_or(MemoryType::Observation),
-                content: row.get(2)?,
-                importance: row.get(3)?,
-                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
-                last_accessed: DateTime::parse_from_rfc3339(&row.get::<_, String>(5)?).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
-                access_count: row.get(6)?,
-                embedding,
-                score: 0.0,
-            })
+    // (MemoryItem, vec_distance) — sqlite-vec distance; smaller = closer.
+    let mut candidates: Vec<(MemoryItem, f64)> = stmt
+        .query_map(rusqlite::params![situation_embedding.as_bytes(), knn], |row| {
+            let distance: f64 = row.get(7)?;
+            Ok((
+                MemoryItem {
+                    id: row.get(0)?,
+                    memory_type: MemoryType::from_str(&row.get::<_, String>(1)?).unwrap_or(MemoryType::Observation),
+                    content: row.get(2)?,
+                    importance: row.get(3)?,
+                    created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
+                    last_accessed: DateTime::parse_from_rfc3339(&row.get::<_, String>(5)?).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
+                    access_count: row.get(6)?,
+                    embedding: None,
+                    score: 0.0,
+                },
+                distance,
+            ))
         })
-        .context("Failed to query memories for retrieval")?
+        .context("Failed to run KNN retrieval query")?
         .filter_map(|r| r.ok())
         .collect();
 
-    if memories.is_empty() {
+    if candidates.is_empty() {
         return Ok(vec![]);
     }
 
-    score_memories(&mut memories, situation_embedding, top_k)
-}
-
-//INFO: Score and rank memories using the Generative Agents formula
-fn score_memories(
-    memories: &mut Vec<MemoryItem>,
-    situation_embedding: &[f32],
-    top_k: usize,
-) -> Result<Vec<MemoryItem>> {
-    if memories.is_empty() {
-        return Ok(vec![]);
-    }
-
+    // Generative-Agents re-rank: normalized(recency) + normalized(importance) +
+    // normalized(relevance). Relevance is derived from the vector distance
+    // (closer → higher) rather than an in-Rust cosine pass over everything.
     let now = Utc::now();
+    let recencies: Vec<f64> = candidates.iter().map(|(m, _)| {
+        let hours = (now - m.last_accessed).num_minutes() as f64 / 60.0;
+        0.995_f64.powf(hours.max(0.0))
+    }).collect();
+    let importances: Vec<f64> = candidates.iter().map(|(m, _)| m.importance).collect();
+    let relevances: Vec<f64> = candidates.iter().map(|(_, d)| 1.0 / (1.0 + d.max(0.0))).collect();
 
-    // Calculate raw sub-scores
-    let mut recencies = Vec::with_capacity(memories.len());
-    let mut importances = Vec::with_capacity(memories.len());
-    let mut relevances = Vec::with_capacity(memories.len());
-
-    for m in memories.iter() {
-        // Recency: 0.995 ^ hours_since_last_access
-        let hours_since = (now - m.last_accessed).num_minutes() as f64 / 60.0;
-        let recency = 0.995_f64.powf(hours_since.max(0.0));
-        recencies.push(recency);
-
-        importances.push(m.importance);
-
-        // Relevance: cosine similarity with situation embedding
-        let relevance = if let Some(ref emb) = m.embedding {
-            cosine_similarity(situation_embedding, emb) as f64
-        } else {
-            0.5 // Default if no embedding
-        };
-        relevances.push(relevance);
-    }
-
-    // Find min/max for normalization
     let (min_rec, max_rec) = min_max(&recencies);
     let (min_imp, max_imp) = min_max(&importances);
     let (min_rel, max_rel) = min_max(&relevances);
 
-    // Normalize and sum: Score = Recency + Importance + Relevance
-    for (i, m) in memories.iter_mut().enumerate() {
-        let n_rec = normalize(recencies[i], min_rec, max_rec);
-        let n_imp = normalize(importances[i], min_imp, max_imp);
-        let n_rel = normalize(relevances[i], min_rel, max_rel);
-        m.score = n_rec + n_imp + n_rel;
+    for (i, (m, _)) in candidates.iter_mut().enumerate() {
+        m.score = normalize(recencies[i], min_rec, max_rec)
+            + normalize(importances[i], min_imp, max_imp)
+            + normalize(relevances[i], min_rel, max_rel);
     }
 
-    // Sort by score descending
-    memories.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-
-    // Update last_accessed for the top K returned
-    let result: Vec<MemoryItem> = memories.iter().take(top_k).cloned().collect();
-
-    Ok(result)
+    candidates.sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(candidates.into_iter().take(top_k).map(|(m, _)| m).collect())
 }
 
 fn normalize(val: f64, min: f64, max: f64) -> f64 {
@@ -294,17 +331,13 @@ pub fn update_memory_access(conn: &Connection, memory_id: &str) -> Result<()> {
     Ok(())
 }
 
-//INFO: Check if the observation count has hit the reflection threshold (mod 50)
-const REFLECTION_THRESHOLD: i64 = 50;
+//INFO: Check if the observation count has hit the reflection threshold (mod 50).
+//      Also reused as the size of the observation window fed into a reflection.
+pub const REFLECTION_THRESHOLD: i64 = 50;
 
 pub fn should_trigger_reflection(conn: &Connection) -> Result<bool> {
     let count = count_memories_by_type(conn, &MemoryType::Observation)?;
     Ok(count > 0 && count % REFLECTION_THRESHOLD == 0)
-}
-
-//INFO: Get the last N DailySummary memories ordered by date
-pub fn get_recent_daily_summaries(conn: &Connection, limit: usize) -> Result<Vec<MemoryItem>> {
-    get_recent_memories_by_type(conn, &MemoryType::DailySummary, limit)
 }
 
 //INFO: Check if an embedding is a near-duplicate of any recent memory (within last 300)

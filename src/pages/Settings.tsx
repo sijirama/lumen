@@ -26,7 +26,6 @@ const ALL_TOOLS: { key: string; label: string; description: string; defaultAppro
     { key: 'search_filesystem',       label: 'Search filesystem',           description: 'Recursively find files matching a pattern.',       defaultApproval: false },
     { key: 'get_obsidian_vault_info', label: 'Get vault info',              description: 'Read Obsidian vault root path.',                   defaultApproval: false },
     // Core tools — all OFF by default
-    { key: 'search_web',              label: 'Search web',                  description: 'Run a Tavily web search.',                        defaultApproval: false },
     { key: 'get_weather',             label: 'Get weather',                 description: 'Fetch current weather for a location.',           defaultApproval: false },
     { key: 'take_screenshot',         label: 'Take screenshot',             description: 'Capture the primary screen.',                     defaultApproval: false },
     { key: 'search_clipboard',        label: 'Search clipboard',            description: 'Search recent clipboard history.',                 defaultApproval: false },
@@ -69,8 +68,6 @@ function SettingsPage() {
 
     const [geminiApiKey, setGeminiApiKey] = useState('');
     const [geminiKeyConfigured, setGeminiKeyConfigured] = useState(false);
-    const [tavilyApiKey, setTavilyApiKey] = useState('');
-    const [tavilyKeyConfigured, setTavilyKeyConfigured] = useState(false);
     const [databasePath, setDatabasePath] = useState('');
     const [autostartEnabled, setAutostartEnabled] = useState(false);
 
@@ -115,9 +112,6 @@ function SettingsPage() {
 
             const geminiStatus = await invoke<ApiKeyStatus>('get_api_key_status', { provider: 'gemini' });
             setGeminiKeyConfigured(geminiStatus.is_configured);
-
-            const tavilyStatus = await invoke<ApiKeyStatus>('get_api_key_status', { provider: 'tavily' });
-            setTavilyKeyConfigured(tavilyStatus.is_configured);
 
             const dbPath = await invoke<string>('get_database_path');
             setDatabasePath(dbPath);
@@ -213,22 +207,6 @@ function SettingsPage() {
             setSuccess('API key saved');
         } catch (err) {
             setError(`Failed to save API key: ${err}`);
-        } finally {
-            setSaving(false);
-        }
-    }
-
-    async function saveTavilyKey() {
-        if (!tavilyApiKey.trim()) return;
-        setSaving(true);
-        setError(null);
-        try {
-            await invoke('update_api_key', { request: { provider: 'tavily', api_key: tavilyApiKey } });
-            setTavilyApiKey('');
-            setTavilyKeyConfigured(true);
-            setSuccess('Tavily key saved');
-        } catch (err) {
-            setError(`Failed to save Tavily key: ${err}`);
         } finally {
             setSaving(false);
         }
@@ -529,42 +507,6 @@ function SettingsPage() {
                         </button>
                     </div>
 
-                    <div style={{ height: 'var(--spacing-6)' }}></div>
-
-                    <div className="settings-row" style={{ marginBottom: 'var(--spacing-3)' }}>
-                        <div className="settings-row-info">
-                            <span className="settings-row-title" style={{ fontSize: '0.9rem' }}>Tavily API Key (Real Web Search)</span>
-                        </div>
-                        {tavilyKeyConfigured && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--color-success)', fontSize: '0.75rem', fontWeight: 600, background: 'rgba(52, 168, 83, 0.1)', padding: '2px 8px', borderRadius: '4px' }}>
-                                Active
-                            </div>
-                        )}
-                    </div>
-
-                    <div style={{ marginBottom: 'var(--spacing-3)' }}>
-                        <input
-                            type="password"
-                            className="input"
-                            value={tavilyApiKey}
-                            onChange={(e) => setTavilyApiKey(e.target.value)}
-                            placeholder={tavilyKeyConfigured ? '••••••••••••••••••••••••' : 'Paste Tavily Key'}
-                            style={{ fontSize: '0.9rem', padding: '6px 10px', fontFamily: 'monospace' }}
-                        />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <a
-                            href="https://tavily.com/"
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', textDecoration: 'none' }}
-                        >
-                            Get Tavily Key (Free)
-                        </a>
-                        <button className="btn btn-primary btn-sm" onClick={saveTavilyKey} disabled={saving || !tavilyApiKey.trim()} style={{ fontSize: '0.8rem' }}>
-                            Save Key
-                        </button>
-                    </div>
                 </div>
             </section>
 

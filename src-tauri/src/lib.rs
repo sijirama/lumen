@@ -11,6 +11,7 @@ pub mod memory;
 pub mod oauth;
 
 use commands::{auth, calendar, chat, settings, setup, vision, window};
+use commands::memory as memory_cmds;
 use database::{initialize_database, Database};
 use tauri::Manager;
 
@@ -118,6 +119,12 @@ pub fn run() {
             chat::clear_chat_history,
             chat::create_new_session,
             chat::get_chat_sessions,
+            // Memory inspector commands
+            memory_cmds::get_memories,
+            memory_cmds::delete_memory,
+            memory_cmds::clear_all_memories,
+            memory_cmds::add_memory,
+            memory_cmds::update_memory,
             // Window commands
             window::show_overlay,
             window::hide_overlay,

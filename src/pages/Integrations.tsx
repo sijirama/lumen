@@ -415,6 +415,7 @@ function IntegrationsPage() {
                                 </div>
                             </div>
                         </div>
+
                     </div>
                 )}
             </div>

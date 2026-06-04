@@ -1375,6 +1375,8 @@ html.widget-window {
 
 .chat-messages::-webkit-scrollbar {
   display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Row that wraps each message — handles avatar-on-left for assistant,
@@ -2081,6 +2083,21 @@ select.input {
   font-size: 12px;
   color: var(--color-text-muted);
   font-style: italic;
+}
+
+/* Blinking caret on the in-flight (streaming) assistant bubble. */
+.stream-cursor {
+  display: inline-block;
+  margin-left: 1px;
+  color: var(--color-accent);
+  font-weight: 600;
+  transform: translateY(1px);
+  animation: lumenBlink 1s steps(1, end) infinite;
+}
+
+@keyframes lumenBlink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
 }
 
 @keyframes thinkingSpin {

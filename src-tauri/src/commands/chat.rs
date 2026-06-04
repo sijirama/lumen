@@ -3,17 +3,14 @@
 
 use crate::crypto::decrypt_token;
 use crate::database::queries::{
-    clear_chat_messages, get_api_token, get_calendar_events, get_chat_messages, get_integration,
+    get_api_token, get_calendar_events, get_chat_messages, get_integration,
     get_user_profile, save_chat_message, ChatMessage, Citation, ToolInvocation,
 };
 use crate::database::Database;
 use crate::gemini::{client::get_default_system_instruction, GeminiClient};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
 use tauri::State;
-
-static CHAT_RESPONSE_SCHEMA: OnceLock<serde_json::Value> = OnceLock::new();
 
 //INFO: Shared cancellation flag for the in-flight chat request. Set by the
 //      `cancel_chat` command, checked between tool rounds in send_chat_message.
@@ -26,30 +23,6 @@ static CHAT_CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 #[tauri::command]
 pub fn cancel_chat() {
     CHAT_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
-}
-
-fn get_chat_response_schema() -> &'static serde_json::Value {
-    CHAT_RESPONSE_SCHEMA.get_or_init(|| {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "response": {
-                    "type": "string",
-                    "description": "The conversational reply to the user. Use markdown for formatting."
-                },
-                "suggestedView": {
-                    "type": "string",
-                    "enum": ["chat", "calendar"],
-                    "description": "The view to transition to. Use 'calendar' if the user is asking about their schedule."
-                },
-                "suggestedDate": {
-                    "type": "string",
-                    "description": "The specific ISO-8601 date to show in the calendar (e.g., '2024-03-25'). Use only if transitioning to calendar."
-                }
-            },
-            "required": ["response", "suggestedView"]
-        })
-    })
 }
 
 //INFO: Chat message for frontend
@@ -109,6 +82,96 @@ fn render_text_for_display(raw: &str) -> String {
         .join("\n\n")
 }
 
+//INFO: A terminal reply that's empty OR a tiny all-digit/punctuation blob ("00",
+//      "0", "..") is the model failing, not answering — treat it as "no reply"
+//      so the safety-net retry fires instead of saving junk.
+fn looks_like_garbage(text: &str) -> bool {
+    let t = text.trim();
+    t.is_empty()
+        || (t.chars().count() <= 2
+            && t.chars().all(|c| c.is_numeric() || c.is_ascii_punctuation()))
+}
+
+//INFO: Maps a tool name to a friendly, present-tense status shown in the UI
+//      while it runs (e.g. "📅 Checking your calendar…"). Unknown tools fall
+//      back to a humanized version of their name so nothing ever shows raw.
+fn tool_status_label(name: &str) -> String {
+    let label = match name {
+        "take_screenshot" => "📸 Looking at your screen",
+        "retrieve_past_memories" => "🧠 Searching my memory",
+        "remember_this" => "🧠 Committing that to memory",
+        "set_reminder" => "⏰ Setting a reminder",
+        "search_clipboard" => "📋 Checking your clipboard",
+        "get_weather" => "🌤️ Checking the weather",
+        "get_unread_emails" => "📥 Reading your inbox",
+        "send_email" => "✉️ Sending your email",
+        "create_calendar_event" => "📅 Adding to your calendar",
+        "delete_calendar_event" => "📅 Updating your calendar",
+        "get_google_calendar_events" => "📅 Checking your calendar",
+        "list_google_tasks" | "create_google_task" => "✅ Checking your tasks",
+        "search_notes" | "search_filesystem" | "list_files" => "🔍 Searching your files",
+        "get_obsidian_vault_info" => "🗂️ Reading your vault",
+        "grep_file" | "read_file" | "read_file_lines" | "get_file_metadata" => "📄 Reading your files",
+        "write_file" | "edit_file_line" | "insert_at_line" | "delete_file_line" => "✏️ Editing your files",
+        other => return format!("⚙️ Running {}", other.replace('_', " ")),
+    };
+    label.to_string()
+}
+
+//INFO: Renders a past turn's tool calls + results into a compact text block so
+//      the model can reference them on later turns (cross-turn tool memory).
+//      Each result is stripped of heavy fields (screenshot base64) and truncated
+//      so replayed history can't blow up the context window. Total per-turn block
+//      is capped too, in case a single turn fired many tools.
+fn render_tool_trace_for_history(invocations: &[ToolInvocation]) -> String {
+    const MAX_RESULT_CHARS: usize = 1000;
+    const MAX_BLOCK_CHARS: usize = 4000;
+
+    let mut out = String::from(
+        "\n\n⟦tool results from this turn — reference these if the user follows up⟧",
+    );
+    for inv in invocations {
+        // Drop heavy/irrelevant fields (e.g. take_screenshot's base64 image).
+        let mut result = inv.result.clone();
+        if let Some(obj) = result.as_object_mut() {
+            obj.remove("image_data");
+        }
+        let mut result_str = result.to_string();
+        if result_str.chars().count() > MAX_RESULT_CHARS {
+            result_str = format!(
+                "{}… (truncated)",
+                result_str.chars().take(MAX_RESULT_CHARS).collect::<String>()
+            );
+        }
+        let status = if inv.succeeded { "" } else { " [failed]" };
+        out.push_str(&format!("\n• {}{} → {}", inv.name, status, result_str));
+
+        if out.chars().count() > MAX_BLOCK_CHARS {
+            out.push_str("\n• …(more tools omitted)");
+            break;
+        }
+    }
+    out
+}
+
+//INFO: Cap a tool result before it's fed back to the model. A tool result is
+//      replayed into context on EVERY subsequent round of the same turn, so a
+//      large one (read_file allows up to 500KB) would multiply token cost and
+//      latency. Oversized results are replaced with a truncated preview plus a
+//      hint to fetch a narrower slice.
+fn truncate_tool_result(value: serde_json::Value) -> serde_json::Value {
+    const MAX_CHARS: usize = 8000;
+    let s = value.to_string();
+    if s.chars().count() <= MAX_CHARS {
+        return value;
+    }
+    let preview: String = s.chars().take(MAX_CHARS).collect();
+    serde_json::json!({
+        "note": "Result truncated — it was too large to include in full. If you need more, fetch a narrower slice (e.g. read_file_lines for a specific range, or a more specific search).",
+        "truncated_preview": preview
+    })
+}
+
 //INFO: Sends a message to the AI and returns the response
 #[tauri::command]
 pub async fn send_chat_message(
@@ -117,6 +180,7 @@ pub async fn send_chat_message(
     request: SendMessageRequest,
 ) -> Result<SendMessageResponse, String> {
     use tauri::Emitter;
+    use futures::StreamExt;
 
     // Reset cancellation flag — this turn starts fresh.
     CHAT_CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -143,16 +207,29 @@ pub async fn send_chat_message(
     //INFO: 2. Build context from integrations
     let context = build_chat_context(&database)?;
 
-    //INFO: 3. Convert history to Gemini format (History is already chronological)
+    //INFO: 3. Convert history to Gemini format (History is already chronological).
+    //      For past ASSISTANT turns we replay a compact, truncated record of the
+    //      tools that ran + what they returned, embedded as text in that turn.
+    //      This is what gives Lumen cross-turn tool memory: ask "reply to the 2nd
+    //      email" a turn after get_unread_emails and the data is still in context.
+    //      We replay as TEXT (not real function_call/function_response parts) on
+    //      purpose — it sidesteps Gemini 3.x's thought_signature requirements on
+    //      replayed calls, and the truncation keeps old results from ballooning
+    //      the window.
     let mut gemini_messages = Vec::new();
     for msg in history {
+        let is_user = msg.role == "user";
+        let mut content = msg.content;
+        if !is_user {
+            if let Some(invocations) = msg.tool_invocations.as_ref() {
+                if !invocations.is_empty() {
+                    content.push_str(&render_tool_trace_for_history(invocations));
+                }
+            }
+        }
         gemini_messages.push(crate::gemini::client::GeminiContent {
-            role: Some(if msg.role == "user" {
-                "user".to_string()
-            } else {
-                "model".to_string()
-            }),
-            parts: vec![crate::gemini::client::GeminiPart::text(msg.content)],
+            role: Some(if is_user { "user".to_string() } else { "model".to_string() }),
+            parts: vec![crate::gemini::client::GeminiPart::text(content)],
         });
     }
 
@@ -181,10 +258,18 @@ pub async fn send_chat_message(
         (g, o)
     };
     let function_tool_declarations = crate::gemini::tools::build_tools_for_request(google_enabled, obsidian_enabled);
-    let tools_json: Vec<serde_json::Value> = function_tool_declarations
+    let mut tools_json: Vec<serde_json::Value> = function_tool_declarations
         .iter()
         .map(|t| serde_json::to_value(t).unwrap_or_default())
         .collect();
+
+    //INFO: Native Google Search grounding. Gemini runs the search itself, inline
+    //      during generation, and returns grounding_metadata (parsed into
+    //      citations below) — no function round-trip. This replaces the Tavily
+    //      `search_web` tool. If a model ever 400s on google_search alongside
+    //      function tools, removing this single push reverts to no web search.
+    tools_json.push(serde_json::json!({ "google_search": {} }));
+
     let tools = tools_json;
 
     let obsidian_config = {
@@ -281,7 +366,43 @@ pub async fn send_chat_message(
         system_instruction.push_str("\n------------------------------");
     }
 
-    // (Rule #1 moved to top)
+    //INFO: Smart auto-retrieval. The `retrieve_past_memories` tool is still there,
+    //      but the model rarely calls it, so memories never surfaced. Here we
+    //      proactively inject relevant memories — but ONLY when the message looks
+    //      personal/past-referencing, so ordinary turns don't pay for an embedding
+    //      round-trip. One embed call → vec0 KNN → top 5 into context.
+    {
+        let msg_lc = request.message.to_lowercase();
+        const MEMORY_HINTS: &[&str] = &[
+            "remember", "you said", "i told you", "i mentioned", "last time",
+            "we talked", "we discussed", "recall", "what did i", "did i tell",
+            "know about me", "my favorite", "my favourite", "as i said",
+            "like i said", "i already told", "used to", "back then",
+        ];
+        if MEMORY_HINTS.iter().any(|h| msg_lc.contains(h)) {
+            match client.generate_embedding(&request.message).await {
+                Ok(embedding) => {
+                    let block = {
+                        let connection = database.connection.lock();
+                        match crate::memory::core::retrieve_memories(&connection, &embedding, 5) {
+                            Ok(mems) if !mems.is_empty() => {
+                                for m in &mems {
+                                    let _ = crate::memory::core::update_memory_access(&connection, &m.id);
+                                }
+                                Some(crate::memory::core::format_memories_for_prompt(&mems))
+                            }
+                            _ => None,
+                        }
+                    };
+                    if let Some(block) = block {
+                        println!("DEBUG: 🧠 Auto-retrieval injected memories into context.");
+                        system_instruction.push_str(&block);
+                    }
+                }
+                Err(e) => println!("DEBUG: 🧠 Auto-retrieval embed failed: {}", e),
+            }
+        }
+    }
 
     let history_count = gemini_messages.len();
 
@@ -309,7 +430,6 @@ pub async fn send_chat_message(
     let mut current_messages = gemini_messages;
     let mut final_response_text = String::new();
     let mut final_grounding_metadata: Option<crate::gemini::client::GroundingMetadata> = None;
-    let mut manual_citations: Vec<Citation> = Vec::new();
     // Accumulates the full audit trail of tool calls across all rounds so the user
     // can see (and inspect) what Lumen actually did to produce the final reply.
     let mut tool_invocations: Vec<ToolInvocation> = Vec::new();
@@ -319,16 +439,19 @@ pub async fn send_chat_message(
     //NOTE: Only the FINAL response (no function calls) gets streamed to the UI
     println!("DEBUG: 🤖 Using Gemini API at: {}", crate::gemini::client::get_api_url());
 
-    // Gemini 2.5 doesn't allow response_mime_type + tools in the same request.
-    // Use a plain config for tool rounds, structured config for the final text-only call.
-    let tool_round_config = crate::gemini::client::GenerationConfig {
+    // Reasoning depth, adaptive. "low" keeps simple turns (banter, calendar,
+    // email) snappy — it was the biggest silent latency tax when always on. BUT
+    // low thinking + an image makes gemini-3.5-flash produce degenerate replies
+    // (empty / "00"), so vision turns get "high": we start high if the user
+    // attached an image, and bump to high the moment a screenshot enters the turn
+    // (see the attachment handling below). Config is rebuilt per round from this
+    // flag, so the bump takes effect on the very next round.
+    let mut high_thinking = request.base64_image.is_some();
+    let mut tool_round_config = crate::gemini::client::GenerationConfig {
         max_output_tokens: Some(2048),
-        ..Default::default()
-    };
-    let text_only_config = crate::gemini::client::GenerationConfig {
-        response_mime_type: Some("application/json".to_string()),
-        response_schema: Some(get_chat_response_schema().clone()),
-        max_output_tokens: Some(2048),
+        thinking_config: Some(crate::gemini::client::ThinkingConfig {
+            thinking_level: if high_thinking { "high" } else { "low" }.to_string(),
+        }),
         ..Default::default()
     };
 
@@ -339,6 +462,27 @@ pub async fn send_chat_message(
     const MAX_CALLS_PER_TOOL: usize = 8;
     const MAX_TOOL_ROUNDS: usize = 10;
 
+    //INFO: Hard wall-clock budget for the whole turn. MAX_TOOL_ROUNDS alone could
+    //      stack up to 10 × (per-call timeout) of dead air; this caps the total so
+    //      a stuck or pathologically chatty turn bails gracefully instead of
+    //      spinning forever. On expiry we break and let the synthesis/fallback
+    //      below produce a reply from whatever we've gathered.
+    let turn_start = std::time::Instant::now();
+    const TURN_BUDGET_SECS: u64 = 90;
+
+    //INFO: Code-level vision gate. take_screenshot is only legitimate when THIS
+    //      message references the screen. The system prompt says so, but a
+    //      low-thinking model still over-fires it on banter ("what are you up
+    //      to"), so we enforce it in the harness too — belt and suspenders.
+    let user_msg_lc = request.message.to_lowercase();
+    const SCREEN_HINTS: &[&str] = &[
+        "screen", "screenshot", "look at", "looking at", "see this", "see that",
+        "what's this", "whats this", "what is this", "read this", "on my display",
+        "this page", "what do you see", "can you see", "my desktop", "what am i",
+        "this window", "show you", "peek at", "on screen",
+    ];
+    let mentions_screen = SCREEN_HINTS.iter().any(|h| user_msg_lc.contains(h));
+
     for _i in 0..MAX_TOOL_ROUNDS {
         // Cancellation check at round boundary — user clicked Stop.
         if CHAT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
@@ -346,19 +490,35 @@ pub async fn send_chat_message(
             break;
         }
 
-        // DEBUG: Log the full prompt state before sending to LLM
-        log_prompt_debug(
-            &request.message,
-            &system_instruction,
-            &current_messages,
-            &tools,
-            _i + 1
-        );
+        // Wall-clock budget check at round boundary — bail gracefully if a turn
+        // is dragging on, rather than letting it run all MAX_TOOL_ROUNDS.
+        if turn_start.elapsed().as_secs() >= TURN_BUDGET_SECS {
+            println!("DEBUG: ⏰ Turn exceeded {}s budget — bailing to synthesize from what we have.", TURN_BUDGET_SECS);
+            break;
+        }
 
-        // Use non-streaming send_chat for tool execution rounds
+        // DEBUG: Dump the full prompt state to disk. Opt-in via LUMEN_DEBUG_PROMPTS
+        // so the synchronous fs::write (it serializes the entire history + every
+        // tool schema, on every round) stays out of the normal hot path.
+        if std::env::var("LUMEN_DEBUG_PROMPTS").is_ok() {
+            log_prompt_debug(
+                &request.message,
+                &system_instruction,
+                &current_messages,
+                &tools,
+                _i + 1,
+            );
+        }
+
+        // Stream this round from Gemini (SSE). Under the tool-eager prompt a tool
+        // round usually comes back as a pure function_call with no text, so nothing
+        // surfaces to the UI until the terminal round — which streams its prose
+        // token-by-token. Any preamble text the model emits ALONGSIDE a tool call
+        // is wiped once we discover the call, so the user only ever reads the real
+        // final answer (tools-first, talk-second).
         let round_start = std::time::Instant::now();
-        let chat_response = client
-            .send_chat(
+        let stream = client
+            .stream_chat(
                 current_messages.clone(),
                 Some(&system_instruction),
                 Some(tools.clone()),
@@ -366,50 +526,106 @@ pub async fn send_chat_message(
             )
             .await
             .map_err(|e| format!("Failed to get AI response: {}", e))?;
+        futures::pin_mut!(stream);
+
+        // Accumulate the round as chunks land: prose into `round_text` (emitted
+        // live), and every non-text part (function_call / thought) preserved
+        // verbatim so the model turn we replay into history keeps its
+        // thought_signatures intact for Gemini 2.5 function calling.
+        let mut round_text = String::new();
+        let mut non_text_parts: Vec<crate::gemini::client::GeminiPart> = Vec::new();
+        let mut round_usage: Option<crate::gemini::client::UsageMetadata> = None;
+        let mut streamed_prose = false;
+
+        while let Some(chunk) = stream.next().await {
+            // Mid-stream cancellation — honor Stop the moment it's clicked, not
+            // just at round boundaries. Drops the SSE connection and keeps the
+            // partial prose streamed so far.
+            if CHAT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+                println!("DEBUG: 🛑 Cancelled mid-stream.");
+                break;
+            }
+
+            let chunk = chunk.map_err(|e| format!("Failed to get AI response: {}", e))?;
+
+            if chunk.grounding_metadata.is_some() {
+                final_grounding_metadata = chunk.grounding_metadata.clone();
+            }
+            if chunk.usage.is_some() {
+                round_usage = chunk.usage.clone();
+            }
+
+            for part in chunk.parts {
+                if let Some(text) = &part.text {
+                    round_text.push_str(text);
+                    streamed_prose = true;
+                    // Live token stream → UI. We emit the whole round-so-far; the
+                    // frontend replaces the in-flight (id: -1) bubble wholesale.
+                    let _ = app_handle.emit("assistant-reply-turn", round_text.clone());
+                } else {
+                    non_text_parts.push(part);
+                }
+            }
+        }
         let llm_elapsed = round_start.elapsed();
 
-        let response_parts = chat_response.parts;
-
-        // Capture grounding metadata from latest response
-        if chat_response.grounding_metadata.is_some() {
-            final_grounding_metadata = chat_response.grounding_metadata.clone();
+        // If Stop was hit mid-stream, keep whatever prose streamed and bail before
+        // executing any tools from this (incomplete) round.
+        if CHAT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+            println!("DEBUG: 🛑 Chat cancelled mid-stream — keeping partial reply, skipping tools.");
+            if streamed_prose {
+                if !final_response_text.is_empty() {
+                    final_response_text.push_str("\n\n");
+                }
+                final_response_text.push_str(&round_text);
+            }
+            break;
         }
 
-        if let Some(usage) = &chat_response.usage {
+        if let Some(usage) = &round_usage {
             println!("DEBUG: ⚡ Round {} LLM call: {:.2?} | Tokens -> Prompt: {}, Candidates: {}, Total: {}", _i + 1, llm_elapsed, usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
         } else {
             println!("DEBUG: ⚡ Round {} LLM call: {:.2?}", _i + 1, llm_elapsed);
         }
 
-        // Record the model's response in history
+        // Rebuild the model turn for history: merged prose + the preserved
+        // non-text parts (function calls carrying their thought_signatures).
+        let mut model_parts: Vec<crate::gemini::client::GeminiPart> = Vec::new();
+        if !round_text.is_empty() {
+            model_parts.push(crate::gemini::client::GeminiPart::text(round_text.clone()));
+        }
+        model_parts.extend(non_text_parts.iter().cloned());
         current_messages.push(crate::gemini::client::GeminiContent {
             role: Some("model".to_string()),
-            parts: response_parts.clone(),
+            parts: model_parts,
         });
 
         let mut has_function_calls = false;
         let mut function_responses = Vec::new();
 
-        // Pass 1: extract text + collect tool calls (checking rate limits)
+        // Pass 1: collect tool calls (checking rate limits)
         let mut async_calls: Vec<crate::gemini::client::GeminiFunctionCall> = Vec::new();
         let mut sync_calls: Vec<crate::gemini::client::GeminiFunctionCall> = Vec::new();
 
-        for part in &response_parts {
-            if let Some(text) = &part.text {
-                // Accumulate across rounds AND across parts within a round so
-                // prose from earlier turns isn't overwritten by later ones.
-                if !final_response_text.is_empty() {
-                    final_response_text.push_str("\n\n");
-                }
-                final_response_text.push_str(text);
-                let _ = app_handle.emit(
-                    "assistant-reply-turn",
-                    render_text_for_display(&final_response_text),
-                );
-            }
-
+        for part in &non_text_parts {
             if let Some(call) = &part.function_call {
                 println!("DEBUG: 🛠️ Tool Call -> {} (args: {})", call.name, call.args);
+
+                // Vision gate: refuse take_screenshot when the message never
+                // referenced the screen. We feed a refusal back (has_function_calls
+                // = true) instead of silently dropping it, so the model turn keeps a
+                // matching function_response in history and the next round answers
+                // the user directly.
+                if call.name == "take_screenshot" && !mentions_screen {
+                    println!("DEBUG: 🚫 take_screenshot blocked — message doesn't reference the screen.");
+                    has_function_calls = true;
+                    function_responses.push(crate::gemini::client::GeminiPart::function_response(
+                        call.name.clone(),
+                        serde_json::json!({ "error": "Screenshot unavailable: the user didn't reference their screen this turn. Answer them directly — do NOT screenshot." }),
+                    ));
+                    continue;
+                }
+
                 let count = tool_call_counts.entry(call.name.clone()).or_insert(0);
                 *count += 1;
 
@@ -430,9 +646,34 @@ pub async fn send_chat_message(
             }
         }
 
+        // If this round streamed preamble prose AND also wants tools, that prose
+        // was just narration ("on it…") — wipe the in-flight bubble so the user
+        // waits on a clean spinner and only reads the real answer streamed by the
+        // terminal round.
+        if has_function_calls && streamed_prose {
+            let _ = app_handle.emit("assistant-reply-clear", ());
+        }
+
+        // The terminal round (no tool calls) is the actual answer — keep its prose.
+        if !has_function_calls && streamed_prose {
+            if !final_response_text.is_empty() {
+                final_response_text.push_str("\n\n");
+            }
+            final_response_text.push_str(&round_text);
+        }
+
         // Pass 2: execute — async tools in parallel, sync tools sequentially
         if has_function_calls {
-            let _ = app_handle.emit("tool-execution-start", ());
+            // Tell the UI WHAT we're doing, not just THAT we're busy. Dedup so two
+            // file reads don't show "Reading your files" twice.
+            let mut running_labels: Vec<String> = Vec::new();
+            for c in async_calls.iter().chain(sync_calls.iter()) {
+                let label = tool_status_label(&c.name);
+                if !running_labels.contains(&label) {
+                    running_labels.push(label);
+                }
+            }
+            let _ = app_handle.emit("tool-execution-start", running_labels);
 
             // Async tools run concurrently. Per-tool wall-clock timing is logged
             // so we can see which integrations are dragging out chat turns.
@@ -444,9 +685,24 @@ pub async fn send_chat_message(
                     let db = db_inner.clone();
                     let ah = app_handle_inner.clone();
                     async move {
+                        // Per-tool timeout so one hung integration can't ride the
+                        // whole turn budget. Underlying HTTP clients already cap
+                        // network calls; this guards against any other stall.
+                        const TOOL_TIMEOUT_SECS: u64 = 45;
                         let started_at = chrono::Utc::now().to_rfc3339();
                         let start = std::time::Instant::now();
-                        let res = crate::gemini::tools::execute_tool_async(&call.name, &call.args, &db, &ah).await;
+                        let res = match tokio::time::timeout(
+                            std::time::Duration::from_secs(TOOL_TIMEOUT_SECS),
+                            crate::gemini::tools::execute_tool_async(&call.name, &call.args, &db, &ah),
+                        ).await {
+                            Ok(r) => r,
+                            Err(_) => {
+                                println!("DEBUG: ⏱️  Tool '{}' (async) TIMED OUT after {}s", call.name, TOOL_TIMEOUT_SECS);
+                                crate::gemini::tools::ToolResult::ok(serde_json::json!({
+                                    "error": format!("Tool '{}' timed out after {}s. Proceed without its result.", call.name, TOOL_TIMEOUT_SECS)
+                                }))
+                            }
+                        };
                         let elapsed = start.elapsed();
                         println!("DEBUG: ⏱️  Tool '{}' (async) took {:.2?}", call.name, elapsed);
                         (call.name, call.args, res, elapsed.as_millis() as u64, started_at)
@@ -476,19 +732,6 @@ pub async fn send_chat_message(
             let mut attachments: Vec<crate::gemini::tools::ToolAttachment> = Vec::new();
             for (name, args, res, duration_ms, started_at) in async_results.into_iter().chain(sync_results.into_iter()) {
                 println!("DEBUG: ✅ Tool '{}' Result: {}", name, res.response);
-
-                if name == "search_web" {
-                    if let Some(results) = res.response.get("results").and_then(|r| r.as_array()) {
-                        for r in results {
-                            if let (Some(title), Some(url)) = (
-                                r.get("title").and_then(|v| v.as_str()),
-                                r.get("url").and_then(|v| v.as_str()),
-                            ) {
-                                manual_citations.push(Citation { title: title.to_string(), url: url.to_string() });
-                            }
-                        }
-                    }
-                }
 
                 if name == "create_calendar_event" || name == "delete_calendar_event" {
                     if res.response.get("status").and_then(|s| s.as_str()) == Some("success") || res.response.get("events").is_some() {
@@ -526,6 +769,9 @@ pub async fn send_chat_message(
                 } else {
                     res.response
                 };
+                // Cap oversized results (e.g. a 500KB read_file) before they re-enter
+                // context EVERY subsequent round of this turn — protects tokens/latency.
+                let response_for_model = truncate_tool_result(response_for_model);
                 function_responses.push(crate::gemini::client::GeminiPart::function_response(name, response_for_model));
             }
 
@@ -538,6 +784,16 @@ pub async fn send_chat_message(
             // it tends to STOP with empty content. One turn with mixed parts works.
             let mut combined_parts = function_responses;
             if !attachments.is_empty() {
+                // Vision just entered the turn — bump reasoning to "high" so the
+                // model actually reads the image and follows through on multi-step
+                // requests instead of emitting junk like "00".
+                if !high_thinking {
+                    high_thinking = true;
+                    tool_round_config.thinking_config = Some(crate::gemini::client::ThinkingConfig {
+                        thinking_level: "high".to_string(),
+                    });
+                    println!("DEBUG: 🧠 Vision in play — bumping thinking to 'high' for synthesis.");
+                }
                 combined_parts.push(crate::gemini::client::GeminiPart::text(
                     "[VISUAL CONTEXT ATTACHED]".to_string(),
                 ));
@@ -555,43 +811,53 @@ pub async fn send_chat_message(
         }
     }
 
-    // If the user cancelled and we already have some text, save what we have.
-    // Otherwise drop in a short placeholder so the chat doesn't look broken.
+    // If the user cancelled and we have no real text, drop in a short
+    // placeholder so the chat doesn't look broken.
     let was_cancelled = CHAT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst);
-    if was_cancelled && final_response_text.is_empty() {
+    if was_cancelled && looks_like_garbage(&render_text_for_display(&final_response_text)) {
         final_response_text = "_(stopped)_".to_string();
     }
 
-    //INFO: Safety net — if the model used tools but never produced text,
-    //      force one last call WITHOUT tools so it MUST reply with text.
-    //      Skip when the user cancelled — no point burning another API call.
-    if final_response_text.is_empty() && !was_cancelled {
-        println!("DEBUG: ⚠️ No text after tool loop. Forcing a final text-only call...");
+    //INFO: Safety net — the model used tools but never produced a USABLE reply.
+    //      We check the RENDERED, trimmed text (not raw `.is_empty()`) so a model
+    //      that ends a tool turn with a stray whitespace/1-token response — which
+    //      is exactly what produced the "tool chip, no message" bug — still
+    //      triggers a real retry. Force one more call WITHOUT tools and WITHOUT a
+    //      JSON schema so it MUST just talk, and stream it like any other answer.
+    if looks_like_garbage(&render_text_for_display(&final_response_text)) && !was_cancelled {
+        println!("DEBUG: ⚠️ No usable text after tool loop. Forcing a final text-only call...");
 
-        let forced_response = client
-            .send_chat(
+        // Throw away whatever whitespace junk accumulated and clear the dead
+        // in-flight bubble so the retry streams into a clean slate.
+        final_response_text.clear();
+        let _ = app_handle.emit("assistant-reply-clear", ());
+
+        let forced_stream = client
+            .stream_chat(
                 current_messages.clone(),
                 Some(&system_instruction),
                 None, // No tools — forces a pure text response
-                Some(text_only_config.clone()),
+                Some(tool_round_config.clone()),
             )
             .await
             .map_err(|e| format!("Failed to get forced response: {}", e))?;
+        futures::pin_mut!(forced_stream);
 
-        for part in &forced_response.parts {
-            if let Some(text) = &part.text {
-                if !final_response_text.is_empty() {
-                    final_response_text.push_str("\n\n");
+        while let Some(chunk) = forced_stream.next().await {
+            if CHAT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+                println!("DEBUG: 🛑 Cancelled mid-stream (forced fallback).");
+                break;
+            }
+            let chunk = chunk.map_err(|e| format!("Failed to get forced response: {}", e))?;
+            for part in chunk.parts {
+                if let Some(text) = &part.text {
+                    final_response_text.push_str(text);
+                    let _ = app_handle.emit("assistant-reply-turn", final_response_text.clone());
                 }
-                final_response_text.push_str(text);
-                let _ = app_handle.emit(
-                    "assistant-reply-turn",
-                    render_text_for_display(&final_response_text),
-                );
             }
         }
 
-        if final_response_text.is_empty() {
+        if looks_like_garbage(&render_text_for_display(&final_response_text)) {
             return Err("Lumen processed the request but couldn't generate a response. Please try again.".to_string());
         }
     }
@@ -631,29 +897,22 @@ pub async fn send_chat_message(
         }
     }
 
-    //INFO: Extract citations from grounding metadata (or manual citations from Tavily)
-    let mut citations: Option<Vec<Citation>> = if !manual_citations.is_empty() {
-        Some(manual_citations)
-    } else {
-        None
-    };
-
-    if citations.is_none() {
-        if let Some(ref gm) = final_grounding_metadata {
-            if let Some(ref chunks) = gm.grounding_chunks {
-                let citation_list: Vec<Citation> = chunks
-                    .iter()
-                    .filter_map(|chunk| {
-                        chunk.web.as_ref().map(|web| Citation {
-                            title: web.title.clone(),
-                            url: web.uri.clone(),
-                        })
+    //INFO: Citations come from native Google Search grounding metadata.
+    let mut citations: Option<Vec<Citation>> = None;
+    if let Some(ref gm) = final_grounding_metadata {
+        if let Some(ref chunks) = gm.grounding_chunks {
+            let citation_list: Vec<Citation> = chunks
+                .iter()
+                .filter_map(|chunk| {
+                    chunk.web.as_ref().map(|web| Citation {
+                        title: web.title.clone(),
+                        url: web.uri.clone(),
                     })
-                    .collect();
-                if !citation_list.is_empty() {
-                    println!("DEBUG: 🌐 Extracted {} citations from native grounding.", citation_list.len());
-                    citations = Some(citation_list);
-                }
+                })
+                .collect();
+            if !citation_list.is_empty() {
+                println!("DEBUG: 🌐 Extracted {} citations from native grounding.", citation_list.len());
+                citations = Some(citation_list);
             }
         }
     }
@@ -692,20 +951,29 @@ pub async fn send_chat_message(
         (user_id, assistant_id)
     };
 
-    //INFO: Memory Extraction Trigger — fires every 6 messages (3 exchanges)
-    const MEMORY_EXTRACTION_THRESHOLD: i64 = 6;
+    //INFO: Memory Extraction Trigger. Two knobs, deliberately decoupled:
+    //        CADENCE — how often extraction fires (every N messages). Kept
+    //                  moderate so Lumen keeps learning regularly, not in rare
+    //                  bursts. Must be even (each turn saves 2 messages).
+    //        WINDOW  — how many recent messages the extractor actually reads.
+    //                  Bumped way up (was 6) so each pass has rich context to
+    //                  synthesize dense, high-quality memories from. The window
+    //                  overlaps successive passes; the near-duplicate check in
+    //                  the background task drops any memories that repeat.
+    const MEMORY_EXTRACTION_CADENCE: i64 = 20;
+    const MEMORY_EXTRACTION_WINDOW: i64 = 50;
     {
         let connection = database.connection.lock();
         if let Ok(total_count) = crate::database::queries::count_chat_messages(&connection) {
-            println!("DEBUG: 🧠 PULSE: Current chat message count: {}. (Threshold: {})", total_count, MEMORY_EXTRACTION_THRESHOLD);
-            if total_count > 0 && total_count % MEMORY_EXTRACTION_THRESHOLD == 0 {
-                println!("DEBUG: 🧠 TRIGGER: Memory extraction threshold hit! Initializing background task...");
-                
-                // Grab the last N messages for extraction
+            println!("DEBUG: 🧠 PULSE: Current chat message count: {}. (Cadence: {}, Window: {})", total_count, MEMORY_EXTRACTION_CADENCE, MEMORY_EXTRACTION_WINDOW);
+            if total_count > 0 && total_count % MEMORY_EXTRACTION_CADENCE == 0 {
+                println!("DEBUG: 🧠 TRIGGER: Memory extraction cadence hit! Initializing background task...");
+
+                // Grab the last WINDOW messages for extraction
                 let mut recent_messages = crate::database::queries::get_chat_messages(
-                    &connection, 
-                    None, 
-                    MEMORY_EXTRACTION_THRESHOLD as i32,
+                    &connection,
+                    None,
+                    MEMORY_EXTRACTION_WINDOW as i32,
                 ).unwrap_or_default();
                 
                 // Reverse to chronological order (get_chat_messages returns newest first)
@@ -800,11 +1068,12 @@ pub async fn send_chat_message(
                                         match crate::memory::core::should_trigger_reflection(&conn) {
                                             Ok(true) => {
                                                 println!("DEBUG: 🧠 Reflection threshold hit! Starting synthesis...");
-                                                // Get the last 30 observations for reflection
+                                                // Feed the reflection the recent observation window the prompt
+                                                // promises (~50), NOT the 6-message extraction batch size.
                                                 if let Ok(recent_obs) = crate::memory::core::get_recent_memories_by_type(
                                                     &conn,
                                                     &crate::memory::core::MemoryType::Observation,
-                                                    MEMORY_EXTRACTION_THRESHOLD as usize
+                                                    crate::memory::core::REFLECTION_THRESHOLD as usize,
                                                 ) {
                                                     let obs_texts: Vec<String> = recent_obs.iter().map(|o| o.content.clone()).collect();
                                                     let user_name = {

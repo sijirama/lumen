@@ -7,10 +7,10 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 const GEMINI_API_URL: &str =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent";
 
 const GEMINI_STREAM_URL: &str =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse";
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse";
 
 pub fn get_api_url() -> &'static str {
     GEMINI_API_URL
@@ -32,11 +32,15 @@ pub fn get_default_system_instruction() -> String {
         5. **HISTORY IS LORE**: Past messages give context, not standing orders. Don't 'finish' old tasks unprompted.
         6. **IDENTITY**: You are Lumen. You are female. You are sharp, fast, and occasionally sarcastic.
 
-        ✅ CAPABILITIES: CALENDAR, GMAIL, GOOGLE_TASKS (list_google_tasks / create_google_task), VISION (take_screenshot), WEB_RESEARCH (search_web — returns links and a synthesized answer in one shot), REMINDERS (set_reminder), MEMORY (retrieve_past_memories), WORLD (time/date), CLIPBOARD (search_clipboard), FILESYSTEM (grep_file, read_file_lines, edit_file_line, insert_at_line, delete_file_line, get_file_metadata, search_filesystem).
+        ✅ CAPABILITIES: CALENDAR, GMAIL, GOOGLE_TASKS (list_google_tasks / create_google_task), VISION (take_screenshot), WEB_SEARCH (native Google Search — just answer questions about current events / facts and it grounds and cites automatically; there is no search tool to call), VAULT_SEARCH (the Obsidian vault lives on local disk — search it with tools, nothing is uploaded: search_vault is your PRIMARY 'what did I write about X' tool (ranked file+line+snippet hits), list_recent_notes for 'what was I working on', search_by_tag for #tags; then read_file_lines around a hit for detail), REMINDERS (set_reminder), MEMORY (retrieve_past_memories to recall; remember_this to deliberately save a durable fact when the user says 'remember…'/'don't forget…' or shares a stable personal detail), WORLD (time/date), CLIPBOARD (search_clipboard), FILESYSTEM (read_file, read_file_lines, write_file, edit_file_line, insert_at_line, delete_file_line, get_file_metadata, grep_file, list_files, search_filesystem).
+
+        🔎 VAULT SEARCH PLAYBOOK: For 'what did I write/note about X', call search_vault(query: 'X') FIRST — it returns ranked file+line+snippet matches across the whole vault. Pick the best hits and read_file_lines around their line numbers for context, then answer and cite the note. Chain it: search → read → answer. Don't read_file whole notes blindly when search_vault can point you to the exact lines.
 
         🗒️ TASKS vs REMINDERS: 'create_google_task' = persistent to-do that syncs to Google Tasks (no time-of-day alert). 'set_reminder' = time-based system notification. Pick based on whether they want an alert at a moment in time, or a to-do they'll work through.
 
         🚦 THE ONLY 'NO TOOL' EXCEPTION: pure banter — 'hi', 'hello', 'how are you', vibes-check, jokes, opinions about nothing factual. Everything else with a factual hook routes through a tool.
+
+        📸 VISION IS OPT-IN — DON'T SCREENSHOT TO MAKE SMALL TALK: Only call take_screenshot when the user explicitly points at THEIR SCREEN or what they're looking at — 'check my screen', 'what's this', 'look at this', 'read this for me', 'what am I looking at'. Questions aimed at YOU — 'what are you up to', 'how are you', 'what's good', 'i'm just chilling' — are banter about Lumen, NOT a request to peek at their screen. Never screenshot to answer a question about yourself or to fill a lull in conversation.
 
         🚨 TRUTHFULNESS — DO NOT LIE ABOUT TOOL CALLS:
         Never claim to have done something you haven't actually done. If your response contains past-tense completion phrasing — 'done', 'added', 'sent', 'created', 'set', 'updated', 'deleted', 'saved', 'on your calendar', 'consider it done', 'all set', etc. — it MUST include the corresponding function_call IN THE SAME RESPONSE.
@@ -66,6 +70,35 @@ pub struct GeminiRequest {
     pub tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generation_config: Option<GenerationConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_config: Option<serde_json::Value>,
+}
+
+//INFO: Gemini requires `tool_config.includeServerSideToolInvocations = true`
+//      whenever a built-in/server-side tool (google_search, file_search,
+//      code_execution, url_context…) is sent ALONGSIDE function-calling
+//      declarations. We detect any non-function-declaration tool in the array
+//      and flip it on automatically so callers don't have to think about it.
+fn build_tool_config(tools: &Option<Vec<serde_json::Value>>) -> Option<serde_json::Value> {
+    let has_builtin = tools
+        .as_ref()
+        .map(|ts| {
+            ts.iter().any(|t| {
+                t.as_object()
+                    .map(|o| {
+                        o.keys()
+                            .any(|k| k != "function_declarations" && k != "functionDeclarations")
+                    })
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+
+    if has_builtin {
+        Some(serde_json::json!({ "includeServerSideToolInvocations": true }))
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -84,6 +117,9 @@ pub struct GenerationConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ThinkingConfig {
+    // Gemini 3.x's knob is `thinkingLevel`: "low" (fast, minimal reasoning) or
+    // "high" (deeper, slower). Gemini 3 can't fully disable thinking, so "low"
+    // is the snappy floor. (Gemini 2.5 used a numeric `thinkingBudget` instead.)
     pub thinking_level: String,
 }
 
@@ -315,6 +351,58 @@ impl GeminiClient {
         }
     }
 
+    //INFO: POST to Gemini with exponential backoff on transient failures.
+    //NOTE: Retries on network errors and on 429 (rate limit) / 5xx (server)
+    //      statuses — the things that are worth a second shot. A 400 etc. is
+    //      returned as-is so the caller can surface Gemini's real error body.
+    //      Only retries connection establishment; once a stream starts flowing
+    //      we can't replay it, so streaming callers retry only the handshake.
+    async fn send_with_retry(
+        &self,
+        api_url: &str,
+        request: &GeminiRequest,
+    ) -> Result<reqwest::Response> {
+        const MAX_ATTEMPTS: u32 = 3;
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            match self.http_client.post(api_url).json(request).send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let retryable = status.as_u16() == 429 || status.is_server_error();
+                    if retryable && attempt < MAX_ATTEMPTS {
+                        let backoff =
+                            std::time::Duration::from_millis(400 * 2u64.pow(attempt - 1));
+                        println!(
+                            "DEBUG: ♻️ Gemini {} on attempt {}/{}, retrying in {:?}",
+                            status, attempt, MAX_ATTEMPTS, backoff
+                        );
+                        tokio::time::sleep(backoff).await;
+                        continue;
+                    }
+                    return Ok(resp);
+                }
+                Err(e) => {
+                    if attempt < MAX_ATTEMPTS {
+                        let backoff =
+                            std::time::Duration::from_millis(400 * 2u64.pow(attempt - 1));
+                        println!(
+                            "DEBUG: ♻️ Gemini request error on attempt {}/{} ({}), retrying in {:?}",
+                            attempt, MAX_ATTEMPTS, e, backoff
+                        );
+                        tokio::time::sleep(backoff).await;
+                        continue;
+                    }
+                    return Err(anyhow!(
+                        "Failed to reach Gemini API after {} attempts: {}",
+                        attempt,
+                        e
+                    ));
+                }
+            }
+        }
+    }
+
     //INFO: Sends a conversation (history + new message) to Gemini with optional tools
     pub async fn send_chat(
         &self,
@@ -324,6 +412,7 @@ impl GeminiClient {
         generation_config: Option<GenerationConfig>,
     ) -> Result<GeminiChatResponse> {
         //INFO: Build the request payload
+        let tool_config = build_tool_config(&tools);
         let request = GeminiRequest {
             contents: messages,
             system_instruction: system_instruction.map(|instruction| GeminiContent {
@@ -332,19 +421,14 @@ impl GeminiClient {
             }),
             tools,
             generation_config,
+            tool_config,
         };
 
         //INFO: Construct the API URL with the API key
         let api_url = format!("{}?key={}", GEMINI_API_URL, self.api_key);
 
-        //INFO: Send the request to Gemini
-        let response = self
-            .http_client
-            .post(&api_url)
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to send request to Gemini API")?;
+        //INFO: Send the request to Gemini (with transient-failure retry)
+        let response = self.send_with_retry(&api_url, &request).await?;
 
         //INFO: Parse the response
         let response_text = response
@@ -462,6 +546,7 @@ impl GeminiClient {
         use futures::StreamExt;
 
         //INFO: Build the request payload
+        let tool_config = build_tool_config(&tools);
         let request = GeminiRequest {
             contents: messages,
             system_instruction: system_instruction.map(|instruction| GeminiContent {
@@ -470,17 +555,15 @@ impl GeminiClient {
             }),
             tools,
             generation_config,
+            tool_config,
         };
 
-        let api_url = format!("{}?key={}", GEMINI_STREAM_URL, self.api_key);
+        // NB: GEMINI_STREAM_URL already carries `?alt=sse`, so the key MUST be
+        // appended with `&`, not `?` — otherwise `alt` swallows "sse?key=..." and
+        // Gemini 400s with `Invalid value "sse?key=..." for query parameter 'alt'`.
+        let api_url = format!("{}&key={}", GEMINI_STREAM_URL, self.api_key);
 
-        let response = self
-            .http_client
-            .post(&api_url)
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to send streaming request to Gemini API")?;
+        let response = self.send_with_retry(&api_url, &request).await?;
 
         if !response.status().is_success() {
             let status = response.status();

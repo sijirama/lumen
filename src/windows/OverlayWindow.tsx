@@ -257,6 +257,8 @@ function OverlayWindow() {
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isThinking, setIsThinking] = useState(false);
+    // Humanized labels for the tools currently running (e.g. "📅 Checking your calendar").
+    const [toolStatus, setToolStatus] = useState<string[]>([]);
     const [isCapturing, setIsCapturing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -371,12 +373,15 @@ function OverlayWindow() {
                 setMessages(prev => [...prev.filter(m => m.id !== event.payload.id), event.payload]);
             });
 
-            // Tool execution state tracking
-            unlistenToolStart = await listen('tool-execution-start', () => {
+            // Tool execution state tracking — payload is the list of friendly
+            // labels for the tools running this round.
+            unlistenToolStart = await listen<string[]>('tool-execution-start', (event) => {
                 setIsThinking(true);
+                setToolStatus(Array.isArray(event.payload) ? event.payload : []);
             });
             unlistenToolEnd = await listen('tool-execution-end', () => {
                 setIsThinking(false);
+                setToolStatus([]);
             });
 
         }
@@ -547,6 +552,7 @@ function OverlayWindow() {
         } finally {
             setIsLoading(false);
             setIsThinking(false);
+            setToolStatus([]);
         }
     }
 
@@ -609,6 +615,7 @@ function OverlayWindow() {
         } finally {
             setIsLoading(false);
             setIsThinking(false);
+            setToolStatus([]);
         }
     }
 
@@ -762,8 +769,11 @@ function OverlayWindow() {
                                         >
                                             {message.content}
                                         </ReactMarkdown>
+                                        {message.id === -1 && (
+                                            <span className="stream-cursor" aria-hidden="true">▍</span>
+                                        )}
                                     </div>
-                                    {message.role === 'assistant' && (
+                                    {message.role === 'assistant' && message.id !== -1 && (
                                         <div className="message-actions">
                                             <button
                                                 className="msg-action-btn"
@@ -784,7 +794,7 @@ function OverlayWindow() {
                                 </div>
                             ))}
 
-                            {isLoading && (
+                            {isLoading && !messages.some(m => m.id === -1) && (
                                 <div className="chat-row assistant">
                                     <div className="chat-avatar" aria-hidden="true">
                                         <img src="/logo.png" alt="" />
@@ -793,7 +803,11 @@ function OverlayWindow() {
                                         {isThinking ? (
                                             <div className="thinking-indicator">
                                                 <div className="thinking-glyph">⚙</div>
-                                                <span className="thinking-label">Working on it...</span>
+                                                <span className="thinking-label">
+                                                    {toolStatus.length > 0
+                                                        ? `${toolStatus.join(' · ')}…`
+                                                        : 'Working on it…'}
+                                                </span>
                                             </div>
                                         ) : (
                                             <div className="typing-indicator">

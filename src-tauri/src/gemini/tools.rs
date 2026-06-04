@@ -47,7 +47,7 @@ pub struct ToolAttachment {
 }
 
 impl ToolResult {
-    fn ok(response: serde_json::Value) -> Self {
+    pub fn ok(response: serde_json::Value) -> Self {
         Self { response, attachment: None }
     }
 }
@@ -58,12 +58,15 @@ impl ToolResult {
 fn registry() -> &'static [ToolDef] {
     &[
         // --- Core (always on) ---
-        ToolDef { name: "search_web",            category: ToolCategory::Core, mode: ToolMode::Async, build: decl_search_web },
+        // NOTE: web search is no longer a function tool — it's handled by Gemini's
+        // native `google_search` grounding, injected in chat.rs. The Tavily
+        // `search_web` executor still exists (dormant) but is no longer advertised.
         ToolDef { name: "get_weather",           category: ToolCategory::Core, mode: ToolMode::Async, build: decl_get_weather },
         ToolDef { name: "take_screenshot",       category: ToolCategory::Core, mode: ToolMode::Async, build: decl_take_screenshot },
         ToolDef { name: "search_clipboard",      category: ToolCategory::Core, mode: ToolMode::Sync,  build: decl_search_clipboard },
         ToolDef { name: "set_reminder",          category: ToolCategory::Core, mode: ToolMode::Async, build: decl_set_reminder },
         ToolDef { name: "retrieve_past_memories",category: ToolCategory::Core, mode: ToolMode::Async, build: decl_retrieve_past_memories },
+        ToolDef { name: "remember_this",         category: ToolCategory::Core, mode: ToolMode::Async, build: decl_remember_this },
 
         // --- Google (gated by `google_enabled`) ---
         ToolDef { name: "get_google_calendar_events", category: ToolCategory::Google, mode: ToolMode::Async, build: decl_get_google_calendar_events },
@@ -88,6 +91,9 @@ fn registry() -> &'static [ToolDef] {
         // Bulk traversal tools are async + spawn_blocking so they don't hold the chat DB lock.
         ToolDef { name: "search_notes",           category: ToolCategory::Filesystem, mode: ToolMode::Async, build: decl_search_notes },
         ToolDef { name: "search_filesystem",      category: ToolCategory::Filesystem, mode: ToolMode::Async, build: decl_search_filesystem },
+        ToolDef { name: "search_vault",           category: ToolCategory::Filesystem, mode: ToolMode::Async, build: decl_search_vault },
+        ToolDef { name: "list_recent_notes",      category: ToolCategory::Filesystem, mode: ToolMode::Async, build: decl_list_recent_notes },
+        ToolDef { name: "search_by_tag",          category: ToolCategory::Filesystem, mode: ToolMode::Async, build: decl_search_by_tag },
     ]
 }
 
@@ -186,20 +192,6 @@ fn decl_get_obsidian_vault_info() -> GeminiFunctionDeclaration {
         name: "get_obsidian_vault_info".into(),
         description: "Gets information about the configured Obsidian vault, including its root path.".into(),
         parameters: None,
-    }
-}
-
-fn decl_search_web() -> GeminiFunctionDeclaration {
-    GeminiFunctionDeclaration {
-        name: "search_web".into(),
-        description: "Searches the web for high-quality information and direct answers using the Tavily API. This tool returns both a list of sources and a synthesized 'quick_answer' from an LLM. Use this for deep research and discovery.".into(),
-        parameters: Some(json!({
-            "type": "object",
-            "properties": {
-                "query": { "type": "string", "description": "The specific research question or keywords." }
-            },
-            "required": ["query"]
-        })),
     }
 }
 
@@ -452,6 +444,52 @@ fn decl_search_filesystem() -> GeminiFunctionDeclaration {
     }
 }
 
+fn decl_search_vault() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "search_vault".into(),
+        description: "PRIMARY vault search. Searches the whole Obsidian vault for a query and returns RANKED matches — each with the file path, line number, and a snippet of the matching line — so you can see exactly where things are. Multi-word queries match notes/lines mentioning those words (order-independent). Use this for 'what did I write about X', 'find my notes on Y'. Then call read_file_lines on a hit to read around it. The vault root is auto-detected; only pass `path` to scope to a subfolder.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Keywords or phrase to search for. Multiple words are matched independently and ranked by how many hit." },
+                "path":  { "type": "string", "description": "Optional. A subfolder (absolute path) to scope the search to. Omit to search the entire vault." },
+                "max_results": { "type": "integer", "description": "Optional. Max number of ranked matches to return (default 12)." }
+            },
+            "required": ["query"]
+        })),
+    }
+}
+
+fn decl_list_recent_notes() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "list_recent_notes".into(),
+        description: "Lists the most recently modified notes in the vault (newest first), each with its path, a title, and when it was last edited. Use for 'what was I working on', 'my latest notes', 'recent journal entries'. The vault root is auto-detected; pass `path` only to scope to a subfolder.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "path":  { "type": "string", "description": "Optional. A subfolder (absolute path) to scope to. Omit for the whole vault." },
+                "limit": { "type": "integer", "description": "Optional. How many recent notes to return (default 10)." }
+            },
+            "required": []
+        })),
+    }
+}
+
+fn decl_search_by_tag() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "search_by_tag".into(),
+        description: "Finds notes carrying a given Obsidian tag — either an inline #tag or a frontmatter `tags:` entry. Use when the user references a tag or category like 'my #recipe notes' or 'everything tagged project'. Returns the matching file paths. The vault root is auto-detected.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "tag":  { "type": "string", "description": "The tag to search for, with or without the leading '#' (e.g. 'recipe' or '#recipe')." },
+                "path": { "type": "string", "description": "Optional. A subfolder (absolute path) to scope to. Omit for the whole vault." }
+            },
+            "required": ["tag"]
+        })),
+    }
+}
+
 fn decl_set_reminder() -> GeminiFunctionDeclaration {
     GeminiFunctionDeclaration {
         name: "set_reminder".into(),
@@ -477,6 +515,22 @@ fn decl_retrieve_past_memories() -> GeminiFunctionDeclaration {
                 "query": { "type": "string", "description": "What to search for. Phrase as the topic, person, or preference you want to recall (e.g. 'previous discussions about project Atlas', 'user's coffee preference')." }
             },
             "required": ["query"]
+        })),
+    }
+}
+
+fn decl_remember_this() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "remember_this".into(),
+        description: "Explicitly save a durable fact about the user to long-term memory. Call this when the user asks you to remember something ('remember that…', 'don't forget…', 'keep in mind…') or volunteers a stable personal fact worth recalling later (a preference, an important date, a relationship, a goal). Do NOT use it for fleeting, in-the-moment details. Write the fact as a clear standalone sentence.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "content": { "type": "string", "description": "The fact to remember, as a standalone sentence (e.g. 'Sijibomi is allergic to peanuts')." },
+                "type": { "type": "string", "enum": ["preference", "entity", "observation"], "description": "preference = a like/dislike/goal; entity = a named person/project/thing; observation = a general fact. Default observation." },
+                "importance": { "type": "integer", "description": "1-10, how important this is to remember. Default 8 for an explicit user request." }
+            },
+            "required": ["content"]
         })),
     }
 }
@@ -733,6 +787,29 @@ pub fn execute_tool_sync(
 //      No approval gate — destructive actions are confirmed conversationally
 //      by Lumen (see the CONFIRMATION RULE in the system prompt). When the
 //      model finally invokes the tool, the user has already said yes.
+//INFO: Resolves the Obsidian vault root from the stored integration config so the
+//      vault-search tools can default to "the whole vault" without the model
+//      having to know (or guess) the absolute path. Locks the DB connection
+//      briefly — safe to call from async tool executors (they don't hold it).
+fn vault_root_from_db(database: &crate::database::Database) -> Option<String> {
+    let conn = database.connection.lock();
+    let integration = crate::database::queries::get_integration(&conn, "obsidian")
+        .ok()
+        .flatten()?;
+    let config = integration.config?;
+    let json: serde_json::Value = serde_json::from_str(&config).ok()?;
+    json.get("vault_path")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+//INFO: Should this path be skipped during vault traversal? (dotfiles, .obsidian,
+//      .trash, .git — anything starting with a dot in any component.)
+fn is_hidden_path(path: &std::path::Path) -> bool {
+    path.components()
+        .any(|c| c.as_os_str().to_str().map(|s| s.starts_with('.')).unwrap_or(false))
+}
+
 pub async fn execute_tool_async(
     name: &str,
     args: &serde_json::Value,
@@ -831,14 +908,6 @@ pub async fn execute_tool_async(
             };
             ToolResult::ok(value)
         }
-        "search_web" => {
-            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
-            let value = match crate::integrations::tavily::search(database, query).await {
-                Ok(res) => res,
-                Err(e) => json!({ "error": format!("Search failed: {}", e) }),
-            };
-            ToolResult::ok(value)
-        }
         "take_screenshot" => {
             match crate::commands::vision::capture_primary_screen().await {
                 Ok(b64) => ToolResult {
@@ -898,6 +967,48 @@ pub async fn execute_tool_async(
                     println!("DEBUG: 🧠 Embedding Generation Failed! Error: {:#?}", e);
                     json!({ "error": format!("Failed to generate embedding for memory search: {}", e) })
                 }
+            };
+            ToolResult::ok(value)
+        }
+        "remember_this" => {
+            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            if content.is_empty() {
+                return ToolResult::ok(json!({ "error": "Field 'content' is required." }));
+            }
+            let mem_type = crate::memory::core::MemoryType::from_str(
+                args.get("type").and_then(|v| v.as_str()).unwrap_or("observation"),
+            )
+            .unwrap_or(crate::memory::core::MemoryType::Observation);
+            let importance = args.get("importance").and_then(|v| v.as_f64()).unwrap_or(8.0).clamp(1.0, 10.0);
+
+            let api_key = {
+                let connection = database.connection.lock();
+                match crate::database::queries::get_api_token(&connection, "gemini") {
+                    Ok(Some(enc)) => match crate::crypto::decrypt_token(&enc) {
+                        Ok(k) => k,
+                        Err(_) => return ToolResult::ok(json!({ "error": "Failed to decrypt Gemini API key." })),
+                    },
+                    _ => return ToolResult::ok(json!({ "error": "Gemini API key not found." })),
+                }
+            };
+
+            let client = crate::gemini::client::GeminiClient::new(api_key);
+            let mut memory = crate::memory::extractor::create_memory(mem_type, content.clone(), importance);
+            // Embed so the new memory is retrievable; store anyway if embedding fails.
+            match client.generate_embedding(&content).await {
+                Ok(emb) => memory.embedding = Some(emb),
+                Err(e) => println!("DEBUG: 🧠 remember_this embed failed (storing without): {}", e),
+            }
+
+            let connection = database.connection.lock();
+            if let Some(ref emb) = memory.embedding {
+                if crate::memory::core::is_near_duplicate(&connection, emb, 0.95) {
+                    return ToolResult::ok(json!({ "status": "already_known", "message": "Already remembered something very similar." }));
+                }
+            }
+            let value = match crate::memory::core::store_memory(&connection, &memory) {
+                Ok(_) => json!({ "status": "saved", "message": format!("Saved to memory: {}", content) }),
+                Err(e) => json!({ "error": format!("Failed to save memory: {}", e) }),
             };
             ToolResult::ok(value)
         }
@@ -972,6 +1083,163 @@ pub async fn execute_tool_async(
             })
             .await
             .unwrap_or_else(|e| json!({ "error": format!("search_filesystem task failed: {}", e) }));
+            ToolResult::ok(value)
+        }
+        "search_vault" => {
+            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            if query.is_empty() {
+                return ToolResult::ok(json!({ "error": "Field 'query' is required." }));
+            }
+            let root = args.get("path").and_then(|v| v.as_str()).map(|s| s.to_string())
+                .or_else(|| vault_root_from_db(database));
+            let root = match root {
+                Some(r) if !r.is_empty() => r,
+                _ => return ToolResult::ok(json!({ "error": "No vault path found. Enable Obsidian in settings or pass an explicit 'path'." })),
+            };
+            let max_results = args.get("max_results").and_then(|v| v.as_u64()).unwrap_or(12) as usize;
+
+            let value = tokio::task::spawn_blocking(move || {
+                let terms: Vec<String> = query.to_lowercase().split_whitespace().map(|s| s.to_string()).collect();
+                // (score, match_json) — collected across the whole vault, then ranked.
+                let mut scored: Vec<(usize, serde_json::Value)> = Vec::new();
+                let mut files_scanned = 0usize;
+                for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
+                    if !entry.file_type().is_file() { continue; }
+                    let p = entry.path();
+                    if p.extension().and_then(|e| e.to_str()) != Some("md") { continue; }
+                    if is_hidden_path(p) { continue; }
+                    if let Ok(meta) = fs::metadata(p) { if meta.len() > 1_000_000 { continue; } }
+                    let content = match fs::read_to_string(p) { Ok(c) => c, Err(_) => continue };
+                    files_scanned += 1;
+                    let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+                    let fname_bonus = terms.iter().filter(|t| fname.contains(t.as_str())).count();
+                    for (i, line) in content.lines().enumerate() {
+                        let ll = line.to_lowercase();
+                        let hits = terms.iter().filter(|t| ll.contains(t.as_str())).count();
+                        if hits == 0 { continue; }
+                        let score = hits + fname_bonus;
+                        let snippet: String = line.trim().chars().take(200).collect();
+                        scored.push((score, json!({
+                            "file": p.to_string_lossy(),
+                            "line": i + 1,
+                            "snippet": snippet,
+                            "score": score
+                        })));
+                    }
+                    if scored.len() > 3000 { break; } // safety cap before sort
+                }
+                scored.sort_by(|a, b| b.0.cmp(&a.0));
+                let matches: Vec<serde_json::Value> = scored.into_iter().take(max_results).map(|(_, v)| v).collect();
+                json!({
+                    "query": query,
+                    "root": root,
+                    "files_scanned": files_scanned,
+                    "match_count": matches.len(),
+                    "matches": matches,
+                    "hint": "Call read_file_lines on a match's file around its line number to read more context."
+                })
+            })
+            .await
+            .unwrap_or_else(|e| json!({ "error": format!("search_vault task failed: {}", e) }));
+            ToolResult::ok(value)
+        }
+        "list_recent_notes" => {
+            let root = args.get("path").and_then(|v| v.as_str()).map(|s| s.to_string())
+                .or_else(|| vault_root_from_db(database));
+            let root = match root {
+                Some(r) if !r.is_empty() => r,
+                _ => return ToolResult::ok(json!({ "error": "No vault path found. Enable Obsidian in settings or pass an explicit 'path'." })),
+            };
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+
+            let value = tokio::task::spawn_blocking(move || {
+                let mut notes: Vec<(u64, serde_json::Value)> = Vec::new();
+                for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
+                    if !entry.file_type().is_file() { continue; }
+                    let p = entry.path();
+                    if p.extension().and_then(|e| e.to_str()) != Some("md") { continue; }
+                    if is_hidden_path(p) { continue; }
+                    let mtime = fs::metadata(p).ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    // Title = first non-empty line, with leading markdown heading marks stripped.
+                    let title = fs::read_to_string(p).ok()
+                        .and_then(|c| c.lines()
+                            .map(|l| l.trim_start_matches('#').trim().to_string())
+                            .find(|l| !l.is_empty()))
+                        .unwrap_or_else(|| p.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string());
+                    let modified = chrono::DateTime::from_timestamp(mtime as i64, 0)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default();
+                    notes.push((mtime, json!({
+                        "file": p.to_string_lossy(),
+                        "title": title.chars().take(120).collect::<String>(),
+                        "modified": modified
+                    })));
+                }
+                notes.sort_by(|a, b| b.0.cmp(&a.0));
+                let recent: Vec<serde_json::Value> = notes.into_iter().take(limit).map(|(_, v)| v).collect();
+                json!({ "count": recent.len(), "notes": recent })
+            })
+            .await
+            .unwrap_or_else(|e| json!({ "error": format!("list_recent_notes task failed: {}", e) }));
+            ToolResult::ok(value)
+        }
+        "search_by_tag" => {
+            let tag = args.get("tag").and_then(|v| v.as_str()).unwrap_or("")
+                .trim().trim_start_matches('#').to_lowercase();
+            if tag.is_empty() {
+                return ToolResult::ok(json!({ "error": "Field 'tag' is required." }));
+            }
+            let root = args.get("path").and_then(|v| v.as_str()).map(|s| s.to_string())
+                .or_else(|| vault_root_from_db(database));
+            let root = match root {
+                Some(r) if !r.is_empty() => r,
+                _ => return ToolResult::ok(json!({ "error": "No vault path found. Enable Obsidian in settings or pass an explicit 'path'." })),
+            };
+
+            let value = tokio::task::spawn_blocking(move || {
+                let inline = format!("#{}", tag);
+                let mut results: Vec<String> = Vec::new();
+                for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
+                    if !entry.file_type().is_file() { continue; }
+                    let p = entry.path();
+                    if p.extension().and_then(|e| e.to_str()) != Some("md") { continue; }
+                    if is_hidden_path(p) { continue; }
+                    let content = match fs::read_to_string(p) { Ok(c) => c.to_lowercase(), Err(_) => continue };
+
+                    let has_inline = content.contains(&inline);
+                    // Frontmatter `tags:` block — handles both `tags: [a, b]` and the
+                    // multi-line `tags:\n  - a\n  - b` form. Only scans the top of the file.
+                    let mut has_frontmatter = false;
+                    let mut in_tags = false;
+                    for l in content.lines().take(30) {
+                        let lt = l.trim_start();
+                        if lt.starts_with("tags:") {
+                            if lt.contains(&tag) { has_frontmatter = true; break; }
+                            in_tags = true;
+                            continue;
+                        }
+                        if in_tags {
+                            if lt.starts_with('-') {
+                                if lt.contains(&tag) { has_frontmatter = true; break; }
+                            } else if !lt.is_empty() && !l.starts_with(' ') {
+                                in_tags = false; // a new top-level key ends the tags block
+                            }
+                        }
+                    }
+
+                    if has_inline || has_frontmatter {
+                        results.push(p.to_string_lossy().into_owned());
+                    }
+                    if results.len() >= 50 { break; }
+                }
+                json!({ "tag": tag, "match_count": results.len(), "files": results })
+            })
+            .await
+            .unwrap_or_else(|e| json!({ "error": format!("search_by_tag task failed: {}", e) }));
             ToolResult::ok(value)
         }
         _ => ToolResult::ok(json!({ "error": format!("Unknown asynchronous tool: {}", name) })),

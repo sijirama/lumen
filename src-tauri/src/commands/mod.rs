@@ -4,6 +4,7 @@
 pub mod auth;
 pub mod calendar;
 pub mod chat;
+pub mod memory;
 pub mod settings;
 pub mod setup;
 pub mod vision;

@@ -35,47 +35,9 @@ Synthesize deep reflections now:"#,
     )
 }
 
-//INFO: Build the DailySummary synthesis prompt from bucketed briefings
-pub fn build_daily_summary_prompt(briefings: &[(String, String)], user_name: &str) -> String {
-    let parts: Vec<String> = briefings
-        .iter()
-        .map(|(bucket, content)| format!("### {} Briefing\n{}", bucket.to_uppercase(), content))
-        .collect();
-    let briefing_block = parts.join("\n\n");
-
-    format!(
-        r#"You are Lumen's daily synthesis engine. Lumen is the AI sidekick, and {} is the user.
-
-Below are the briefings from a full day in {}'s life.
-Your job is to synthesize ONE STARK, DENSE DailySummary that captures the core themes, major breakthroughs, and psychological state of {} for that day.
-
-RULES:
-- DENSITY: Be extremely detailed but efficient. Capture the 'pulse' of the day.
-- NAMES: Use "{}" and "Lumen". NEVER say "the user".
-- ESSENTIALS ONLY: Skip the fluff. Focus on projects, named entities, and key decision points.
-- Return ONLY valid JSON object.
-
-FORMAT:
-{{"content": "Today {} spent 6 hours debugging Triton kernels for MoE, successfully reducing latency by 15%. They discussed moving to Paris for Mistral AI, reflecting a high-confidence career pivot.", "importance": 9}}
-
-YESTERDAY'S BRIEFINGS:
-{}
-
-Synthesize the daily summary now:"#,
-        user_name, user_name, user_name, user_name, user_name, briefing_block
-    )
-}
-
 //INFO: Parsed reflection from LLM response
 #[derive(Debug, serde::Deserialize)]
 pub struct ExtractedReflection {
-    pub content: String,
-    pub importance: f64,
-}
-
-//INFO: Parsed daily summary from LLM response
-#[derive(Debug, serde::Deserialize)]
-pub struct ExtractedDailySummary {
     pub content: String,
     pub importance: f64,
 }
