@@ -1,6 +1,12 @@
 /* INFO: Lumen Design System - Clean Minimal Light Theme */
 /* NOTE: Simple, minimal design with subtle accents */
 
+/* Tailwind v3 — preflight is disabled in tailwind.config.js so these coexist
+   with the hand-rolled classes below during the incremental migration. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* ============================================================================
    CSS Custom Properties (Design Tokens)
    ============================================================================ */
@@ -852,8 +858,10 @@ input:checked+.slider:before {
 }
 
 /* ============================================================================
-   Cat view 🐈 — the full-size chat embedded in the main window. Pins the
-   viewport so the message list scrolls internally and the input stays put.
+   Cat view 🐈 — the full-size chat embedded in the main window. Only the page
+   shell pinning lives here; the rest of the cat view is Tailwind utilities
+   (see src/pages/CatView.tsx). Pins the viewport to 100vh so the message list
+   scrolls internally and the composer stays put.
    ============================================================================ */
 .app-layout--chat {
   height: 100vh;
@@ -865,34 +873,6 @@ input:checked+.slider:before {
   display: flex;
   max-width: 920px;
   padding: var(--spacing-4) var(--spacing-6) var(--spacing-5);
-}
-.cat-view {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-}
-.cat-view-messages {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-1);
-  padding-right: var(--spacing-2);
-}
-.cat-view-footer {
-  flex-shrink: 0;
-  padding-top: var(--spacing-3);
-}
-/* The window is wide, but AI text reads best at a constrained measure — cap the
-   assistant bubble to a comfortable line length instead of 85% of the window. */
-.cat-view .chat-message.assistant {
-  max-width: 64ch;
-}
-.cat-view .chat-message.user {
-  max-width: 75%;
 }
 
 /* ============================================================================
@@ -1460,7 +1440,6 @@ html.widget-window {
 }
 
 .chat-message {
-  max-width: 85%;
   padding: var(--spacing-2) var(--spacing-4);
   border-radius: var(--radius-lg);
   font-size: 0.8rem;

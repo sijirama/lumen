@@ -252,8 +252,20 @@ export function ToolTrace({ invocations }: { invocations: ToolInvocation[] }) {
 }
 
 //INFO: A single chat bubble (avatar + image + markdown + actions + trace + citations).
-//      Verbatim shared between the overlay and the cat view so they never drift.
-export function MessageBubble({ message }: { message: ChatMessage }) {
+//      Shared between the overlay and the cat view so they never drift. Bubble
+//      width is a Tailwind class passed in (the base `.chat-message` no longer
+//      hard-codes it): the overlay keeps 85%, the wide cat view narrows the
+//      assistant to a readable measure.
+export function MessageBubble({
+    message,
+    userWidth = 'max-w-[85%]',
+    assistantWidth = 'max-w-[85%]',
+}: {
+    message: ChatMessage;
+    userWidth?: string;
+    assistantWidth?: string;
+}) {
+    const widthClass = message.role === 'user' ? userWidth : assistantWidth;
     return (
         <div className={`chat-row ${message.role}`}>
             {message.role === 'assistant' && (
@@ -261,7 +273,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
                     <img src="/logo.png" alt="" />
                 </div>
             )}
-            <div className={`chat-message ${message.role}`}>
+            <div className={`chat-message ${message.role} ${widthClass}`}>
                 {message.image_data && (
                     <div className="chat-message-image" style={{ marginBottom: 'var(--spacing-2)' }}>
                         <img
