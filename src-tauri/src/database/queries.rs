@@ -82,18 +82,6 @@ pub struct Reminder {
     pub created_at: String,
 }
 
-//INFO: Calendar event data structure
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct CalendarEvent {
-    pub id: String,
-    pub title: String,
-    pub description: Option<String>,
-    pub start_time: String,
-    pub end_time: String,
-    pub location: Option<String>,
-    pub all_day: bool,
-}
-
 //INFO: Integration data structure
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Integration {
@@ -276,7 +264,6 @@ pub fn get_api_token(connection: &Connection, provider: &str) -> Result<Option<S
 }
 
 //INFO: Checks if an API token exists for a provider
-#[allow(dead_code)]
 pub fn has_api_token(connection: &Connection, provider: &str) -> Result<bool> {
     let result = get_api_token(connection, provider)?;
     Ok(result.is_some())
@@ -526,81 +513,6 @@ pub fn save_setting(connection: &Connection, key: &str, value: &str) -> Result<(
     Ok(())
 }
 
-// ============================================================================
-// Calendar Queries
-// ============================================================================
-
-//INFO: Saves calendar events (bulk insert/update)
-#[allow(dead_code)]
-pub fn save_calendar_events(connection: &Connection, events: &[CalendarEvent]) -> Result<()> {
-    let now = Utc::now().to_rfc3339();
-
-    for event in events {
-        connection.execute(
-            "INSERT OR REPLACE INTO calendar_events (id, title, description, start_time, end_time, location, all_day, cached_at) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                event.id,
-                event.title,
-                event.description,
-                event.start_time,
-                event.end_time,
-                event.location,
-                event.all_day as i32,
-                now
-            ],
-        ).context("Failed to save calendar event")?;
-    }
-
-    Ok(())
-}
-
-//INFO: Gets calendar events for a date range
-pub fn get_calendar_events(
-    connection: &Connection,
-    start_date: &str,
-    end_date: &str,
-) -> Result<Vec<CalendarEvent>> {
-    let mut events = Vec::new();
-    let mut statement = connection
-        .prepare(
-            "SELECT id, title, description, start_time, end_time, location, all_day 
-         FROM calendar_events 
-         WHERE start_time >= ?1 AND start_time <= ?2 
-         ORDER BY start_time ASC",
-        )
-        .context("Failed to prepare calendar events query")?;
-
-    let rows = statement
-        .query_map(params![start_date, end_date], |row| {
-            Ok(CalendarEvent {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                description: row.get(2)?,
-                start_time: row.get(3)?,
-                end_time: row.get(4)?,
-                location: row.get(5)?,
-                all_day: row.get::<_, i32>(6)? == 1,
-            })
-        })
-        .context("Failed to query calendar events")?;
-
-    for row in rows {
-        events.push(row.context("Failed to parse calendar event")?);
-    }
-
-    Ok(events)
-}
-
-//INFO: Clears all cached calendar events
-#[allow(dead_code)]
-pub fn clear_calendar_events(connection: &Connection) -> Result<()> {
-    connection
-        .execute("DELETE FROM calendar_events", [])
-        .context("Failed to clear calendar events")?;
-    Ok(())
-}
-
 //INFO: Count total clipboard items (used for mod-trigger memory extraction)
 pub fn count_clipboard_items(connection: &Connection) -> Result<i64> {
     let count: i64 = connection
@@ -805,39 +717,6 @@ pub fn toggle_reminder_completion(connection: &Connection, id: i32, completed: b
 // ============================================================================
 // Calendar Reminder Sync Queries
 // ============================================================================
-
-//INFO: Get today's calendar events (for reminder sync)
-pub fn get_todays_calendar_events(connection: &Connection) -> Result<Vec<CalendarEvent>> {
-    let today_start = chrono::Local::now().format("%Y-%m-%dT00:00:00").to_string();
-    let today_end = chrono::Local::now().format("%Y-%m-%dT23:59:59").to_string();
-
-    let mut stmt = connection
-        .prepare(
-            "SELECT id, title, description, start_time, end_time, location, all_day
-             FROM calendar_events
-             WHERE start_time >= ?1 AND start_time <= ?2
-             ORDER BY start_time ASC",
-        )
-        .context("Failed to prepare today's calendar events query")?;
-
-    let events = stmt
-        .query_map(params![today_start, today_end], |row| {
-            Ok(CalendarEvent {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                description: row.get(2)?,
-                start_time: row.get(3)?,
-                end_time: row.get(4)?,
-                location: row.get(5)?,
-                all_day: row.get::<_, i32>(6)? == 1,
-            })
-        })
-        .context("Failed to query today's calendar events")?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(events)
-}
 
 //INFO: Check if a calendar-sourced reminder already exists for a given event id
 pub fn calendar_reminder_exists(connection: &Connection, event_id: &str) -> bool {

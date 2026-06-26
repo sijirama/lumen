@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, Square, X, Loader2, FileText, Crosshair, CalendarDays, LayoutDashboard, MessageSquare, CheckSquare, Maximize2, Minimize2, ChevronDown, Wrench, Mail, Camera, Globe, Bell, Brain, Clipboard, Cloud, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Send, Square, X, Loader2, FileText, Crosshair, CalendarDays, LayoutDashboard, MessageSquare, Maximize2, Minimize2, ChevronDown, Wrench, Mail, Camera, Globe, Bell, Brain, Clipboard, Cloud, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import CalendarView from '../components/CalendarView';
@@ -42,8 +42,6 @@ interface ChatMessage {
 interface SendMessageResponse {
     user_message: ChatMessage;
     assistant_message: ChatMessage;
-    suggested_date?: string | null;
-    suggested_view?: string | null;
 }
 
 //INFO: Helper to extract domain from URL
@@ -129,8 +127,6 @@ const TOOL_ICON_MAP: Record<string, LucideIcon> = {
     get_google_calendar_events: CalendarDays,
     create_calendar_event: CalendarDays,
     delete_calendar_event: CalendarDays,
-    list_google_tasks: CheckSquare,
-    create_google_task: CheckSquare,
     read_file: FileText,
     write_file: FileText,
     read_file_lines: FileText,
@@ -262,10 +258,9 @@ function OverlayWindow() {
     const [isCapturing, setIsCapturing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
-    const [currentView, setCurrentView] = useState<'chat' | 'calendar'>('chat');
+    const [, setCurrentView] = useState<'chat' | 'calendar'>('chat');
     const [transitionView, setTransitionView] = useState<'chat' | 'calendar'>('chat');
     const [isCalendarExpanded, setIsCalendarExpanded] = useState(false);
-    const [suggestedDate, setSuggestedDate] = useState<string | undefined>(undefined);
 
     // Content size toggle
     const [contentLarge, setContentLarge] = useState(false);
@@ -534,18 +529,6 @@ function OverlayWindow() {
                     response.assistant_message
                 ];
             });
-
-            //INFO: Trigger implicit view transition if suggested
-            if (response.suggested_view) {
-                if (response.suggested_date) {
-                    setSuggestedDate(response.suggested_date);
-                }
-
-                if (response.suggested_view !== transitionView && response.suggested_view !== currentView) {
-                    console.log(`🧠 Lumen suggested view transition: ${response.suggested_view}`);
-                    switchView(response.suggested_view as 'chat' | 'calendar');
-                }
-            }
         } catch (err) {
             setError(String(err));
             setMessages(prev => prev.filter(m => m.id !== null && m.id !== -1));
@@ -600,15 +583,6 @@ function OverlayWindow() {
                     response.assistant_message
                 ];
             });
-
-            if (response.suggested_view) {
-                if (response.suggested_date) {
-                    setSuggestedDate(response.suggested_date);
-                }
-                if (response.suggested_view !== transitionView && response.suggested_view !== currentView) {
-                    switchView(response.suggested_view as 'chat' | 'calendar');
-                }
-            }
         } catch (err) {
             setError(String(err));
             setMessages(prev => prev.filter(m => m.id !== null && m.id !== -1));
@@ -831,7 +805,6 @@ function OverlayWindow() {
                             <CalendarView
                                 isExpanded={isCalendarExpanded}
                                 onToggleExpand={handleCalendarExpansionToggle}
-                                initialDate={suggestedDate}
                                 transitionView={transitionView}
                             />
                         </div>

@@ -77,7 +77,6 @@ pub async fn start_snipping(app: AppHandle) -> Result<(), String> {
     }
 
     // 5. Show Snipper Window
-    // 5. Show Snipper Window
     if let Some(snipper) = app.get_webview_window("snipper") {
         //INFO: Manually force fullscreen size to ensure coverage
         if let Ok(Some(monitor)) = snipper.primary_monitor() {

@@ -59,9 +59,6 @@ impl GoogleAuth {
                 "https://www.googleapis.com/auth/gmail.readonly".to_string(),
             ))
             .add_scope(Scope::new(
-                "https://www.googleapis.com/auth/tasks".to_string(),
-            ))
-            .add_scope(Scope::new(
                 "https://www.googleapis.com/auth/userinfo.email".to_string(),
             ))
             .add_extra_param("access_type", "offline")

@@ -3,7 +3,7 @@
 
 use crate::crypto::decrypt_token;
 use crate::database::queries::{
-    get_api_token, get_calendar_events, get_chat_messages, get_integration,
+    get_api_token, get_chat_messages, get_integration,
     get_user_profile, save_chat_message, ChatMessage, Citation, ToolInvocation,
 };
 use crate::database::Database;
@@ -51,18 +51,15 @@ pub struct SendMessageRequest {
 pub struct SendMessageResponse {
     pub user_message: ChatMessageResponse,
     pub assistant_message: ChatMessageResponse,
-    pub suggested_view: Option<String>,
-    pub suggested_date: Option<String>,
 }
 
 //INFO: Turn the raw accumulated model text into what the user actually sees.
 //      Each `\n\n`-separated chunk is treated independently:
 //        - prose chunks pass through unchanged
-//        - JSON chunks (our structured output) are reduced to their `response`
-//          field — the other fields (suggestedView/Date) get extracted elsewhere
-//        - JSON chunks with no `response` field are dropped (likely tool plumbing)
-//      This is what fixes the multi-round text-loss bug: every round's prose
-//      survives into the final display.
+//        - stray JSON chunks are reduced to their `response` field if present,
+//          else dropped (defensive — structured output was removed, but this
+//          keeps any accidental JSON blob from leaking into the bubble)
+//      Every round's prose survives into the final display.
 fn render_text_for_display(raw: &str) -> String {
     raw.split("\n\n")
         .filter_map(|chunk| {
@@ -108,7 +105,6 @@ fn tool_status_label(name: &str) -> String {
         "create_calendar_event" => "📅 Adding to your calendar",
         "delete_calendar_event" => "📅 Updating your calendar",
         "get_google_calendar_events" => "📅 Checking your calendar",
-        "list_google_tasks" | "create_google_task" => "✅ Checking your tasks",
         "search_notes" | "search_filesystem" | "list_files" => "🔍 Searching your files",
         "get_obsidian_vault_info" => "🗂️ Reading your vault",
         "grep_file" | "read_file" | "read_file_lines" | "get_file_metadata" => "📄 Reading your files",
@@ -556,6 +552,21 @@ pub async fn send_chat_message(
             }
 
             for part in chunk.parts {
+                // Gemini 3.x streams its reasoning as parts flagged `thought: true`
+                // that ALSO carry `text`. That text is NOT the answer — it must
+                // never reach the chat bubble. This was the screenshot "00"/bare-
+                // number bug: vision turns force `thinking: high`, so a reasoning
+                // fragment leaked through the `part.text` check below and showed as
+                // the reply. Keep a thought part only if it carries a
+                // thought_signature (needed for multi-turn function-call continuity);
+                // otherwise drop it entirely. (function_call parts keep their own
+                // signature via the `else` branch, so this doesn't affect them.)
+                if part.thought.is_some() {
+                    if part.thought_signature.is_some() {
+                        non_text_parts.push(part);
+                    }
+                    continue;
+                }
                 if let Some(text) = &part.text {
                     round_text.push_str(text);
                     streamed_prose = true;
@@ -850,6 +861,10 @@ pub async fn send_chat_message(
             }
             let chunk = chunk.map_err(|e| format!("Failed to get forced response: {}", e))?;
             for part in chunk.parts {
+                // Same thought-leak guard as the main loop — never stream reasoning.
+                if part.thought.is_some() {
+                    continue;
+                }
                 if let Some(text) = &part.text {
                     final_response_text.push_str(text);
                     let _ = app_handle.emit("assistant-reply-turn", final_response_text.clone());
@@ -876,26 +891,8 @@ pub async fn send_chat_message(
         session_id: request.session_id.clone(),
     };
 
-    //INFO: Build the user-visible message from the full accumulated text
-    //      (prose chunks kept, JSON chunks reduced to their `response` field)
-    //      and extract structured fields (suggestedView/Date) from any JSON chunk.
+    //INFO: Build the user-visible message from the full accumulated text.
     let actual_final_text = render_text_for_display(&final_response_text);
-    let mut suggested_view = None;
-    let mut suggested_date = None;
-    for text_chunk in final_response_text.split("\n\n") {
-        let trimmed = text_chunk.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            if let Some(view) = json_val.get("suggestedView").and_then(|v| v.as_str()) {
-                suggested_view = Some(view.to_string());
-            }
-            if let Some(date) = json_val.get("suggestedDate").and_then(|v| v.as_str()) {
-                suggested_date = Some(date.to_string());
-            }
-        }
-    }
 
     //INFO: Citations come from native Google Search grounding metadata.
     let mut citations: Option<Vec<Citation>> = None;
@@ -1024,6 +1021,7 @@ pub async fn send_chat_message(
                                 println!("DEBUG: 🧠 Extraction Token Usage -> Prompt: {}, Candidates: {}, Total: {}", usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
                             }
                             let response_text = chat_response.parts.iter()
+                                .filter(|p| p.thought.is_none())
                                 .filter_map(|p| p.text.as_ref())
                                 .cloned()
                                 .collect::<Vec<_>>()
@@ -1109,7 +1107,7 @@ pub async fn send_chat_message(
                                                         ).await;
 
                                                         if let Ok(resp) = synthesis_result {
-                                                            let text = resp.parts.iter().filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
+                                                            let text = resp.parts.iter().filter(|p| p.thought.is_none()).filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
                                                             if let Ok(reflections) = serde_json::from_str::<Vec<crate::memory::reflection::ExtractedReflection>>(&text) {
                                                                 println!("DEBUG: 🧠 Synthesized {} high-level reflections!", reflections.len());
                                                                 for r in reflections {
@@ -1172,8 +1170,6 @@ pub async fn send_chat_message(
             citations,
             tool_invocations: persisted_invocations,
         },
-        suggested_view,
-        suggested_date,
     })
 }
 
@@ -1260,7 +1256,7 @@ pub async fn clear_chat_history(
                     None,
                     None,
                 ).await {
-                    let summary = resp.parts.iter().filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
+                    let summary = resp.parts.iter().filter(|p| p.thought.is_none()).filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
                     if !summary.is_empty() {
                         // Store as a memory
                         let mut memory = crate::memory::extractor::create_memory(
@@ -1379,25 +1375,7 @@ fn build_chat_context(database: &State<Database>) -> Result<Option<String>, Stri
     status_parts.push("--------------------------".to_string());
     context_parts.push(status_parts.join("\n"));
 
-    // 3. Calendar Data (Locked Section)
-    if let Some(integration) = g_int {
-        if integration.enabled {
-            let start_of_day = today.format("%Y-%m-%dT00:00:00").to_string();
-            let end_of_day = today.format("%Y-%m-%dT23:59:59").to_string();
-            let connection = database.connection.lock();
-            if let Ok(events) = get_calendar_events(&connection, &start_of_day, &end_of_day) {
-                if !events.is_empty() {
-                    let mut events_str = String::from("Today's calendar events:\n");
-                    for event in events {
-                        events_str.push_str(&format!("- {} at {}\n", event.title, event.start_time));
-                    }
-                    context_parts.push(events_str);
-                }
-            }
-        }
-    }
-
-    // 4. Obsidian Data (NO LOCKS - Pure Disk I/O)
+    // 3. Obsidian Data (NO LOCKS - Pure Disk I/O)
     if let Some(integration) = o_int {
         if integration.enabled {
             if let Some(config) = integration.config {

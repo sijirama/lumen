@@ -74,8 +74,6 @@ fn registry() -> &'static [ToolDef] {
         ToolDef { name: "send_email",                 category: ToolCategory::Google, mode: ToolMode::Async, build: decl_send_email },
         ToolDef { name: "create_calendar_event",      category: ToolCategory::Google, mode: ToolMode::Async, build: decl_create_calendar_event },
         ToolDef { name: "delete_calendar_event",      category: ToolCategory::Google, mode: ToolMode::Async, build: decl_delete_calendar_event },
-        ToolDef { name: "list_google_tasks",          category: ToolCategory::Google, mode: ToolMode::Async, build: decl_list_google_tasks },
-        ToolDef { name: "create_google_task",         category: ToolCategory::Google, mode: ToolMode::Async, build: decl_create_google_task },
 
         // --- Filesystem / Obsidian (gated by `obsidian_enabled`) ---
         ToolDef { name: "read_file",              category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_read_file },
@@ -282,35 +280,6 @@ fn decl_delete_calendar_event() -> GeminiFunctionDeclaration {
                 "event_id": { "type": "string", "description": "The unique ID of the event to delete." }
             },
             "required": ["event_id"]
-        })),
-    }
-}
-
-fn decl_list_google_tasks() -> GeminiFunctionDeclaration {
-    GeminiFunctionDeclaration {
-        name: "list_google_tasks".into(),
-        description: "Lists outstanding (not-yet-completed) tasks from the user's default Google Tasks list. Use when the user asks 'what's on my to-do list', 'what do I have to do', or wants to review tasks. Distinct from reminders — tasks are persistent to-dos, reminders are time-based notifications.".into(),
-        parameters: Some(json!({
-            "type": "object",
-            "properties": {
-                "max_results": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Maximum number of tasks to fetch (default 20)." }
-            }
-        })),
-    }
-}
-
-fn decl_create_google_task() -> GeminiFunctionDeclaration {
-    GeminiFunctionDeclaration {
-        name: "create_google_task".into(),
-        description: "Creates a new task in the user's default Google Tasks list. Use when the user says 'add to my to-do', 'add a task', 'I need to do X'. For time-based alerts use set_reminder instead.".into(),
-        parameters: Some(json!({
-            "type": "object",
-            "properties": {
-                "title": { "type": "string", "description": "Short task title." },
-                "notes": { "type": "string", "description": "Optional longer description / context for the task." },
-                "due":   { "type": "string", "format": "date-time", "description": "Optional due date as RFC3339 (e.g. '2026-04-15T00:00:00Z'). Google Tasks only respects the date portion, not the time of day." }
-            },
-            "required": ["title"]
         })),
     }
 }
@@ -881,30 +850,6 @@ pub async fn execute_tool_async(
             let value = match crate::integrations::google_calendar::delete_calendar_event(database, event_id).await {
                 Ok(_) => json!({ "status": "success", "message": "Event deleted successfully." }),
                 Err(e) => json!({ "error": format!("Failed to delete event: {}", e) }),
-            };
-            ToolResult::ok(value)
-        }
-        "list_google_tasks" => {
-            let max_results = args.get("max_results").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
-            let value = match crate::integrations::google_tasks::list_tasks(database, max_results).await {
-                Ok(tasks) => json!({ "tasks": tasks }),
-                Err(e) => json!({ "error": format!("Failed to list tasks: {}", e) }),
-            };
-            ToolResult::ok(value)
-        }
-        "create_google_task" => {
-            let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("");
-            let notes = args.get("notes").and_then(|v| v.as_str());
-            let due = args.get("due").and_then(|v| v.as_str());
-            if title.is_empty() {
-                return ToolResult::ok(json!({ "error": "Field 'title' is required." }));
-            }
-            if let Some(d) = due {
-                if let Err(e) = validate_rfc3339(d, "due") { return ToolResult::ok(e); }
-            }
-            let value = match crate::integrations::google_tasks::create_task(database, title, notes, due).await {
-                Ok(task) => json!({ "status": "success", "task": task }),
-                Err(e) => json!({ "error": format!("Failed to create task: {}", e) }),
             };
             ToolResult::ok(value)
         }
