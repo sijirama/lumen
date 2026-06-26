@@ -94,40 +94,37 @@ function MemoryPage() {
     const shown = filter === 'all' ? memories : memories.filter(m => m.memory_type === filter);
 
     return (
-        <div className="animate-fade-in" style={{ paddingBottom: 'var(--spacing-12)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-6)' }}>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 600, letterSpacing: '-0.025em', margin: 0 }}>Memory</h2>
+        <div className="animate-fade-in pb-12">
+            <div className="mb-6 flex items-center justify-between">
+                <h2 className="m-0 text-xl font-semibold tracking-tight">Memory</h2>
                 <button
-                    className="btn btn-sm"
+                    className="btn btn-sm flex items-center gap-1 text-xs text-error"
                     onClick={forgetEverything}
                     disabled={memories.length === 0}
-                    style={{ fontSize: '0.75rem', color: 'var(--color-error)', display: 'flex', alignItems: 'center', gap: '4px' }}
                 >
                     <Trash2 size={13} />
                     Forget everything
                 </button>
             </div>
 
-            <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-4)' }}>
+            <p className="mb-4 text-[0.8rem] text-foreground-secondary">
                 What Lumen has learned about you across conversations. All local — nothing is uploaded.
             </p>
 
             {/* Teach Lumen something directly */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: 'var(--spacing-4)' }}>
+            <div className="mb-4 flex gap-2">
                 <input
                     type="text"
-                    className="input"
+                    className="input flex-1 px-2.5 py-2 text-[0.82rem]"
                     value={newMemory}
                     onChange={(e) => setNewMemory(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') addMemory(); }}
                     placeholder="Teach Lumen a fact — e.g. “I’m allergic to peanuts”"
-                    style={{ flex: 1, fontSize: '0.82rem', padding: '8px 10px' }}
                 />
                 <button
-                    className="btn btn-primary btn-sm"
+                    className="btn btn-primary btn-sm flex items-center gap-1 text-[0.78rem]"
                     onClick={addMemory}
                     disabled={adding || !newMemory.trim()}
-                    style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '4px' }}
                 >
                     <Plus size={14} />
                     {adding ? 'Saving…' : 'Remember'}
@@ -135,59 +132,42 @@ function MemoryPage() {
             </div>
 
             {error && (
-                <div style={{
-                    padding: '4px 12px', background: '#fce8e6', borderRadius: 'var(--radius-full)',
-                    color: 'var(--color-error)', fontSize: '0.75rem', fontWeight: 500,
-                    display: 'flex', alignItems: 'center', gap: '6px', marginBottom: 'var(--spacing-4)'
-                }}>
+                <div className="mb-4 flex items-center gap-1.5 rounded-full bg-[#fce8e6] px-3 py-1 text-xs font-medium text-error">
                     <AlertCircle size={12} />
                     {error}
                 </div>
             )}
 
             {/* Type filter chips */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: 'var(--spacing-4)' }}>
+            <div className="mb-4 flex flex-wrap gap-1.5">
                 {TYPE_FILTERS.map(t => {
                     const count = t === 'all' ? memories.length : memories.filter(m => m.memory_type === t).length;
                     if (t !== 'all' && count === 0) return null;
+                    const active = filter === t;
                     return (
                         <button
                             key={t}
                             onClick={() => setFilter(t)}
-                            style={{
-                                fontSize: '0.72rem', fontWeight: 600, padding: '3px 10px', borderRadius: 'var(--radius-full)',
-                                cursor: 'pointer', textTransform: 'capitalize',
-                                border: '1px solid ' + (filter === t ? 'var(--color-accent)' : 'var(--color-border)'),
-                                background: filter === t ? 'var(--color-accent-light)' : 'transparent',
-                                color: filter === t ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-                            }}
+                            className={`cursor-pointer rounded-full border px-2.5 py-[3px] text-[0.72rem] font-semibold capitalize transition-colors ${active ? 'border-accent bg-accent-light text-accent' : 'border-border bg-transparent text-foreground-secondary hover:border-accent'}`}
                         >
-                            {t.replace('_', ' ')} {count > 0 && <span style={{ opacity: 0.6 }}>· {count}</span>}
+                            {t.replace('_', ' ')} {count > 0 && <span className="opacity-60">· {count}</span>}
                         </button>
                     );
                 })}
             </div>
 
             {loading ? (
-                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>Loading…</p>
+                <p className="text-[0.8rem] text-muted">Loading…</p>
             ) : shown.length === 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: 'var(--spacing-12) 0', color: 'var(--color-text-muted)' }}>
-                    <Brain size={28} style={{ opacity: 0.5 }} />
-                    <p style={{ fontSize: '0.85rem' }}>Nothing yet — Lumen learns as you chat.</p>
+                <div className="flex flex-col items-center gap-2 py-12 text-muted">
+                    <Brain size={28} className="opacity-50" />
+                    <p className="text-[0.85rem]">Nothing yet — Lumen learns as you chat.</p>
                 </div>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div className="flex flex-col gap-2">
                     {shown.map(m => (
-                        <div key={m.id} style={{
-                            display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px',
-                            background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-light)',
-                            borderRadius: 'var(--radius-md)',
-                        }}>
-                            <span style={{
-                                fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
-                                color: 'var(--color-accent)', background: 'var(--color-accent-light)',
-                                padding: '2px 6px', borderRadius: '4px', whiteSpace: 'nowrap', marginTop: '1px',
-                            }}>
+                        <div key={m.id} className="flex items-start gap-2.5 rounded-md border border-border-light bg-background-secondary px-3 py-2.5">
+                            <span className="mt-px whitespace-nowrap rounded-sm bg-accent-light px-1.5 py-0.5 text-[0.58rem] font-bold uppercase tracking-[0.04em] text-accent">
                                 {m.memory_type.replace('_', ' ')}
                             </span>
                             {editingId === m.id ? (
@@ -197,34 +177,34 @@ function MemoryPage() {
                                         onChange={(e) => setEditText(e.target.value)}
                                         autoFocus
                                         rows={2}
-                                        style={{ flex: 1, fontSize: '0.82rem', padding: '4px 6px', border: '1px solid var(--color-accent)', borderRadius: '4px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.4 }}
+                                        className="flex-1 resize-y rounded-sm border border-accent px-1.5 py-1 font-[inherit] text-[0.82rem] leading-[1.4]"
                                     />
-                                    <button onClick={() => saveEdit(m.id)} title="Save" style={{ border: 'none', background: 'none', color: 'var(--color-success)', cursor: 'pointer', padding: '0 2px', marginTop: '1px', display: 'flex' }}>
+                                    <button onClick={() => saveEdit(m.id)} title="Save" className="mt-px flex cursor-pointer border-none bg-transparent px-0.5 text-success">
                                         <Check size={15} />
                                     </button>
-                                    <button onClick={() => setEditingId(null)} title="Cancel" style={{ border: 'none', background: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', padding: '0 2px', marginTop: '1px', display: 'flex' }}>
+                                    <button onClick={() => setEditingId(null)} title="Cancel" className="mt-px flex cursor-pointer border-none bg-transparent px-0.5 text-muted hover:text-foreground">
                                         <X size={15} />
                                     </button>
                                 </>
                             ) : (
                                 <>
-                                    <span style={{ flex: 1, fontSize: '0.82rem', color: 'var(--color-text-primary)', lineHeight: 1.4 }}>
+                                    <span className="flex-1 text-[0.82rem] leading-[1.4] text-foreground">
                                         {m.content}
                                     </span>
-                                    <span title="Importance" style={{ fontSize: '0.68rem', color: 'var(--color-text-tertiary)', marginTop: '2px', whiteSpace: 'nowrap' }}>
+                                    <span title="Importance" className="mt-0.5 whitespace-nowrap text-[0.68rem] text-foreground-tertiary">
                                         ★ {m.importance.toFixed(0)}
                                     </span>
                                     <button
                                         onClick={() => { setEditingId(m.id); setEditText(m.content); }}
                                         title="Edit"
-                                        style={{ border: 'none', background: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', padding: '0 2px', marginTop: '1px', display: 'flex' }}
+                                        className="mt-px flex cursor-pointer border-none bg-transparent px-0.5 text-muted transition-colors hover:text-foreground"
                                     >
                                         <Pencil size={13} />
                                     </button>
                                     <button
                                         onClick={() => deleteMemory(m.id)}
                                         title="Forget this"
-                                        style={{ border: 'none', background: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', padding: '0 2px', marginTop: '1px', display: 'flex' }}
+                                        className="mt-px flex cursor-pointer border-none bg-transparent px-0.5 text-muted transition-colors hover:text-error"
                                     >
                                         <Trash2 size={14} />
                                     </button>

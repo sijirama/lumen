@@ -229,37 +229,17 @@ function SettingsPage() {
     }
 
     return (
-        <div className="animate-fade-in" style={{ paddingBottom: 'var(--spacing-12)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-6)' }}>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 600, letterSpacing: '-0.025em' }}>Settings</h2>
+        <div className="animate-fade-in pb-12">
+            <div className="mb-6 flex items-center justify-between">
+                <h2 className="text-xl font-semibold tracking-tight">Settings</h2>
                 {success && (
-                    <div style={{
-                        padding: '4px 12px',
-                        background: 'var(--color-bg-tertiary)',
-                        borderRadius: 'var(--radius-full)',
-                        color: 'var(--color-success)',
-                        fontSize: '0.75rem',
-                        fontWeight: 500,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                    }}>
+                    <div className="flex items-center gap-1.5 rounded-full bg-background-tertiary px-3 py-1 text-xs font-medium text-success">
                         <CheckCircle2 size={12} />
                         {success}
                     </div>
                 )}
                 {error && (
-                    <div style={{
-                        padding: '4px 12px',
-                        background: '#fce8e6',
-                        borderRadius: 'var(--radius-full)',
-                        color: 'var(--color-error)',
-                        fontSize: '0.75rem',
-                        fontWeight: 500,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                    }}>
+                    <div className="flex items-center gap-1.5 rounded-full bg-[#fce8e6] px-3 py-1 text-xs font-medium text-error">
                         <AlertCircle size={12} />
                         {error}
                     </div>
@@ -267,24 +247,17 @@ function SettingsPage() {
             </div>
 
             {/* General Settings */}
-            <section style={{ marginBottom: 'var(--spacing-6)' }}>
-                <h4 style={{
-                    fontSize: '0.75rem',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    color: 'var(--color-text-tertiary)',
-                    marginBottom: 'var(--spacing-2)',
-                    fontWeight: 600
-                }}>
+            <section className="mb-6">
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-foreground-tertiary">
                     General
                 </h4>
-                <div className="settings-card" style={{ padding: 'var(--spacing-3) var(--spacing-4)' }}>
+                <div className="settings-card px-4 py-3">
                     <div className="settings-row">
                         <div className="settings-row-info">
-                            <span className="settings-row-title" style={{ fontSize: '0.9rem' }}>Launch on Startup</span>
-                            <span className="settings-row-description" style={{ fontSize: '0.8rem' }}>Start Lumen automatically when you log in.</span>
+                            <span className="settings-row-title text-[0.9rem]">Launch on Startup</span>
+                            <span className="settings-row-description text-[0.8rem]">Start Lumen automatically when you log in.</span>
                         </div>
-                        <label className="switch" style={{ transform: 'scale(0.8)' }}>
+                        <label className="switch scale-[0.8]">
                             <input
                                 type="checkbox"
                                 checked={autostartEnabled}
@@ -298,45 +271,36 @@ function SettingsPage() {
             </section>
 
             {/* Profile */}
-            <section style={{ marginBottom: 'var(--spacing-6)' }}>
-                <h4 style={{
-                    fontSize: '0.75rem',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    color: 'var(--color-text-tertiary)',
-                    marginBottom: 'var(--spacing-2)',
-                    fontWeight: 600
-                }}>
+            <section className="mb-6">
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-foreground-tertiary">
                     Personalization
                 </h4>
-                <div className="settings-card" style={{ padding: 'var(--spacing-4)' }}>
-                    <div style={{ marginBottom: 'var(--spacing-3)' }}>
-                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Display Name</label>
+                <div className="settings-card p-4">
+                    <div className="mb-3">
+                        <label className="mb-1 block text-[0.8rem] font-medium text-foreground-secondary">Display Name</label>
                         <input
                             type="text"
-                            className="input"
+                            className="input px-2.5 py-1.5 text-[0.9rem]"
                             value={displayName}
                             onChange={(e) => setDisplayName(e.target.value)}
                             placeholder="Your name"
-                            style={{ fontSize: '0.9rem', padding: '6px 10px' }}
                         />
                     </div>
-                    <div style={{ marginBottom: 'var(--spacing-4)' }}>
-                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Home Location</label>
+                    <div className="mb-4">
+                        <label className="mb-1 block text-[0.8rem] font-medium text-foreground-secondary">Home Location</label>
                         <input
                             type="text"
-                            className="input"
+                            className="input px-2.5 py-1.5 text-[0.9rem]"
                             value={location}
                             onChange={(e) => setLocation(e.target.value)}
                             placeholder="e.g. Lagos, London"
-                            style={{ fontSize: '0.9rem', padding: '6px 10px' }}
                         />
-                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)', marginTop: '4px' }}>
+                        <div className="mt-1 text-xs text-foreground-tertiary">
                             Used for local weather updates.
                         </div>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                        <button className="btn btn-primary btn-sm" onClick={saveProfile} disabled={saving} style={{ fontSize: '0.8rem' }}>
+                    <div className="flex justify-end">
+                        <button className="btn btn-primary btn-sm text-[0.8rem]" onClick={saveProfile} disabled={saving}>
                             Save Changes
                         </button>
                     </div>
@@ -344,115 +308,70 @@ function SettingsPage() {
             </section>
 
             {/* Hotkey */}
-            <section style={{ marginBottom: 'var(--spacing-6)' }}>
-                <h4 style={{
-                    fontSize: '0.75rem',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    color: 'var(--color-text-tertiary)',
-                    marginBottom: 'var(--spacing-2)',
-                    fontWeight: 600
-                }}>
+            <section className="mb-6">
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-foreground-tertiary">
                     Shortcuts
                 </h4>
-                <div className="settings-card" style={{ padding: 'var(--spacing-4)' }}>
+                <div className="settings-card p-4">
 
                     {/* Main Activation */}
-                    <div style={{ marginBottom: 'var(--spacing-4)' }}>
-                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, marginBottom: '6px', color: 'var(--color-text-secondary)' }}>Activation Hotkey</label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{ display: 'flex', gap: '4px' }}>
+                    <div className="mb-4">
+                        <label className="mb-1.5 block text-[0.8rem] font-medium text-foreground-secondary">Activation Hotkey</label>
+                        <div className="flex items-center gap-2">
+                            <div className="flex gap-1">
                                 {['Super', 'Ctrl', 'Alt', 'Shift'].map(mod => (
                                     <button
                                         key={mod}
                                         onClick={() => toggleModifier(mod, true)}
-                                        style={{
-                                            padding: '4px 10px',
-                                            fontSize: '0.75rem',
-                                            borderRadius: '4px',
-                                            border: '1px solid',
-                                            borderColor: hotkeyModifiers.includes(mod) ? 'var(--color-accent)' : 'var(--color-border)',
-                                            background: hotkeyModifiers.includes(mod) ? 'var(--color-accent)' : 'transparent',
-                                            color: hotkeyModifiers.includes(mod) ? 'white' : 'var(--color-text-secondary)',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s'
-                                        }}
+                                        className={`cursor-pointer rounded-sm border px-2.5 py-1 text-xs transition-colors ${hotkeyModifiers.includes(mod) ? 'border-accent bg-accent text-white' : 'border-border bg-transparent text-foreground-secondary'}`}
                                     >
                                         {mod}
                                     </button>
                                 ))}
                             </div>
-                            <span style={{ color: 'var(--color-text-tertiary)', fontSize: '0.9rem' }}>+</span>
-                            <div style={{ position: 'relative' }}>
+                            <span className="text-[0.9rem] text-foreground-tertiary">+</span>
+                            <div className="relative">
                                 <input
                                     type="text"
                                     value={hotkeyKey}
                                     onChange={(e) => setHotkeyKey(e.target.value.toUpperCase())}
                                     maxLength={1}
-                                    style={{
-                                        width: '40px',
-                                        textAlign: 'center',
-                                        fontWeight: 'bold',
-                                        fontSize: '0.9rem',
-                                        padding: '4px',
-                                        borderRadius: '4px',
-                                        border: '1px solid var(--color-border)',
-                                        outline: 'none'
-                                    }}
+                                    className="w-10 rounded-sm border border-border p-1 text-center text-[0.9rem] font-bold outline-none"
                                 />
                             </div>
                         </div>
                     </div>
 
                     {/* Snipper Shortcut */}
-                    <div style={{ marginBottom: 'var(--spacing-3)' }}>
-                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, marginBottom: '6px', color: 'var(--color-text-secondary)' }}>Snipping Tool</label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{ display: 'flex', gap: '4px' }}>
+                    <div className="mb-3">
+                        <label className="mb-1.5 block text-[0.8rem] font-medium text-foreground-secondary">Snipping Tool</label>
+                        <div className="flex items-center gap-2">
+                            <div className="flex gap-1">
                                 {['Super', 'Ctrl', 'Alt', 'Shift'].map(mod => (
                                     <button
                                         key={mod}
                                         onClick={() => toggleModifier(mod, false)}
-                                        style={{
-                                            padding: '4px 10px',
-                                            fontSize: '0.75rem',
-                                            borderRadius: '4px',
-                                            border: '1px solid',
-                                            borderColor: snipperModifiers.includes(mod) ? 'var(--color-accent)' : 'var(--color-border)',
-                                            background: snipperModifiers.includes(mod) ? 'var(--color-accent)' : 'transparent',
-                                            color: snipperModifiers.includes(mod) ? 'white' : 'var(--color-text-secondary)',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s'
-                                        }}
+                                        className={`cursor-pointer rounded-sm border px-2.5 py-1 text-xs transition-colors ${snipperModifiers.includes(mod) ? 'border-accent bg-accent text-white' : 'border-border bg-transparent text-foreground-secondary'}`}
                                     >
                                         {mod}
                                     </button>
                                 ))}
                             </div>
-                            <span style={{ color: 'var(--color-text-tertiary)', fontSize: '0.9rem' }}>+</span>
-                            <div style={{ position: 'relative' }}>
+                            <span className="text-[0.9rem] text-foreground-tertiary">+</span>
+                            <div className="relative">
                                 <input
                                     type="text"
                                     value={snipperKey}
                                     onChange={(e) => setSnipperKey(e.target.value.toUpperCase())}
                                     maxLength={1}
-                                    style={{
-                                        width: '40px',
-                                        textAlign: 'center',
-                                        fontWeight: 'bold',
-                                        fontSize: '0.9rem',
-                                        padding: '4px',
-                                        borderRadius: '4px',
-                                        border: '1px solid var(--color-border)',
-                                        outline: 'none'
-                                    }}
+                                    className="w-10 rounded-sm border border-border p-1 text-center text-[0.9rem] font-bold outline-none"
                                 />
                             </div>
                         </div>
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: 'var(--spacing-3)' }}>
-                        <button className="btn btn-primary btn-sm" onClick={saveHotkey} disabled={saving} style={{ fontSize: '0.8rem' }}>
+                    <div className="mt-3 flex items-center justify-end">
+                        <button className="btn btn-primary btn-sm text-[0.8rem]" onClick={saveHotkey} disabled={saving}>
                             Update Shortcuts
                         </button>
                     </div>
@@ -460,49 +379,41 @@ function SettingsPage() {
             </section>
 
             {/* API Key */}
-            <section style={{ marginBottom: 'var(--spacing-6)' }}>
-                <h4 style={{
-                    fontSize: '0.75rem',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    color: 'var(--color-text-tertiary)',
-                    marginBottom: 'var(--spacing-2)',
-                    fontWeight: 600
-                }}>
+            <section className="mb-6">
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-foreground-tertiary">
                     Intelligence
                 </h4>
-                <div className="settings-card" style={{ padding: 'var(--spacing-4)' }}>
-                    <div className="settings-row" style={{ marginBottom: 'var(--spacing-3)' }}>
+                <div className="settings-card p-4">
+                    <div className="settings-row mb-3">
                         <div className="settings-row-info">
-                            <span className="settings-row-title" style={{ fontSize: '0.9rem' }}>Gemini API Key</span>
+                            <span className="settings-row-title text-[0.9rem]">Gemini API Key</span>
                         </div>
                         {geminiKeyConfigured && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--color-success)', fontSize: '0.75rem', fontWeight: 600, background: 'rgba(52, 168, 83, 0.1)', padding: '2px 8px', borderRadius: '4px' }}>
+                            <div className="flex items-center gap-1 rounded-sm bg-[rgba(52,168,83,0.1)] px-2 py-0.5 text-xs font-semibold text-success">
                                 Active
                             </div>
                         )}
                     </div>
 
-                    <div style={{ marginBottom: 'var(--spacing-3)' }}>
+                    <div className="mb-3">
                         <input
                             type="password"
-                            className="input"
+                            className="input px-2.5 py-1.5 font-mono text-[0.9rem]"
                             value={geminiApiKey}
                             onChange={(e) => setGeminiApiKey(e.target.value)}
                             placeholder={geminiKeyConfigured ? '••••••••••••••••••••••••' : 'Paste API Key'}
-                            style={{ fontSize: '0.9rem', padding: '6px 10px', fontFamily: 'monospace' }}
                         />
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="flex items-center justify-between">
                         <a
                             href="https://aistudio.google.com/apikey"
                             target="_blank"
                             rel="noreferrer"
-                            style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', textDecoration: 'none' }}
+                            className="text-xs text-foreground-secondary no-underline"
                         >
                             Get APi key
                         </a>
-                        <button className="btn btn-primary btn-sm" onClick={saveApiKey} disabled={saving || !geminiApiKey.trim()} style={{ fontSize: '0.8rem' }}>
+                        <button className="btn btn-primary btn-sm text-[0.8rem]" onClick={saveApiKey} disabled={saving || !geminiApiKey.trim()}>
                             Save Key
                         </button>
                     </div>
@@ -511,55 +422,34 @@ function SettingsPage() {
             </section>
 
             {/* Action Approvals */}
-            <section style={{ marginBottom: 'var(--spacing-6)' }}>
+            <section className="mb-6">
                 <button
                     onClick={() => setApprovalsOpen(o => !o)}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        width: '100%',
-                        background: 'none',
-                        border: 'none',
-                        padding: '0 0 var(--spacing-2) 0',
-                        cursor: 'pointer',
-                    }}
+                    className="flex w-full cursor-pointer items-center justify-between border-none bg-transparent pb-2"
                 >
-                    <h4 style={{
-                        fontSize: '0.75rem',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                        color: 'var(--color-text-tertiary)',
-                        fontWeight: 600,
-                        margin: 0,
-                    }}>
+                    <h4 className="m-0 text-xs font-semibold uppercase tracking-wider text-foreground-tertiary">
                         Action Approvals
                     </h4>
                     <ChevronDown
                         size={14}
-                        style={{
-                            color: 'var(--color-text-tertiary)',
-                            transform: approvalsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                            transition: 'transform 0.2s',
-                        }}
+                        className={`text-foreground-tertiary transition-transform ${approvalsOpen ? 'rotate-180' : 'rotate-0'}`}
                     />
                 </button>
                 {approvalsOpen && (
-                    <div className="settings-card" style={{ padding: 'var(--spacing-3) var(--spacing-4)' }}>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)', marginBottom: 'var(--spacing-3)', lineHeight: 1.4 }}>
+                    <div className="settings-card px-4 py-3">
+                        <p className="mb-3 text-xs leading-[1.4] text-foreground-tertiary">
                             When enabled, Lumen will ask for your confirmation before running that tool.
                         </p>
                         {ALL_TOOLS.map(({ key, label, description }, i) => (
                             <div
                                 key={key}
-                                className="settings-row"
-                                style={i < ALL_TOOLS.length - 1 ? { marginBottom: 'var(--spacing-3)' } : {}}
+                                className={`settings-row ${i < ALL_TOOLS.length - 1 ? 'mb-3' : ''}`}
                             >
                                 <div className="settings-row-info">
-                                    <span className="settings-row-title" style={{ fontSize: '0.875rem' }}>{label}</span>
-                                    <span className="settings-row-description" style={{ fontSize: '0.78rem' }}>{description}</span>
+                                    <span className="settings-row-title text-sm">{label}</span>
+                                    <span className="settings-row-description text-[0.78rem]">{description}</span>
                                 </div>
-                                <label className="switch" style={{ transform: 'scale(0.8)', flexShrink: 0 }}>
+                                <label className="switch scale-[0.8] shrink-0">
                                     <input
                                         type="checkbox"
                                         checked={approvals[key] ?? false}
@@ -575,18 +465,11 @@ function SettingsPage() {
 
             {/* Data */}
             <section>
-                <div className="settings-card" style={{ padding: 'var(--spacing-3)', background: 'transparent', border: 'none', boxShadow: 'none' }}>
-                    <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '4px' }}>
+                <div className="settings-card border-none bg-transparent p-3 shadow-none">
+                    <p className="mb-1 text-xs text-muted">
                         Database Location
                     </p>
-                    <code style={{
-                        display: 'inline-block',
-                        fontSize: '0.7rem',
-                        color: 'var(--color-text-tertiary)',
-                        background: 'rgba(0,0,0,0.03)',
-                        padding: '4px 6px',
-                        borderRadius: '4px',
-                    }}>
+                    <code className="inline-block rounded-sm bg-[rgba(0,0,0,0.03)] px-1.5 py-1 text-[0.7rem] text-foreground-tertiary">
                         {databasePath}
                     </code>
                 </div>

@@ -172,63 +172,40 @@ function IntegrationsPage() {
     const vaultPath = getVaultPath();
 
     return (
-        <div className="animate-fade-in" style={{ paddingBottom: 'var(--spacing-12)' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, letterSpacing: '-0.025em', marginBottom: 'var(--spacing-6)' }}>Integrations</h2>
+        <div className="animate-fade-in pb-12">
+            <h2 className="mb-6 text-xl font-semibold tracking-tight">Integrations</h2>
 
             {error && (
-                <div style={{
-                    padding: '4px 12px',
-                    background: '#fce8e6',
-                    borderRadius: 'var(--radius-full)',
-                    color: 'var(--color-error)',
-                    fontSize: '0.75rem',
-                    fontWeight: 500,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    marginBottom: 'var(--spacing-4)'
-                }}>
+                <div className="mb-4 flex items-center gap-1.5 rounded-full bg-[#fce8e6] px-3 py-1 text-xs font-medium text-error">
                     <AlertCircle size={12} />
                     {error}
                 </div>
             )}
 
             {/* Google Services */}
-            <div className="settings-card" style={{ padding: '0', marginBottom: 'var(--spacing-4)', overflow: 'hidden' }}>
+            <div className="settings-card mb-4 overflow-hidden p-0">
                 <div
                     onClick={() => toggleExpand('google')}
-                    style={{
-                        padding: 'var(--spacing-4)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 'var(--spacing-3)',
-                        cursor: 'pointer',
-                        justifyContent: 'space-between'
-                    }}
+                    className="flex cursor-pointer items-center justify-between gap-3 p-4"
                 >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-                        <div style={{
-                            width: '36px', height: '36px',
-                            background: 'var(--color-bg-tertiary)',
-                            borderRadius: '8px',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center'
-                        }}>
+                    <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-background-tertiary">
                             <GoogleIcon />
                         </div>
                         <div>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 500 }}>Google Workspace</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
+                            <div className="text-[0.9rem] font-medium">Google Workspace</div>
+                            <div className="text-xs text-foreground-secondary">
                                 Connect Gmail and Calendar for context awareness.
                             </div>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
+                    <div className="flex items-center gap-3">
                         {google?.enabled && (
-                            <div style={{ fontSize: '0.7rem', color: 'var(--color-success)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <div className="flex items-center gap-1 text-[0.7rem] font-medium text-success">
                                 <Check size={12} /> Active
                             </div>
                         )}
-                        <label className="switch" style={{ transform: 'scale(0.8)' }} onClick={(e) => e.stopPropagation()}>
+                        <label className="switch scale-[0.8]" onClick={(e) => e.stopPropagation()}>
                             <input
                                 type="checkbox"
                                 checked={google?.enabled || false}
@@ -241,22 +218,18 @@ function IntegrationsPage() {
                 </div>
 
                 {expandedMap['google'] && (
-                    <div style={{
-                        padding: 'var(--spacing-4)',
-                        background: 'var(--color-bg-secondary)',
-                        borderTop: '1px solid var(--color-border-light)'
-                    }}>
+                    <div className="border-t border-border-light bg-background-secondary p-4">
                         {!google?.enabled ? (
                             <div className="config-section">
-                                <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 'var(--spacing-2)' }}>API Configuration</div>
-                                <p style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-3)' }}>
+                                <div className="mb-2 text-[0.8rem] font-semibold">API Configuration</div>
+                                <p className="mb-3 text-xs text-foreground-secondary">
                                     Lumen uses local OAuth authentication. You need to provide your own Google Cloud Project credentials.
                                 </p>
                                 <details className="setup-details">
                                     <summary>How to get these credentials</summary>
                                     <ol>
                                         <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer">console.cloud.google.com</a> and create a new project (or pick an existing one).</li>
-                                        <li><strong>APIs & Services → Library</strong> → enable <em>Gmail API</em>, <em>Google Calendar API</em>, and <em>Tasks API</em>.</li>
+                                        <li><strong>APIs & Services → Library</strong> → enable <em>Gmail API</em> and <em>Google Calendar API</em>.</li>
                                         <li><strong>APIs & Services → OAuth consent screen</strong> → choose <em>External</em>, fill in the basics, and add your own Google account as a test user.</li>
                                         <li><strong>APIs & Services → Credentials → Create credentials → OAuth client ID</strong>. Application type: <em>Web application</em>.</li>
                                         <li>Under <em>Authorized redirect URIs</em>, add exactly: <code>http://127.0.0.1:18247</code></li>
@@ -264,35 +237,32 @@ function IntegrationsPage() {
                                     </ol>
                                     <p className="setup-note">Tip: the redirect URI must match exactly — no trailing slash, no http<strong>s</strong>.</p>
                                 </details>
-                                <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+                                <div className="grid gap-3">
                                     <div>
-                                        <label className="input-label" style={{ marginBottom: '4px', display: 'block' }}>Client ID</label>
+                                        <label className="input-label mb-1 block">Client ID</label>
                                         <input
                                             type="text"
-                                            className="input"
+                                            className="input p-1.5 text-[0.8rem]"
                                             value={googleClientId}
                                             onChange={(e) => setGoogleClientId(e.target.value)}
                                             placeholder="apps.googleusercontent.com"
-                                            style={{ fontSize: '0.8rem', padding: '6px' }}
                                         />
                                     </div>
                                     <div>
-                                        <label className="input-label" style={{ marginBottom: '4px', display: 'block' }}>Client Secret</label>
+                                        <label className="input-label mb-1 block">Client Secret</label>
                                         <input
                                             type="password"
-                                            className="input"
+                                            className="input p-1.5 text-[0.8rem]"
                                             value={googleClientSecret}
                                             onChange={(e) => setGoogleClientSecret(e.target.value)}
                                             placeholder="Client Secret"
-                                            style={{ fontSize: '0.8rem', padding: '6px' }}
                                         />
                                     </div>
-                                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--spacing-2)' }}>
+                                    <div className="mt-2 flex justify-end">
                                         <button
-                                            className="btn btn-primary btn-sm"
+                                            className="btn btn-primary btn-sm text-[0.8rem]"
                                             onClick={handleGoogleAuth}
                                             disabled={isAuthenticating}
-                                            style={{ fontSize: '0.8rem' }}
                                         >
                                             {isAuthenticating ? 'Authenticating...' : 'Connect Account'}
                                         </button>
@@ -300,8 +270,8 @@ function IntegrationsPage() {
                                 </div>
                             </div>
                         ) : (
-                            <div style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
-                                Connected as user. <span style={{ textDecoration: 'underline', cursor: 'pointer' }} onClick={() => toggleGoogle(false)}>Disconnect</span>
+                            <div className="text-[0.8rem] text-foreground-secondary">
+                                Connected as user. <span className="cursor-pointer underline" onClick={() => toggleGoogle(false)}>Disconnect</span>
                             </div>
                         )}
                     </div>
@@ -309,41 +279,29 @@ function IntegrationsPage() {
             </div>
 
             {/* Obsidian */}
-            <div className="settings-card" style={{ padding: '0', marginBottom: 'var(--spacing-4)', overflow: 'hidden' }}>
+            <div className="settings-card mb-4 overflow-hidden p-0">
                 <div
                     onClick={() => toggleExpand('obsidian')}
-                    style={{
-                        padding: 'var(--spacing-4)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 'var(--spacing-3)',
-                        cursor: 'pointer',
-                        justifyContent: 'space-between'
-                    }}
+                    className="flex cursor-pointer items-center justify-between gap-3 p-4"
                 >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-                        <div style={{
-                            width: '36px', height: '36px',
-                            background: 'var(--color-bg-tertiary)',
-                            borderRadius: '8px',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center'
-                        }}>
+                    <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-background-tertiary">
                             <ObsidianIcon />
                         </div>
                         <div>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 500 }}>Obsidian</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
+                            <div className="text-[0.9rem] font-medium">Obsidian</div>
+                            <div className="text-xs text-foreground-secondary">
                                 Index your local vault for knowledge retrieval.
                             </div>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
+                    <div className="flex items-center gap-3">
                         {obsidian?.enabled && (
-                            <div style={{ fontSize: '0.7rem', color: 'var(--color-success)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <div className="flex items-center gap-1 text-[0.7rem] font-medium text-success">
                                 <Check size={12} /> Active
                             </div>
                         )}
-                        <label className="switch" style={{ transform: 'scale(0.8)' }} onClick={(e) => e.stopPropagation()}>
+                        <label className="switch scale-[0.8]" onClick={(e) => e.stopPropagation()}>
                             <input
                                 type="checkbox"
                                 checked={obsidian?.enabled || false}
@@ -356,41 +314,28 @@ function IntegrationsPage() {
                 </div>
 
                 {expandedMap['obsidian'] && obsidian?.enabled && (
-                    <div style={{
-                        padding: 'var(--spacing-4)',
-                        background: 'var(--color-bg-secondary)',
-                        borderTop: '1px solid var(--color-border-light)'
-                    }}>
+                    <div className="border-t border-border-light bg-background-secondary p-4">
                         <div className="config-section">
-                            <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 'var(--spacing-2)' }}>Vault Settings</div>
-                            <div style={{
-                                background: 'var(--color-bg-primary)',
-                                padding: '8px',
-                                borderRadius: '4px',
-                                border: '1px solid var(--color-border)',
-                                fontSize: '0.75rem',
-                                marginBottom: 'var(--spacing-3)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-                            }}>
-                                <span style={{ color: 'var(--color-text-secondary)' }}>{vaultPath}</span>
-                                <button style={{ border: 'none', background: 'none', color: 'var(--color-accent)', cursor: 'pointer', fontSize: '0.75rem' }} onClick={selectObsidianVault}>Change</button>
+                            <div className="mb-2 text-[0.8rem] font-semibold">Vault Settings</div>
+                            <div className="mb-3 flex items-center justify-between rounded-sm border border-border bg-background p-2 text-xs">
+                                <span className="text-foreground-secondary">{vaultPath}</span>
+                                <button className="cursor-pointer border-none bg-transparent text-xs text-accent" onClick={selectObsidianVault}>Change</button>
                             </div>
 
-                            <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+                            <div className="grid gap-3">
                                 <div>
-                                    <label className="input-label" style={{ marginBottom: '4px', display: 'block' }}>Daily Notes Folder</label>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                    <label className="input-label mb-1 block">Daily Notes Folder</label>
+                                    <div className="flex gap-2">
                                         <input
                                             type="text"
                                             readOnly
-                                            className="input"
-                                            style={{ fontSize: '0.8rem', padding: '6px', flex: 1 }}
+                                            className="input flex-1 p-1.5 text-[0.8rem]"
                                             value={(() => {
                                                 try { return JSON.parse(obsidian.config || '{}').daily_notes_path || '' } catch { return '' }
                                             })()}
                                             placeholder="Root"
                                         />
-                                        <button className="btn btn-sm" style={{ fontSize: '0.75rem' }} onClick={async () => {
+                                        <button className="btn btn-sm text-xs" onClick={async () => {
                                             try {
                                                 const selected = await open({ directory: true, multiple: false, title: 'Select Daily Notes Folder', defaultPath: vaultPath || undefined });
                                                 if (selected && typeof selected === 'string') {
