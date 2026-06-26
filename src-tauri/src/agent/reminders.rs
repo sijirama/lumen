@@ -29,7 +29,7 @@ pub async fn start_reminder_daemon(app: AppHandle, db: Database) {
     let reminder_manager = app.state::<ReminderManager>();
     let notify = reminder_manager.notify.clone();
 
-    println!("DEBUG: 🔔 Reminder daemon started.");
+    crate::applog!("DEBUG: 🔔 Reminder daemon started.");
 
     loop {
         // 1. Get the next upcoming reminder
@@ -60,7 +60,7 @@ pub async fn start_reminder_daemon(app: AppHandle, db: Database) {
                 
                 if due_at <= now {
                     // Trigger notification immediately
-                    println!("DEBUG: 🔔 Triggering reminder: {}", reminder.content);
+                    crate::applog!("DEBUG: 🔔 Triggering reminder: {}", reminder.content);
                     
                     let _ = app.notification()
                         .builder()
@@ -75,7 +75,7 @@ pub async fn start_reminder_daemon(app: AppHandle, db: Database) {
                     let _ = app.emit("reminders-updated", ());
                 } else {
                     let sleep_duration = (due_at - now).to_std().unwrap_or(Duration::from_secs(1));
-                    println!("DEBUG: 🔔 Next reminder in {:?}: {}", sleep_duration, reminder.content);
+                    crate::applog!("DEBUG: 🔔 Next reminder in {:?}: {}", sleep_duration, reminder.content);
                     
                     // Sleep until either the reminder is due OR we get a notification boost
                     tokio::select! {
@@ -84,16 +84,16 @@ pub async fn start_reminder_daemon(app: AppHandle, db: Database) {
                         }
                         _ = notify.notified() => {
                             // Something changed in the DB, restart the loop to re-scan
-                            println!("DEBUG: 🔔 Reminder list updated, re-scanning...");
+                            crate::applog!("DEBUG: 🔔 Reminder list updated, re-scanning...");
                         }
                     }
                 }
             },
             None => {
                 // No reminders, wait indefinitely until notified
-                println!("DEBUG: 🔔 No upcoming reminders. Sleeping...");
+                crate::applog!("DEBUG: 🔔 No upcoming reminders. Sleeping...");
                 notify.notified().await;
-                println!("DEBUG: 🔔 Waking up to check new reminders...");
+                crate::applog!("DEBUG: 🔔 Waking up to check new reminders...");
             }
         }
     }

@@ -1,12 +1,26 @@
 //INFO: Lumen Library - Main entry point for the Tauri application
 //NOTE: This file wires together all modules and registers Tauri commands
 
+//INFO: Drop-in replacement for `println!` that ALSO tees the formatted line into
+//      the in-memory log ring buffer (see `logbuf`), so the `view_runtime_logs`
+//      tool can surface recent execution/errors to Lumen for self-debugging.
+//      Same call signature as println! — migrate a log site by swapping the name.
+#[macro_export]
+macro_rules! applog {
+    ($($arg:tt)*) => {{
+        let __line = format!($($arg)*);
+        println!("{}", __line);
+        $crate::logbuf::push(__line);
+    }};
+}
+
 pub mod agent;
 pub mod commands;
 pub mod crypto;
 pub mod database;
 pub mod gemini;
 pub mod integrations;
+pub mod logbuf;
 pub mod memory;
 pub mod oauth;
 

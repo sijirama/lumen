@@ -3,22 +3,25 @@
 //      settings and integrations. No dashboard / digest page anymore.
 
 import { useState } from 'react';
-import { Settings, Plug, Brain } from 'lucide-react';
+import { Settings, Plug, Brain, Cat } from 'lucide-react';
 import SettingsPage from '../pages/Settings';
 import IntegrationsPage from '../pages/Integrations';
 import MemoryPage from '../pages/Memory';
+import CatView from '../pages/CatView';
 
 interface MainWindowProps {
     userName: string | null;
 }
 
-type PageType = 'settings' | 'integrations' | 'memory';
+type PageType = 'cat' | 'settings' | 'integrations' | 'memory';
 
 function MainWindow({ userName: _userName }: MainWindowProps) {
-    const [activePage, setActivePage] = useState<PageType>('settings');
+    const [activePage, setActivePage] = useState<PageType>('cat');
 
     const renderPage = () => {
         switch (activePage) {
+            case 'cat':
+                return <CatView />;
             case 'settings':
                 return <SettingsPage />;
             case 'integrations':
@@ -26,12 +29,14 @@ function MainWindow({ userName: _userName }: MainWindowProps) {
             case 'memory':
                 return <MemoryPage />;
             default:
-                return <SettingsPage />;
+                return <CatView />;
         }
     };
 
+    const isChat = activePage === 'cat';
+
     return (
-        <div className="app-layout with-app-bg">
+        <div className={`app-layout with-app-bg${isChat ? ' app-layout--chat' : ''}`}>
             <header className="app-header">
                 <div className="header-container">
                     <div className="app-logo">
@@ -41,6 +46,13 @@ function MainWindow({ userName: _userName }: MainWindowProps) {
                     </div>
 
                     <nav className="app-nav">
+                        <button
+                            className={`nav-link ${activePage === 'cat' ? 'active' : ''}`}
+                            onClick={() => setActivePage('cat')}
+                        >
+                            <Cat size={14} style={{ marginRight: '4px' }} />
+                            Chat
+                        </button>
                         <button
                             className={`nav-link ${activePage === 'settings' ? 'active' : ''}`}
                             onClick={() => setActivePage('settings')}
@@ -66,7 +78,7 @@ function MainWindow({ userName: _userName }: MainWindowProps) {
                 </div>
             </header>
 
-            <main className="app-main">
+            <main className={`app-main${isChat ? ' app-main--chat' : ''}`}>
                 {renderPage()}
             </main>
         </div>

@@ -15,7 +15,7 @@ impl ClipboardHandler for Handler {
             if let Ok(text) = clipboard.get_text() {
                 let trimmed = text.trim();
                 if !trimmed.is_empty() && trimmed != self.last_content {
-                    println!("📋 Clipboard Manager: Event received! Surgical capture initiated ({} chars)", trimmed.len());
+                    crate::applog!("📋 Clipboard Manager: Event received! Surgical capture initiated ({} chars)", trimmed.len());
 
                     let connection = self.database.connection.lock();
                     if let Err(e) = queries::save_clipboard_item(&connection, trimmed, "text") {
@@ -27,9 +27,9 @@ impl ClipboardHandler for Handler {
                     // 🧠 Latent Memory Extraction Hook (mod-5 threshold for testing)
                     const CLIPBOARD_EXTRACTION_THRESHOLD: i64 = 15;
                     if let Ok(count) = queries::count_clipboard_items(&connection) {
-                        println!("DEBUG: 🧠 PULSE: Clipboard history count: {}. (Threshold: {})", count, CLIPBOARD_EXTRACTION_THRESHOLD);
+                        crate::applog!("DEBUG: 🧠 PULSE: Clipboard history count: {}. (Threshold: {})", count, CLIPBOARD_EXTRACTION_THRESHOLD);
                         if count > 0 && count % CLIPBOARD_EXTRACTION_THRESHOLD == 0 {
-                            println!("DEBUG: 🧠 TRIGGER: Clipboard memory extraction triggered! Initializing background task...");
+                            crate::applog!("DEBUG: 🧠 TRIGGER: Clipboard memory extraction triggered! Initializing background task...");
                             
                             let db_clone = self.database.clone();
                             // Grab last 15 items for batching
@@ -56,7 +56,7 @@ impl ClipboardHandler for Handler {
                                         };
                                         let prompt = crate::memory::extractor::build_clipboard_extraction_prompt(&items_text, &user_name);
                                         
-                                        println!("DEBUG: 🧠 Processing clipboard memories via Gemini...");
+                                        crate::applog!("DEBUG: 🧠 Processing clipboard memories via Gemini...");
                                         let result = client.send_chat(
                                             vec![crate::gemini::client::GeminiContent {
                                                 role: Some("user".to_string()),
@@ -74,7 +74,7 @@ impl ClipboardHandler for Handler {
                                         if let Ok(resp) = result {
                                             let text = resp.parts.iter().filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
                                             if let Ok(mut memories) = crate::memory::extractor::parse_extracted_memories(&text) {
-                                                println!("DEBUG: 🧠 Extracted {} memories from clipboard!", memories.len());
+                                                crate::applog!("DEBUG: 🧠 Extracted {} memories from clipboard!", memories.len());
                                                 for memory in &mut memories {
                                                     // Embed and Store
                                                     if let Ok(emb) = client.generate_embedding(&memory.content).await {
@@ -82,7 +82,7 @@ impl ClipboardHandler for Handler {
                                                         let conn = db_clone.connection.lock();
                                                         let _ = crate::memory::core::store_memory(&conn, memory);
                                                         let memory_snippet = memory.content.chars().take(60).collect::<String>();
-                                                        println!("DEBUG: 🧠 Stored clipboard memory: {}", memory_snippet);
+                                                        crate::applog!("DEBUG: 🧠 Stored clipboard memory: {}", memory_snippet);
                                                     }
                                                 }
                                             }
@@ -105,7 +105,7 @@ impl ClipboardHandler for Handler {
 }
 
 pub async fn start_clipboard_manager(database: Database) {
-    println!("📋 Clipboard Manager: Switched to event-driven mode. No polling, just vibes. ✨");
+    crate::applog!("📋 Clipboard Manager: Switched to event-driven mode. No polling, just vibes. ✨");
 
     let handler = Handler {
         database,

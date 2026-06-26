@@ -92,12 +92,12 @@ pub fn initialize_database(connection: &Connection) -> Result<()> {
             .collect();
 
         if !columns.iter().any(|n| n == "citations") {
-            println!("DEBUG: 🛠️ Migrating chat_messages table (adding citations column)");
+            crate::applog!("DEBUG: 🛠️ Migrating chat_messages table (adding citations column)");
             connection.execute("ALTER TABLE chat_messages ADD COLUMN citations TEXT", [])
                 .context("Failed to migrate chat_messages table (adding citations column)")?;
         }
         if !columns.iter().any(|n| n == "tool_invocations") {
-            println!("DEBUG: 🛠️ Migrating chat_messages table (adding tool_invocations column)");
+            crate::applog!("DEBUG: 🛠️ Migrating chat_messages table (adding tool_invocations column)");
             connection.execute("ALTER TABLE chat_messages ADD COLUMN tool_invocations TEXT", [])
                 .context("Failed to migrate chat_messages table (adding tool_invocations column)")?;
         }

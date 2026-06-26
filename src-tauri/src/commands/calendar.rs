@@ -18,7 +18,7 @@ pub async fn get_calendar_events_for_range(
         Err(e) => {
             // Fallback: check if we have them cached in DB for this range?
             // For now, if Google fails/is-unconfigured, we just return empty list to keep frontend happy
-            println!("Calendar fetch error: {}", e);
+            crate::applog!("Calendar fetch error: {}", e);
             Ok(vec![])
         }
     }

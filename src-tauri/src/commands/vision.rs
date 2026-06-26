@@ -41,7 +41,7 @@ pub async fn capture_primary_screen() -> Result<String, String> {
         let (raw_w, raw_h) = (raw.width(), raw.height());
         let resized = downscale_if_huge(DynamicImage::ImageRgba8(raw));
         let b64 = encode_png_b64(&resized)?;
-        println!(
+        crate::applog!(
             "Captured screen ({}x{} → {}x{}, {} KB b64) in {:?}",
             raw_w, raw_h,
             resized.width(), resized.height(),
@@ -113,7 +113,7 @@ pub async fn close_snipper(app: AppHandle) -> Result<(), String> {
         overlay.show().map_err(|e| e.to_string())?;
         //INFO: Ensure overlay returns to its correct position
         if let Err(e) = crate::commands::window::position_overlay_bottom_left(&overlay) {
-            println!("Failed to position overlay: {}", e);
+            crate::applog!("Failed to position overlay: {}", e);
         }
         overlay.set_focus().map_err(|e| e.to_string())?;
     }

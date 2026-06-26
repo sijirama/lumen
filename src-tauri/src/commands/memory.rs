@@ -34,7 +34,9 @@ pub fn get_memories(
 #[tauri::command]
 pub fn delete_memory(database: State<Database>, id: String) -> Result<(), String> {
     let connection = database.connection.lock();
-    core::delete_memory(&connection, &id).map_err(|e| format!("Failed to delete memory: {}", e))
+    core::delete_memory(&connection, &id)
+        .map(|_| ())
+        .map_err(|e| format!("Failed to delete memory: {}", e))
 }
 
 //INFO: Forgets everything — wipes all memories and embeddings.
@@ -90,5 +92,6 @@ pub async fn update_memory(
 
     let conn = db.connection.lock();
     core::update_memory_content(&conn, &id, &content, embedding.as_deref())
+        .map(|_| ())
         .map_err(|e| format!("Failed to update memory: {}", e))
 }

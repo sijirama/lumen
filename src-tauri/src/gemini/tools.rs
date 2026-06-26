@@ -67,6 +67,10 @@ fn registry() -> &'static [ToolDef] {
         ToolDef { name: "set_reminder",          category: ToolCategory::Core, mode: ToolMode::Async, build: decl_set_reminder },
         ToolDef { name: "retrieve_past_memories",category: ToolCategory::Core, mode: ToolMode::Async, build: decl_retrieve_past_memories },
         ToolDef { name: "remember_this",         category: ToolCategory::Core, mode: ToolMode::Async, build: decl_remember_this },
+        ToolDef { name: "search_memories",       category: ToolCategory::Core, mode: ToolMode::Async, build: decl_search_memories },
+        ToolDef { name: "edit_memory",           category: ToolCategory::Core, mode: ToolMode::Async, build: decl_edit_memory },
+        ToolDef { name: "forget_memory",         category: ToolCategory::Core, mode: ToolMode::Async, build: decl_forget_memory },
+        ToolDef { name: "view_runtime_logs",     category: ToolCategory::Core, mode: ToolMode::Sync,  build: decl_view_runtime_logs },
 
         // --- Google (gated by `google_enabled`) ---
         ToolDef { name: "get_google_calendar_events", category: ToolCategory::Google, mode: ToolMode::Async, build: decl_get_google_calendar_events },
@@ -504,6 +508,63 @@ fn decl_remember_this() -> GeminiFunctionDeclaration {
     }
 }
 
+fn decl_search_memories() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "search_memories".into(),
+        description: "Search your own long-term memory and get back the matching entries WITH their ids, so you can curate them (edit_memory / forget_memory). Use this when the user asks you to review, correct, update, or delete something you remember ('what do you remember about my job?', 'that's wrong, fix it', 'forget that'). Distinct from retrieve_past_memories, which is for silently recalling context to answer a question — use search_memories when memory itself is the subject and you may change it.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "What to look for — a topic, person, or preference (e.g. 'where the user works', 'coffee preference')." }
+            },
+            "required": ["query"]
+        })),
+    }
+}
+
+fn decl_edit_memory() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "edit_memory".into(),
+        description: "Correct or update the text of an existing memory. Get the memory's id from search_memories FIRST. Use when a remembered fact is wrong or out of date ('actually I moved to Berlin', 'update that — I switched jobs'). This rewrites the memory and re-indexes it so future recall is accurate.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "id":      { "type": "string", "description": "The id of the memory to edit (from search_memories)." },
+                "content": { "type": "string", "description": "The new, corrected text as a standalone sentence." }
+            },
+            "required": ["id", "content"]
+        })),
+    }
+}
+
+fn decl_forget_memory() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "forget_memory".into(),
+        description: "Permanently delete a single memory. Get its id from search_memories FIRST. Use when the user asks you to forget something specific ('forget that I said that', 'delete what you know about X'). Irreversible — only delete the memory the user actually meant.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "description": "The id of the memory to delete (from search_memories)." }
+            },
+            "required": ["id"]
+        })),
+    }
+}
+
+fn decl_view_runtime_logs() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "view_runtime_logs".into(),
+        description: "Read your OWN recent runtime logs (tool calls, results, errors, timings, API activity) to debug yourself. Call this when the user reports a bug or asks 'why did that fail / what just went wrong', or when you need to inspect what happened internally on recent turns. Returns the most recent log lines, oldest first.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "filter": { "type": "string", "description": "Optional case-insensitive substring to narrow the logs (e.g. 'error', 'Tool', a tool name, 'memory'). Omit for everything recent." },
+                "limit":  { "type": "integer", "minimum": 1, "maximum": 500, "description": "Max number of recent lines to return (default 100)." }
+            }
+        })),
+    }
+}
+
 // =============================================================================
 // Validation helpers — surface clear errors back to the model so it can correct
 // =============================================================================
@@ -742,6 +803,24 @@ pub fn execute_tool_sync(
                 Err(e) => json!({ "error": format!("Failed to get metadata: {}", e) }),
             }
         }
+        "view_runtime_logs" => {
+            let filter = args
+                .get("filter")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let limit = args
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(100)
+                .clamp(1, 500) as usize;
+            let lines = crate::logbuf::tail(limit, filter);
+            if lines.is_empty() {
+                json!({ "message": "No matching log lines in the buffer yet." })
+            } else {
+                json!({ "count": lines.len(), "log_lines": lines })
+            }
+        }
         _ => json!({ "error": format!("Unknown synchronous tool: {}", name) }),
     };
 
@@ -890,14 +969,14 @@ pub async fn execute_tool_async(
             };
             let memory_client = crate::gemini::client::GeminiClient::new(api_key);
 
-            println!("DEBUG: 🧠 Tool 'retrieve_past_memories' invoked for: '{}'", query);
+            crate::applog!("DEBUG: 🧠 Tool 'retrieve_past_memories' invoked for: '{}'", query);
 
             let value = match memory_client.generate_embedding(query).await {
                 Ok(embedding) => {
                     let connection = database.connection.lock();
                     match crate::memory::core::retrieve_memories(&connection, &embedding, 50) {
                         Ok(memories) if !memories.is_empty() => {
-                            println!("DEBUG: 🧠 Retrieved {} memories for query.", memories.len());
+                            crate::applog!("DEBUG: 🧠 Retrieved {} memories for query.", memories.len());
                             let memory_context = crate::memory::core::format_memories_for_prompt(&memories);
                             for m in &memories {
                                 let _ = crate::memory::core::update_memory_access(&connection, &m.id);
@@ -909,7 +988,7 @@ pub async fn execute_tool_async(
                     }
                 }
                 Err(e) => {
-                    println!("DEBUG: 🧠 Embedding Generation Failed! Error: {:#?}", e);
+                    crate::applog!("DEBUG: 🧠 Embedding Generation Failed! Error: {:#?}", e);
                     json!({ "error": format!("Failed to generate embedding for memory search: {}", e) })
                 }
             };
@@ -942,7 +1021,7 @@ pub async fn execute_tool_async(
             // Embed so the new memory is retrievable; store anyway if embedding fails.
             match client.generate_embedding(&content).await {
                 Ok(emb) => memory.embedding = Some(emb),
-                Err(e) => println!("DEBUG: 🧠 remember_this embed failed (storing without): {}", e),
+                Err(e) => crate::applog!("DEBUG: 🧠 remember_this embed failed (storing without): {}", e),
             }
 
             let connection = database.connection.lock();
@@ -954,6 +1033,83 @@ pub async fn execute_tool_async(
             let value = match crate::memory::core::store_memory(&connection, &memory) {
                 Ok(_) => json!({ "status": "saved", "message": format!("Saved to memory: {}", content) }),
                 Err(e) => json!({ "error": format!("Failed to save memory: {}", e) }),
+            };
+            ToolResult::ok(value)
+        }
+        "search_memories" => {
+            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            if query.is_empty() {
+                return ToolResult::ok(json!({ "error": "Field 'query' is required." }));
+            }
+            let api_key = {
+                let connection = database.connection.lock();
+                match crate::database::queries::get_api_token(&connection, "gemini") {
+                    Ok(Some(enc)) => match crate::crypto::decrypt_token(&enc) {
+                        Ok(k) => k,
+                        Err(_) => return ToolResult::ok(json!({ "error": "Failed to decrypt Gemini API key." })),
+                    },
+                    _ => return ToolResult::ok(json!({ "error": "Gemini API key not found." })),
+                }
+            };
+            let client = crate::gemini::client::GeminiClient::new(api_key);
+            let value = match client.generate_embedding(&query).await {
+                Ok(embedding) => {
+                    let connection = database.connection.lock();
+                    match crate::memory::core::retrieve_memories(&connection, &embedding, 15) {
+                        Ok(memories) if !memories.is_empty() => {
+                            let items: Vec<serde_json::Value> = memories.iter().map(|m| json!({
+                                "id": m.id,
+                                "type": m.memory_type.as_str(),
+                                "importance": m.importance,
+                                "content": m.content,
+                            })).collect();
+                            json!({ "memories": items, "hint": "Pass an id to edit_memory or forget_memory to curate." })
+                        }
+                        Ok(_) => json!({ "message": "No matching memories found." }),
+                        Err(e) => json!({ "error": format!("Failed to search memories: {}", e) }),
+                    }
+                }
+                Err(e) => json!({ "error": format!("Failed to embed query: {}", e) }),
+            };
+            ToolResult::ok(value)
+        }
+        "edit_memory" => {
+            let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            if id.is_empty() || content.is_empty() {
+                return ToolResult::ok(json!({ "error": "Both 'id' and 'content' are required. Get the id from search_memories first." }));
+            }
+            let api_key = {
+                let connection = database.connection.lock();
+                match crate::database::queries::get_api_token(&connection, "gemini") {
+                    Ok(Some(enc)) => match crate::crypto::decrypt_token(&enc) {
+                        Ok(k) => k,
+                        Err(_) => return ToolResult::ok(json!({ "error": "Failed to decrypt Gemini API key." })),
+                    },
+                    _ => return ToolResult::ok(json!({ "error": "Gemini API key not found." })),
+                }
+            };
+            // Re-embed the new text so retrieval stays accurate; update anyway if it fails.
+            let embedding = crate::gemini::client::GeminiClient::new(api_key)
+                .generate_embedding(&content).await.ok();
+            let connection = database.connection.lock();
+            let value = match crate::memory::core::update_memory_content(&connection, &id, &content, embedding.as_deref()) {
+                Ok(true) => json!({ "status": "updated", "message": format!("Memory updated: {}", content) }),
+                Ok(false) => json!({ "error": format!("No memory found with id '{}'. Run search_memories to get a valid id.", id) }),
+                Err(e) => json!({ "error": format!("Failed to update memory: {}", e) }),
+            };
+            ToolResult::ok(value)
+        }
+        "forget_memory" => {
+            let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            if id.is_empty() {
+                return ToolResult::ok(json!({ "error": "Field 'id' is required. Get it from search_memories first." }));
+            }
+            let connection = database.connection.lock();
+            let value = match crate::memory::core::delete_memory(&connection, &id) {
+                Ok(true) => json!({ "status": "forgotten", "message": "Memory deleted." }),
+                Ok(false) => json!({ "error": format!("No memory found with id '{}'.", id) }),
+                Err(e) => json!({ "error": format!("Failed to delete memory: {}", e) }),
             };
             ToolResult::ok(value)
         }

@@ -96,7 +96,11 @@ fn tool_status_label(name: &str) -> String {
     let label = match name {
         "take_screenshot" => "📸 Looking at your screen",
         "retrieve_past_memories" => "🧠 Searching my memory",
+        "search_memories" => "🧠 Searching my memory",
         "remember_this" => "🧠 Committing that to memory",
+        "edit_memory" => "🧠 Updating a memory",
+        "forget_memory" => "🧠 Forgetting that",
+        "view_runtime_logs" => "🔧 Checking my own logs",
         "set_reminder" => "⏰ Setting a reminder",
         "search_clipboard" => "📋 Checking your clipboard",
         "get_weather" => "🌤️ Checking the weather",
@@ -391,11 +395,11 @@ pub async fn send_chat_message(
                         }
                     };
                     if let Some(block) = block {
-                        println!("DEBUG: 🧠 Auto-retrieval injected memories into context.");
+                        crate::applog!("DEBUG: 🧠 Auto-retrieval injected memories into context.");
                         system_instruction.push_str(&block);
                     }
                 }
-                Err(e) => println!("DEBUG: 🧠 Auto-retrieval embed failed: {}", e),
+                Err(e) => crate::applog!("DEBUG: 🧠 Auto-retrieval embed failed: {}", e),
             }
         }
     }
@@ -413,16 +417,16 @@ pub async fn send_chat_message(
     }).sum();
 
     //INFO: PROMPT BILL OF MATERIALS (For Speed Audit)
-    println!("\n--- 📦 PROMPT BILL OF MATERIALS ---");
-    println!("├─ 📜 System Instruction: {} chars", system_instruction.len());
+    crate::applog!("\n--- 📦 PROMPT BILL OF MATERIALS ---");
+    crate::applog!("├─ 📜 System Instruction: {} chars", system_instruction.len());
     if let Some(ctx) = &context {
-        println!("├─ 🔍 Context: {} chars (Snippet: {}...)", ctx.len(), &ctx[..100.min(ctx.len())].replace("\n", " "));
+        crate::applog!("├─ 🔍 Context: {} chars (Snippet: {}...)", ctx.len(), &ctx[..100.min(ctx.len())].replace("\n", " "));
     } else {
-        println!("├─ 🔍 Context: NONE");
+        crate::applog!("├─ 🔍 Context: NONE");
     }
-    println!("├─ 🕒 History: {} messages", history_count);
-    println!("├─ 🔧 Tools: {} available", tool_count);
-    println!("------------------------------------\n");
+    crate::applog!("├─ 🕒 History: {} messages", history_count);
+    crate::applog!("├─ 🔧 Tools: {} available", tool_count);
+    crate::applog!("------------------------------------\n");
     let mut current_messages = gemini_messages;
     let mut final_response_text = String::new();
     let mut final_grounding_metadata: Option<crate::gemini::client::GroundingMetadata> = None;
@@ -433,7 +437,7 @@ pub async fn send_chat_message(
 
     //INFO: Tool execution loop — uses non-streaming for tool rounds
     //NOTE: Only the FINAL response (no function calls) gets streamed to the UI
-    println!("DEBUG: 🤖 Using Gemini API at: {}", crate::gemini::client::get_api_url());
+    crate::applog!("DEBUG: 🤖 Using Gemini API at: {}", crate::gemini::client::get_api_url());
 
     // Reasoning depth, adaptive. "low" keeps simple turns (banter, calendar,
     // email) snappy — it was the biggest silent latency tax when always on. BUT
@@ -482,14 +486,14 @@ pub async fn send_chat_message(
     for _i in 0..MAX_TOOL_ROUNDS {
         // Cancellation check at round boundary — user clicked Stop.
         if CHAT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
-            println!("DEBUG: 🛑 Chat cancelled by user before round {}", _i + 1);
+            crate::applog!("DEBUG: 🛑 Chat cancelled by user before round {}", _i + 1);
             break;
         }
 
         // Wall-clock budget check at round boundary — bail gracefully if a turn
         // is dragging on, rather than letting it run all MAX_TOOL_ROUNDS.
         if turn_start.elapsed().as_secs() >= TURN_BUDGET_SECS {
-            println!("DEBUG: ⏰ Turn exceeded {}s budget — bailing to synthesize from what we have.", TURN_BUDGET_SECS);
+            crate::applog!("DEBUG: ⏰ Turn exceeded {}s budget — bailing to synthesize from what we have.", TURN_BUDGET_SECS);
             break;
         }
 
@@ -538,7 +542,7 @@ pub async fn send_chat_message(
             // just at round boundaries. Drops the SSE connection and keeps the
             // partial prose streamed so far.
             if CHAT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
-                println!("DEBUG: 🛑 Cancelled mid-stream.");
+                crate::applog!("DEBUG: 🛑 Cancelled mid-stream.");
                 break;
             }
 
@@ -583,7 +587,7 @@ pub async fn send_chat_message(
         // If Stop was hit mid-stream, keep whatever prose streamed and bail before
         // executing any tools from this (incomplete) round.
         if CHAT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
-            println!("DEBUG: 🛑 Chat cancelled mid-stream — keeping partial reply, skipping tools.");
+            crate::applog!("DEBUG: 🛑 Chat cancelled mid-stream — keeping partial reply, skipping tools.");
             if streamed_prose {
                 if !final_response_text.is_empty() {
                     final_response_text.push_str("\n\n");
@@ -594,9 +598,9 @@ pub async fn send_chat_message(
         }
 
         if let Some(usage) = &round_usage {
-            println!("DEBUG: ⚡ Round {} LLM call: {:.2?} | Tokens -> Prompt: {}, Candidates: {}, Total: {}", _i + 1, llm_elapsed, usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
+            crate::applog!("DEBUG: ⚡ Round {} LLM call: {:.2?} | Tokens -> Prompt: {}, Candidates: {}, Total: {}", _i + 1, llm_elapsed, usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
         } else {
-            println!("DEBUG: ⚡ Round {} LLM call: {:.2?}", _i + 1, llm_elapsed);
+            crate::applog!("DEBUG: ⚡ Round {} LLM call: {:.2?}", _i + 1, llm_elapsed);
         }
 
         // Rebuild the model turn for history: merged prose + the preserved
@@ -620,7 +624,7 @@ pub async fn send_chat_message(
 
         for part in &non_text_parts {
             if let Some(call) = &part.function_call {
-                println!("DEBUG: 🛠️ Tool Call -> {} (args: {})", call.name, call.args);
+                crate::applog!("DEBUG: 🛠️ Tool Call -> {} (args: {})", call.name, call.args);
 
                 // Vision gate: refuse take_screenshot when the message never
                 // referenced the screen. We feed a refusal back (has_function_calls
@@ -628,7 +632,7 @@ pub async fn send_chat_message(
                 // matching function_response in history and the next round answers
                 // the user directly.
                 if call.name == "take_screenshot" && !mentions_screen {
-                    println!("DEBUG: 🚫 take_screenshot blocked — message doesn't reference the screen.");
+                    crate::applog!("DEBUG: 🚫 take_screenshot blocked — message doesn't reference the screen.");
                     has_function_calls = true;
                     function_responses.push(crate::gemini::client::GeminiPart::function_response(
                         call.name.clone(),
@@ -641,7 +645,7 @@ pub async fn send_chat_message(
                 *count += 1;
 
                 if *count > MAX_CALLS_PER_TOOL {
-                    println!("DEBUG: ⚠️ Tool '{}' hit call limit, skipping.", call.name);
+                    crate::applog!("DEBUG: ⚠️ Tool '{}' hit call limit, skipping.", call.name);
                     function_responses.push(crate::gemini::client::GeminiPart::function_response(
                         call.name.clone(),
                         serde_json::json!({ "error": format!("Tool '{}' called too many times. Synthesize from what you have.", call.name) }),
@@ -708,14 +712,14 @@ pub async fn send_chat_message(
                         ).await {
                             Ok(r) => r,
                             Err(_) => {
-                                println!("DEBUG: ⏱️  Tool '{}' (async) TIMED OUT after {}s", call.name, TOOL_TIMEOUT_SECS);
+                                crate::applog!("DEBUG: ⏱️  Tool '{}' (async) TIMED OUT after {}s", call.name, TOOL_TIMEOUT_SECS);
                                 crate::gemini::tools::ToolResult::ok(serde_json::json!({
                                     "error": format!("Tool '{}' timed out after {}s. Proceed without its result.", call.name, TOOL_TIMEOUT_SECS)
                                 }))
                             }
                         };
                         let elapsed = start.elapsed();
-                        println!("DEBUG: ⏱️  Tool '{}' (async) took {:.2?}", call.name, elapsed);
+                        crate::applog!("DEBUG: ⏱️  Tool '{}' (async) took {:.2?}", call.name, elapsed);
                         (call.name, call.args, res, elapsed.as_millis() as u64, started_at)
                     }
                 })
@@ -732,7 +736,7 @@ pub async fn send_chat_message(
                         obsidian_config.as_ref(), &connection, &app_handle,
                     );
                     let elapsed = start.elapsed();
-                    println!("DEBUG: ⏱️  Tool '{}' (sync) took {:.2?}", call.name, elapsed);
+                    crate::applog!("DEBUG: ⏱️  Tool '{}' (sync) took {:.2?}", call.name, elapsed);
                     (call.name, call.args, res, elapsed.as_millis() as u64, started_at)
                 }).collect()
             };
@@ -742,7 +746,7 @@ pub async fn send_chat_message(
             // Pass 3: process results, collect inline attachments, build function_responses
             let mut attachments: Vec<crate::gemini::tools::ToolAttachment> = Vec::new();
             for (name, args, res, duration_ms, started_at) in async_results.into_iter().chain(sync_results.into_iter()) {
-                println!("DEBUG: ✅ Tool '{}' Result: {}", name, res.response);
+                crate::applog!("DEBUG: ✅ Tool '{}' Result: {}", name, res.response);
 
                 if name == "create_calendar_event" || name == "delete_calendar_event" {
                     if res.response.get("status").and_then(|s| s.as_str()) == Some("success") || res.response.get("events").is_some() {
@@ -803,7 +807,7 @@ pub async fn send_chat_message(
                     tool_round_config.thinking_config = Some(crate::gemini::client::ThinkingConfig {
                         thinking_level: "high".to_string(),
                     });
-                    println!("DEBUG: 🧠 Vision in play — bumping thinking to 'high' for synthesis.");
+                    crate::applog!("DEBUG: 🧠 Vision in play — bumping thinking to 'high' for synthesis.");
                 }
                 combined_parts.push(crate::gemini::client::GeminiPart::text(
                     "[VISUAL CONTEXT ATTACHED]".to_string(),
@@ -836,7 +840,7 @@ pub async fn send_chat_message(
     //      triggers a real retry. Force one more call WITHOUT tools and WITHOUT a
     //      JSON schema so it MUST just talk, and stream it like any other answer.
     if looks_like_garbage(&render_text_for_display(&final_response_text)) && !was_cancelled {
-        println!("DEBUG: ⚠️ No usable text after tool loop. Forcing a final text-only call...");
+        crate::applog!("DEBUG: ⚠️ No usable text after tool loop. Forcing a final text-only call...");
 
         // Throw away whatever whitespace junk accumulated and clear the dead
         // in-flight bubble so the retry streams into a clean slate.
@@ -856,7 +860,7 @@ pub async fn send_chat_message(
 
         while let Some(chunk) = forced_stream.next().await {
             if CHAT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
-                println!("DEBUG: 🛑 Cancelled mid-stream (forced fallback).");
+                crate::applog!("DEBUG: 🛑 Cancelled mid-stream (forced fallback).");
                 break;
             }
             let chunk = chunk.map_err(|e| format!("Failed to get forced response: {}", e))?;
@@ -908,7 +912,7 @@ pub async fn send_chat_message(
                 })
                 .collect();
             if !citation_list.is_empty() {
-                println!("DEBUG: 🌐 Extracted {} citations from native grounding.", citation_list.len());
+                crate::applog!("DEBUG: 🌐 Extracted {} citations from native grounding.", citation_list.len());
                 citations = Some(citation_list);
             }
         }
@@ -962,9 +966,9 @@ pub async fn send_chat_message(
     {
         let connection = database.connection.lock();
         if let Ok(total_count) = crate::database::queries::count_chat_messages(&connection) {
-            println!("DEBUG: 🧠 PULSE: Current chat message count: {}. (Cadence: {}, Window: {})", total_count, MEMORY_EXTRACTION_CADENCE, MEMORY_EXTRACTION_WINDOW);
+            crate::applog!("DEBUG: 🧠 PULSE: Current chat message count: {}. (Cadence: {}, Window: {})", total_count, MEMORY_EXTRACTION_CADENCE, MEMORY_EXTRACTION_WINDOW);
             if total_count > 0 && total_count % MEMORY_EXTRACTION_CADENCE == 0 {
-                println!("DEBUG: 🧠 TRIGGER: Memory extraction cadence hit! Initializing background task...");
+                crate::applog!("DEBUG: 🧠 TRIGGER: Memory extraction cadence hit! Initializing background task...");
 
                 // Grab the last WINDOW messages for extraction
                 let mut recent_messages = crate::database::queries::get_chat_messages(
@@ -986,7 +990,7 @@ pub async fn send_chat_message(
                 let api_key_clone = api_key.clone();
                 // Fire and forget - async background extraction
                 tokio::spawn(async move {
-                    println!("DEBUG: 🧠 Starting background memory extraction...");
+                    crate::applog!("DEBUG: 🧠 Starting background memory extraction...");
 
                     let user_name = {
                         let conn = db_clone.connection.lock();
@@ -1018,7 +1022,7 @@ pub async fn send_chat_message(
                     match extraction_result {
                         Ok(chat_response) => {
                             if let Some(usage) = &chat_response.usage {
-                                println!("DEBUG: 🧠 Extraction Token Usage -> Prompt: {}, Candidates: {}, Total: {}", usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
+                                crate::applog!("DEBUG: 🧠 Extraction Token Usage -> Prompt: {}, Candidates: {}, Total: {}", usage.prompt_token_count, usage.candidates_token_count, usage.total_token_count);
                             }
                             let response_text = chat_response.parts.iter()
                                 .filter(|p| p.thought.is_none())
@@ -1029,20 +1033,20 @@ pub async fn send_chat_message(
 
                             match crate::memory::extractor::parse_extracted_memories(&response_text) {
                                 Ok(mut memories) => {
-                                    println!("DEBUG: 🧠 Extracted {} memories from chat!", memories.len());
+                                    crate::applog!("DEBUG: 🧠 Extracted {} memories from chat!", memories.len());
                                     for memory in &mut memories {
                                         // Generate embedding for each memory
                                         match client.generate_embedding(&memory.content).await {
                                             Ok(embedding) => {
                                                 memory.embedding = Some(embedding);
-                                                println!("DEBUG: 🧠 [{}] (importance: {}) {}", 
+                                                crate::applog!("DEBUG: 🧠 [{}] (importance: {}) {}", 
                                                     memory.memory_type.as_str(),
                                                     memory.importance,
                                                     memory.content.chars().take(80).collect::<String>()
                                                 );
                                             }
                                             Err(e) => {
-                                                println!("DEBUG: 🧠 Failed to embed memory: {}", e);
+                                                crate::applog!("DEBUG: 🧠 Failed to embed memory: {}", e);
                                             }
                                         }
                                         
@@ -1050,22 +1054,22 @@ pub async fn send_chat_message(
                                         let conn = db_clone.connection.lock();
                                         if let Some(ref emb) = memory.embedding {
                                             if crate::memory::core::is_near_duplicate(&conn, emb, 0.92) {
-                                                println!("DEBUG: 🧠 Skipping near-duplicate memory.");
+                                                crate::applog!("DEBUG: 🧠 Skipping near-duplicate memory.");
                                                 continue;
                                             }
                                         }
                                         if let Err(e) = crate::memory::core::store_memory(&conn, memory) {
-                                            println!("DEBUG: 🧠 Failed to store memory: {}", e);
+                                            crate::applog!("DEBUG: 🧠 Failed to store memory: {}", e);
                                         }
                                     }
-                                    println!("DEBUG: 🧠 Memory extraction complete! ✅");
+                                    crate::applog!("DEBUG: 🧠 Memory extraction complete! ✅");
 
                                     // Check if we should trigger a Reflection loop
                                     {
                                         let conn = db_clone.connection.lock();
                                         match crate::memory::core::should_trigger_reflection(&conn) {
                                             Ok(true) => {
-                                                println!("DEBUG: 🧠 Reflection threshold hit! Starting synthesis...");
+                                                crate::applog!("DEBUG: 🧠 Reflection threshold hit! Starting synthesis...");
                                                 // Feed the reflection the recent observation window the prompt
                                                 // promises (~50), NOT the 6-message extraction batch size.
                                                 if let Ok(recent_obs) = crate::memory::core::get_recent_memories_by_type(
@@ -1090,7 +1094,7 @@ pub async fn send_chat_message(
                                                     let api_key_reflection = api_key_clone.clone();
                                                     tokio::spawn(async move {
                                                         let client = GeminiClient::new(api_key_reflection);
-                                                        println!("DEBUG: 🧠 Requesting reflection from Gemini...");
+                                                        crate::applog!("DEBUG: 🧠 Requesting reflection from Gemini...");
                                                         
                                                         let synthesis_result = client.send_chat(
                                                             vec![crate::gemini::client::GeminiContent {
@@ -1109,7 +1113,7 @@ pub async fn send_chat_message(
                                                         if let Ok(resp) = synthesis_result {
                                                             let text = resp.parts.iter().filter(|p| p.thought.is_none()).filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
                                                             if let Ok(reflections) = serde_json::from_str::<Vec<crate::memory::reflection::ExtractedReflection>>(&text) {
-                                                                println!("DEBUG: 🧠 Synthesized {} high-level reflections!", reflections.len());
+                                                                crate::applog!("DEBUG: 🧠 Synthesized {} high-level reflections!", reflections.len());
                                                                 for r in reflections {
                                                                     let mut memory = crate::memory::extractor::create_memory(
                                                                         crate::memory::core::MemoryType::Reflection,
@@ -1123,7 +1127,7 @@ pub async fn send_chat_message(
                                                                         let conn = db_clone.connection.lock();
                                                                         let _ = crate::memory::core::store_memory(&conn, &memory);
                                                                         let reflection_snippet = memory.content.chars().take(60).collect::<String>();
-                                                                        println!("DEBUG: 🧠 Stored reflection: {}", reflection_snippet);
+                                                                        crate::applog!("DEBUG: 🧠 Stored reflection: {}", reflection_snippet);
                                                                     }
                                                                 }
                                                             }
@@ -1132,18 +1136,18 @@ pub async fn send_chat_message(
                                                 }
                                             }
                                             Ok(false) => {}
-                                            Err(e) => println!("DEBUG: 🧠 Reflection check failed: {}", e),
+                                            Err(e) => crate::applog!("DEBUG: 🧠 Reflection check failed: {}", e),
                                         }
                                     }
                                 }
                                 Err(e) => {
-                                    println!("DEBUG: 🧠 Failed to parse extracted memories: {}", e);
-                                    println!("DEBUG: 🧠 Raw response: {}", response_text);
+                                    crate::applog!("DEBUG: 🧠 Failed to parse extracted memories: {}", e);
+                                    crate::applog!("DEBUG: 🧠 Raw response: {}", response_text);
                                 }
                             }
                         }
                         Err(e) => {
-                            println!("DEBUG: 🧠 Memory extraction LLM call failed: {}", e);
+                            crate::applog!("DEBUG: 🧠 Memory extraction LLM call failed: {}", e);
                         }
                     }
                 });
@@ -1274,7 +1278,7 @@ pub async fn clear_chat_history(
                         if let Some(ref sid) = session_id_for_summary {
                             let _ = crate::database::queries::update_session_summary(&conn, sid, &summary);
                         }
-                        println!("DEBUG: 🧠 Session summary stored as memory.");
+                        crate::applog!("DEBUG: 🧠 Session summary stored as memory.");
                     }
                 }
             });

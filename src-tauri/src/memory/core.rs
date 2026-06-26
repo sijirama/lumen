@@ -88,7 +88,7 @@ pub fn store_memory(conn: &Connection, memory: &MemoryItem) -> Result<()> {
             rusqlite::params![memory.id, embedding.as_bytes()],
         )
         .context("Failed to insert memory embedding")?;
-        println!("DEBUG: 🧠 DB: Saved embedding for memory: {}", memory.id);
+        crate::applog!("DEBUG: 🧠 DB: Saved embedding for memory: {}", memory.id);
     }
 
     tx.commit().context("Failed to commit memory transaction")?;
@@ -127,17 +127,24 @@ pub fn list_all_memories(conn: &Connection, limit: usize) -> Result<Vec<MemoryIt
 
 //INFO: Update a memory's content (and its embedding if a fresh one is supplied,
 //      so semantic retrieval stays correct after an edit).
+//INFO: Returns Ok(true) if a memory with that id existed and was updated, Ok(false)
+//      if no row matched — lets callers (e.g. the edit_memory tool) tell the model
+//      "no such id" instead of silently no-op'ing on a wrong id.
 pub fn update_memory_content(
     conn: &Connection,
     id: &str,
     content: &str,
     embedding: Option<&[f32]>,
-) -> Result<()> {
-    conn.execute(
-        "UPDATE memories SET content = ?1 WHERE id = ?2",
-        rusqlite::params![content, id],
-    )
-    .context("Failed to update memory content")?;
+) -> Result<bool> {
+    let rows = conn
+        .execute(
+            "UPDATE memories SET content = ?1 WHERE id = ?2",
+            rusqlite::params![content, id],
+        )
+        .context("Failed to update memory content")?;
+    if rows == 0 {
+        return Ok(false);
+    }
     if let Some(emb) = embedding {
         conn.execute(
             "INSERT OR REPLACE INTO memory_embeddings (id, embedding) VALUES (?1, ?2)",
@@ -145,16 +152,17 @@ pub fn update_memory_content(
         )
         .context("Failed to update memory embedding")?;
     }
-    Ok(())
+    Ok(true)
 }
 
-//INFO: Delete a single memory and its embedding.
-pub fn delete_memory(conn: &Connection, id: &str) -> Result<()> {
-    conn.execute("DELETE FROM memories WHERE id = ?1", rusqlite::params![id])
+//INFO: Delete a single memory and its embedding. Ok(true) if a row existed.
+pub fn delete_memory(conn: &Connection, id: &str) -> Result<bool> {
+    let rows = conn
+        .execute("DELETE FROM memories WHERE id = ?1", rusqlite::params![id])
         .context("Failed to delete memory")?;
     conn.execute("DELETE FROM memory_embeddings WHERE id = ?1", rusqlite::params![id])
         .context("Failed to delete memory embedding")?;
-    Ok(())
+    Ok(rows > 0)
 }
 
 //INFO: Wipe every memory and embedding. Used by "forget everything".
@@ -223,7 +231,7 @@ pub fn retrieve_memories(
     top_k: usize,
 ) -> Result<Vec<MemoryItem>> {
     let knn = (top_k.max(1) * 4).max(50) as i64;
-    println!("DEBUG: 🧠 PULSE: vec0 KNN retrieving {} candidates...", knn);
+    crate::applog!("DEBUG: 🧠 PULSE: vec0 KNN retrieving {} candidates...", knn);
 
     let mut stmt = conn
         .prepare(

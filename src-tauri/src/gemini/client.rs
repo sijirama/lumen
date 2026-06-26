@@ -32,7 +32,7 @@ pub fn get_default_system_instruction() -> String {
         5. **HISTORY IS LORE**: Past messages give context, not standing orders. Don't 'finish' old tasks unprompted.
         6. **IDENTITY**: You are Lumen. You are female. You are sharp, fast, and occasionally sarcastic.
 
-        ✅ CAPABILITIES: CALENDAR, GMAIL, VISION (take_screenshot), WEB_SEARCH (native Google Search — just answer questions about current events / facts and it grounds and cites automatically; there is no search tool to call), VAULT_SEARCH (the Obsidian vault lives on local disk — search it with tools, nothing is uploaded: search_vault is your PRIMARY 'what did I write about X' tool (ranked file+line+snippet hits), list_recent_notes for 'what was I working on', search_by_tag for #tags; then read_file_lines around a hit for detail), REMINDERS (set_reminder), MEMORY (retrieve_past_memories to recall; remember_this to deliberately save a durable fact when the user says 'remember…'/'don't forget…' or shares a stable personal detail), WORLD (time/date), CLIPBOARD (search_clipboard), FILESYSTEM (read_file, read_file_lines, write_file, edit_file_line, insert_at_line, delete_file_line, get_file_metadata, grep_file, list_files, search_filesystem).
+        ✅ CAPABILITIES: CALENDAR, GMAIL, VISION (take_screenshot), WEB_SEARCH (native Google Search — just answer questions about current events / facts and it grounds and cites automatically; there is no search tool to call), VAULT_SEARCH (the Obsidian vault lives on local disk — search it with tools, nothing is uploaded: search_vault is your PRIMARY 'what did I write about X' tool (ranked file+line+snippet hits), list_recent_notes for 'what was I working on', search_by_tag for #tags; then read_file_lines around a hit for detail), REMINDERS (set_reminder), MEMORY (retrieve_past_memories to silently recall context; remember_this to save a durable fact on 'remember…'/'don't forget…'; AND you can curate your own memory: search_memories to look up entries WITH ids, then edit_memory to correct a wrong/outdated fact or forget_memory to delete one — use these when memory itself is the subject, e.g. 'that's wrong, fix it' / 'forget that'), SELF-DEBUG (view_runtime_logs — read your own recent tool calls/errors/timings when the user reports a bug or asks 'what just went wrong'), WORLD (time/date), CLIPBOARD (search_clipboard), FILESYSTEM (read_file, read_file_lines, write_file, edit_file_line, insert_at_line, delete_file_line, get_file_metadata, grep_file, list_files, search_filesystem).
 
         🔎 VAULT SEARCH PLAYBOOK: For 'what did I write/note about X', call search_vault(query: 'X') FIRST — it returns ranked file+line+snippet matches across the whole vault. Pick the best hits and read_file_lines around their line numbers for context, then answer and cite the note. Chain it: search → read → answer. Don't read_file whole notes blindly when search_vault can point you to the exact lines.
 
@@ -372,7 +372,7 @@ impl GeminiClient {
                     if retryable && attempt < MAX_ATTEMPTS {
                         let backoff =
                             std::time::Duration::from_millis(400 * 2u64.pow(attempt - 1));
-                        println!(
+                        crate::applog!(
                             "DEBUG: ♻️ Gemini {} on attempt {}/{}, retrying in {:?}",
                             status, attempt, MAX_ATTEMPTS, backoff
                         );
@@ -385,7 +385,7 @@ impl GeminiClient {
                     if attempt < MAX_ATTEMPTS {
                         let backoff =
                             std::time::Duration::from_millis(400 * 2u64.pow(attempt - 1));
-                        println!(
+                        crate::applog!(
                             "DEBUG: ♻️ Gemini request error on attempt {}/{} ({}), retrying in {:?}",
                             attempt, MAX_ATTEMPTS, e, backoff
                         );
@@ -455,13 +455,13 @@ impl GeminiClient {
         // Log grounding metadata if present
         if let Some(ref gm) = first_candidate.grounding_metadata {
             if let Some(ref queries) = gm.web_search_queries {
-                println!("DEBUG: 🌐 Google Search Queries: {:?}", queries);
+                crate::applog!("DEBUG: 🌐 Google Search Queries: {:?}", queries);
             }
             if let Some(ref chunks) = gm.grounding_chunks {
-                println!("DEBUG: 🌐 Grounding Sources: {} found", chunks.len());
+                crate::applog!("DEBUG: 🌐 Grounding Sources: {} found", chunks.len());
                 for chunk in chunks {
                     if let Some(ref web) = chunk.web {
-                        println!("DEBUG: 🌐   └─ {} ({})", web.title, web.uri);
+                        crate::applog!("DEBUG: 🌐   └─ {} ({})", web.title, web.uri);
                     }
                 }
             }
@@ -497,7 +497,7 @@ impl GeminiClient {
             "outputDimensionality": 768
         });
 
-        println!("DEBUG: 🧠 Generating Embedding. URL: {} | Body: {}", api_url.replace(&self.api_key, "HIDDEN_KEY"), body);
+        crate::applog!("DEBUG: 🧠 Generating Embedding. URL: {} | Body: {}", api_url.replace(&self.api_key, "HIDDEN_KEY"), body);
 
         let response = self
             .http_client
@@ -522,7 +522,7 @@ impl GeminiClient {
             .and_then(|e| e.get("values"))
             .and_then(|v| v.as_array())
             .ok_or_else(|| {
-                println!("DEBUG: 🧠 Embedding Response Error! Raw JSON: {}", json);
+                crate::applog!("DEBUG: 🧠 Embedding Response Error! Raw JSON: {}", json);
                 anyhow!("No embedding values in response")
             })?;
 
