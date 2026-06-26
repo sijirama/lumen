@@ -267,13 +267,13 @@ export function MessageBubble({
 }) {
     const widthClass = message.role === 'user' ? userWidth : assistantWidth;
     return (
-        <div className={`chat-row ${message.role}`}>
+        <div className={`flex w-full items-start gap-1 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {message.role === 'assistant' && (
-                <div className="chat-avatar" aria-hidden="true">
-                    <img src="/logo.png" alt="" />
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center" aria-hidden="true">
+                    <img src="/logo.png" alt="" className="h-full w-full object-contain" />
                 </div>
             )}
-            <div className={`chat-message ${message.role} ${widthClass}`}>
+            <div className={`chat-message group ${message.role} ${widthClass}`}>
                 {message.image_data && (
                     <div className="chat-message-image" style={{ marginBottom: 'var(--spacing-2)' }}>
                         <img
@@ -351,9 +351,9 @@ export function MessageBubble({
                     )}
                 </div>
                 {message.role === 'assistant' && message.id !== -1 && (
-                    <div className="message-actions">
+                    <div className="mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                         <button
-                            className="msg-action-btn"
+                            className="cursor-pointer rounded-sm border border-border px-[7px] py-0.5 text-[11px] text-muted transition-colors hover:bg-background-secondary hover:text-foreground"
                             title="Copy"
                             onClick={() => navigator.clipboard.writeText(message.content)}
                         >
@@ -376,9 +376,9 @@ export function MessageBubble({
 //      `toolStatus` carries humanized labels for the tools running this round.
 export function ThinkingBubble({ isThinking, toolStatus }: { isThinking: boolean; toolStatus: string[] }) {
     return (
-        <div className="chat-row assistant">
-            <div className="chat-avatar" aria-hidden="true">
-                <img src="/logo.png" alt="" />
+        <div className="flex w-full items-start justify-start gap-1">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center" aria-hidden="true">
+                <img src="/logo.png" alt="" className="h-full w-full object-contain" />
             </div>
             <div className="chat-message assistant">
                 {isThinking ? (
