@@ -251,9 +251,16 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
                                         </div>
                                         <h4 className="pill-title">{event.summary}</h4>
                                         {event.description && (
-                                            <p className="pill-desc">
-                                                <AlignLeft size={10} className="mr-1" /> {event.description}
-                                            </p>
+                                            <div 
+                                                className="pill-desc raw-html-desc"
+                                                style={{ marginTop: '8px' }}
+                                            >
+                                                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px', opacity: 0.7 }}>
+                                                    <AlignLeft size={10} className="mr-1" />
+                                                    <span style={{ fontSize: '0.6rem', fontWeight: 700, textTransform: 'uppercase' }}>Notes</span>
+                                                </div>
+                                                <div dangerouslySetInnerHTML={{ __html: event.description }} />
+                                            </div>
                                         )}
                                     </div>
                                 </div>
@@ -568,18 +575,18 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isExpanded, onToggleExpand,
                 }
 
                 .pill-desc {
-                    margin-top: 4px;
-                    max-height: 0;
-                    opacity: 0;
-                    transition: all 0.2s ease;
-                    pointer-events: none;
+                    margin-top: 6px;
+                    opacity: 0.85;
                     font-size: 0.65rem;
+                    line-height: 1.35;
+                    white-space: pre-wrap;
+                    word-wrap: break-word;
                 }
 
-                .sexy-pill:hover .pill-desc {
-                    max-height: 60px;
-                    opacity: 0.8;
-                    margin-top: 6px;
+                .raw-html-desc a {
+                    color: inherit;
+                    text-decoration: underline;
+                    font-weight: 700;
                 }
 
                 .reminder-pill {

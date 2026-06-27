@@ -59,7 +59,7 @@ function OverlayWindow() {
         setTransitionView(newView);
         setCurrentView(newView);
         if (newView === "chat") {
-            setTimeout(() => scrollToBottom(true), 300);
+            setTimeout(() => scrollToBottom(true), 450);
         } else if (newView === "calendar") {
             setIsCalendarExpanded(true);
         }
@@ -446,7 +446,10 @@ function OverlayWindow() {
                             }}
                         >
                             <button
-                                onClick={() => setContentLarge((v) => !v)}
+                                onClick={() => {
+                                    setContentLarge((v) => !v);
+                                    setTimeout(() => scrollToBottom(true), 450);
+                                }}
                                 className="overlay-header-icon-btn"
                                 title={contentLarge ? "Shrink" : "Expand"}
                             >

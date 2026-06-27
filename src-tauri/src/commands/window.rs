@@ -93,7 +93,7 @@ pub async fn is_overlay_visible(app: tauri::AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub async fn resize_overlay(app: tauri::AppHandle, _view: String) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("overlay") {
-        let (width, height) = (400.0, 820.0);
+        let (width, height) = (460.0, 860.0);
 
         // 1. Set Size
         window
@@ -117,7 +117,7 @@ pub async fn resize_overlay(app: tauri::AppHandle, _view: String) -> Result<(), 
             
             //INFO: Set the window position directly based on expected size to avoid mid-render glitches
             let x_position = logical_pos.x + 4.0;
-            let y_position = logical_pos.y + logical_size.height - 820.0 - 4.0;
+            let y_position = logical_pos.y + logical_size.height - 860.0 - 4.0;
 
             window
                 .set_position(tauri::LogicalPosition::new(x_position, y_position))
@@ -152,7 +152,7 @@ pub fn position_overlay_bottom_left(window: &WebviewWindow) -> Result<(), String
 
         //INFO: Set the window position directly based on expected size to avoid mid-render glitches
         let x_position = logical_pos.x + 4.0;
-        let y_position = logical_pos.y + logical_size.height - 820.0 - 4.0;
+        let y_position = logical_pos.y + logical_size.height - 860.0 - 4.0;
 
         //INFO: Set the window position
         window

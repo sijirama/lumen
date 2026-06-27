@@ -306,16 +306,14 @@ function SettingsPage() {
             {/* Data */}
             <section className="admin-section">
                 <h4 className="admin-section-title">Data</h4>
-                <div className="settings-card settings-data-card">
-                    <div className="settings-row">
-                        <div className="settings-row-info">
-                            <span className="settings-row-title">Database Location</span>
-                            <code className="settings-path-value" title={databasePath}>{databasePath}</code>
-                        </div>
-                        <Button size="sm" variant="secondary" onClick={copyDatabasePath} disabled={!databasePath}>
-                            <Copy size={13} />
+                <div className="settings-card settings-data-card" style={{ padding: '14px' }}>
+                    <span className="settings-row-title" style={{ marginBottom: '6px', display: 'block' }}>Database Location</span>
+                    <div className="db-path-wrapper">
+                        <code className="settings-path-value" title={databasePath}>{databasePath}</code>
+                        <button className="db-path-copy-btn" onClick={copyDatabasePath} disabled={!databasePath} title="Copy path">
+                            <Copy size={12} />
                             Copy
-                        </Button>
+                        </button>
                     </div>
                 </div>
             </section>
