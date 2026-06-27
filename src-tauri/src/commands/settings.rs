@@ -3,9 +3,9 @@
 
 use crate::crypto::{decrypt_token, encrypt_token};
 use crate::database::queries::{
-    get_all_integrations, get_api_token, get_hotkey_config, get_integration, get_setting,
-    get_user_profile, save_api_token, save_hotkey_config, save_integration, save_setting,
-    save_user_profile, HotkeyConfig, Integration,
+    get_all_integrations, get_api_token, get_hotkey_config, get_integration, get_user_profile,
+    save_api_token, save_hotkey_config, save_integration, save_user_profile, HotkeyConfig,
+    Integration,
 };
 use crate::database::Database;
 use serde::{Deserialize, Serialize};
@@ -202,6 +202,20 @@ pub fn get_api_key_status(
     })
 }
 
+//INFO: Returns the decrypted API key for local copy/reveal actions in settings UI.
+#[tauri::command]
+pub fn get_api_key(
+    database: State<Database>,
+    provider: String,
+) -> Result<String, String> {
+    let connection = database.connection.lock();
+    let encrypted_token = get_api_token(&connection, &provider)
+        .map_err(|e| format!("Failed to get API key: {}", e))?
+        .ok_or_else(|| "API key is not configured.".to_string())?;
+
+    decrypt_token(&encrypted_token).map_err(|e| format!("Failed to decrypt API key: {}", e))
+}
+
 //INFO: Updates an API key
 #[tauri::command]
 pub fn update_api_key(
@@ -263,24 +277,4 @@ pub fn update_integration(
 #[tauri::command]
 pub fn get_database_path(database: State<Database>) -> Result<String, String> {
     Ok(database.get_database_path().to_string_lossy().to_string())
-}
-
-//INFO: Generic setting getter
-#[tauri::command]
-pub fn get_app_setting(database: State<Database>, key: String) -> Result<Option<String>, String> {
-    let connection = database.connection.lock();
-
-    get_setting(&connection, &key).map_err(|e| format!("Failed to get setting: {}", e))
-}
-
-//INFO: Generic setting setter
-#[tauri::command]
-pub fn save_app_setting(
-    database: State<Database>,
-    key: String,
-    value: String,
-) -> Result<(), String> {
-    let connection = database.connection.lock();
-
-    save_setting(&connection, &key, &value).map_err(|e| format!("Failed to save setting: {}", e))
 }

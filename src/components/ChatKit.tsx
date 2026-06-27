@@ -5,15 +5,44 @@
 //      no drift. The windows keep their own state + send/event wiring; this file
 //      owns only the visuals.
 
-import { useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import hljs from 'highlight.js/lib/core';
+import bash from 'highlight.js/lib/languages/bash';
+import css from 'highlight.js/lib/languages/css';
+import json from 'highlight.js/lib/languages/json';
+import markdown from 'highlight.js/lib/languages/markdown';
+import python from 'highlight.js/lib/languages/python';
+import rust from 'highlight.js/lib/languages/rust';
+import typescript from 'highlight.js/lib/languages/typescript';
+import xml from 'highlight.js/lib/languages/xml';
 import {
     FileText, Wrench, Mail, Camera, Globe, Bell, Brain, Clipboard, Cloud,
-    CheckCircle2, AlertCircle, ChevronDown, CalendarDays,
+    CheckCircle2, AlertCircle, ChevronDown, CalendarDays, Copy, Check,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('sh', bash);
+hljs.registerLanguage('shell', bash);
+hljs.registerLanguage('css', css);
+hljs.registerLanguage('json', json);
+hljs.registerLanguage('markdown', markdown);
+hljs.registerLanguage('md', markdown);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('py', python);
+hljs.registerLanguage('rust', rust);
+hljs.registerLanguage('rs', rust);
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('ts', typescript);
+hljs.registerLanguage('javascript', typescript);
+hljs.registerLanguage('js', typescript);
+hljs.registerLanguage('tsx', typescript);
+hljs.registerLanguage('jsx', typescript);
+hljs.registerLanguage('html', xml);
+hljs.registerLanguage('xml', xml);
 
 //INFO: One tool call's audit trail — what Lumen ran, with what args, and what came back.
 export interface ToolInvocation {
@@ -142,6 +171,16 @@ export const TOOL_ICON_MAP: Record<string, LucideIcon> = {
     delete_file_line: FileText,
     get_file_metadata: FileText,
     get_obsidian_vault_info: FileText,
+    read_lumen_file: FileText,
+    write_lumen_file: FileText,
+    list_lumen_dir: FileText,
+    append_lumen_file: FileText,
+    edit_lumen_file_line: FileText,
+    create_lumen_dir: FileText,
+    move_lumen_path: FileText,
+    delete_lumen_path: FileText,
+    get_lumen_metadata: FileText,
+    search_lumen_dir: FileText,
 };
 
 function formatDuration(ms: number): string {
@@ -155,6 +194,73 @@ function prettyJson(value: unknown): string {
     } catch {
         return String(value);
     }
+}
+
+function textFromChildren(children: ReactNode): string {
+    if (typeof children === 'string') return children;
+    if (typeof children === 'number') return String(children);
+    if (Array.isArray(children)) return children.map(textFromChildren).join('');
+    return '';
+}
+
+function CodeBlock({ lang, children }: { lang: string; children: ReactNode }) {
+    const [copied, setCopied] = useState(false);
+    const text = textFromChildren(children).replace(/\n$/, '');
+    const highlighted = useMemo(() => {
+        try {
+            if (lang && hljs.getLanguage(lang)) {
+                return hljs.highlight(text, { language: lang }).value;
+            }
+            return hljs.highlightAuto(text).value;
+        } catch {
+            return hljs.highlight(text, { language: 'plaintext' }).value;
+        }
+    }, [lang, text]);
+
+    async function copyCode() {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+    }
+
+    return (
+        <span className="block-code-wrapper">
+            <span className="code-block-header">
+                <span className="code-lang-label">{lang || 'code'}</span>
+                <button type="button" className="code-copy-button" onClick={copyCode} title="Copy code">
+                    {copied ? <Check size={12} /> : <Copy size={12} />}
+                    {copied ? 'Copied' : 'Copy'}
+                </button>
+            </span>
+            <code
+                className={`block-code hljs language-${lang || 'plaintext'}`}
+                dangerouslySetInnerHTML={{ __html: highlighted }}
+            />
+        </span>
+    );
+}
+
+function ToolJsonSection({ label, value }: { label: string; value: string }) {
+    const [copied, setCopied] = useState(false);
+
+    async function copyValue() {
+        await navigator.clipboard.writeText(value);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+    }
+
+    return (
+        <div className="tool-row-section">
+            <div className="tool-row-section-header">
+                <div className="tool-row-label">{label}</div>
+                <button type="button" className="tool-row-copy" onClick={copyValue}>
+                    {copied ? <Check size={11} /> : <Copy size={11} />}
+                    {copied ? 'Copied' : 'Copy'}
+                </button>
+            </div>
+            <pre className="tool-row-pre">{value}</pre>
+        </div>
+    );
 }
 
 //INFO: Pull a base64 PNG out of a tool result so it can be previewed inline.
@@ -204,14 +310,8 @@ function ToolInvocationRow({ inv }: { inv: ToolInvocation }) {
                             />
                         </div>
                     )}
-                    <div className="tool-row-section">
-                        <div className="tool-row-label">Args</div>
-                        <pre className="tool-row-pre">{prettyJson(inv.args)}</pre>
-                    </div>
-                    <div className="tool-row-section">
-                        <div className="tool-row-label">Result</div>
-                        <pre className="tool-row-pre">{prettyJson(displayResult)}</pre>
-                    </div>
+                    <ToolJsonSection label="Args" value={prettyJson(inv.args)} />
+                    <ToolJsonSection label="Result" value={prettyJson(displayResult)} />
                 </div>
             )}
         </div>
@@ -258,22 +358,24 @@ export function ToolTrace({ invocations }: { invocations: ToolInvocation[] }) {
 //      assistant to a readable measure.
 export function MessageBubble({
     message,
-    userWidth = 'max-w-[85%]',
-    assistantWidth = 'max-w-[85%]',
+    userMaxWidth = '58%',
+    assistantMaxWidth = '72%',
+    showStreamCursor = true,
 }: {
     message: ChatMessage;
-    userWidth?: string;
-    assistantWidth?: string;
+    userMaxWidth?: string;
+    assistantMaxWidth?: string;
+    showStreamCursor?: boolean;
 }) {
-    const widthClass = message.role === 'user' ? userWidth : assistantWidth;
+    const widthStyle = { maxWidth: message.role === 'user' ? userMaxWidth : assistantMaxWidth };
     return (
-        <div className={`flex w-full items-start gap-1 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+        <div className={`chat-bubble-row ${message.role}`}>
             {message.role === 'assistant' && (
-                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center" aria-hidden="true">
-                    <img src="/logo.png" alt="" className="h-full w-full object-contain" />
+                <div className="chat-assistant-avatar" aria-hidden="true">
+                    <img src="/logo.png" alt="" />
                 </div>
             )}
-            <div className={`chat-message group ${message.role} ${widthClass}`}>
+            <div className={`chat-message group min-w-0 ${message.role}`} style={widthStyle}>
                 {message.image_data && (
                     <div className="chat-message-image" style={{ marginBottom: 'var(--spacing-2)' }}>
                         <img
@@ -292,9 +394,7 @@ export function MessageBubble({
                     <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                            pre: ({ children }: any) => (
-                                <pre className="code-block-pre">{children}</pre>
-                            ),
+                            pre: ({ children }: any) => <>{children}</>,
                             code: ({ node, className, children, ...props }: any) => {
                                 // v10: no inline prop — detect via position spanning multiple lines
                                 const isBlock = node?.position
@@ -302,12 +402,7 @@ export function MessageBubble({
                                     : !!className;
                                 const lang = (className || '').replace('language-', '');
                                 if (isBlock) {
-                                    return (
-                                        <span className="block-code-wrapper">
-                                            {lang && <span className="code-lang-label">{lang}</span>}
-                                            <code className="block-code" {...props}>{children}</code>
-                                        </span>
-                                    );
+                                    return <CodeBlock lang={lang}>{children}</CodeBlock>;
                                 }
                                 return <code className="inline-code" {...props}>{children}</code>;
                             },
@@ -346,17 +441,19 @@ export function MessageBubble({
                     >
                         {message.content}
                     </ReactMarkdown>
-                    {message.id === -1 && (
+                    {showStreamCursor && message.id === -1 && (
                         <span className="stream-cursor" aria-hidden="true">▍</span>
                     )}
                 </div>
                 {message.role === 'assistant' && message.id !== -1 && (
-                    <div className="mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    <div className="message-actions">
                         <button
-                            className="cursor-pointer rounded-sm border border-border px-[7px] py-0.5 text-[11px] text-muted transition-colors hover:bg-background-secondary hover:text-foreground"
+                            type="button"
+                            className="message-copy-button"
                             title="Copy"
                             onClick={() => navigator.clipboard.writeText(message.content)}
                         >
+                            <Copy size={12} />
                             Copy
                         </button>
                     </div>
@@ -376,11 +473,11 @@ export function MessageBubble({
 //      `toolStatus` carries humanized labels for the tools running this round.
 export function ThinkingBubble({ isThinking, toolStatus }: { isThinking: boolean; toolStatus: string[] }) {
     return (
-        <div className="flex w-full items-start justify-start gap-1">
-            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center" aria-hidden="true">
-                <img src="/logo.png" alt="" className="h-full w-full object-contain" />
+        <div className="chat-bubble-row assistant">
+            <div className="chat-assistant-avatar" aria-hidden="true">
+                <img src="/logo.png" alt="" />
             </div>
-            <div className="chat-message assistant">
+            <div className="chat-message assistant chat-message-thinking">
                 {isThinking ? (
                     <div className="thinking-indicator">
                         <div className="thinking-glyph">⚙</div>

@@ -2,9 +2,10 @@
 //NOTE: Collapsible cards with real brand assets
 
 import { useState, useEffect } from 'react';
-import { Check, ChevronDown, ChevronUp, FolderOpen, AlertCircle } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, FolderOpen, AlertCircle, Sparkles, Copy } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import Button from '../components/ui/Button';
 
 //INFO: Integration type
 interface Integration {
@@ -13,6 +14,12 @@ interface Integration {
     config: string | null;
     last_sync: string | null;
     status: string;
+}
+
+interface ApiKeyStatus {
+    provider: string;
+    is_configured: boolean;
+    masked_key: string | null;
 }
 
 //INFO: Brand Icons
@@ -34,6 +41,7 @@ const ObsidianIcon = () => (
 function IntegrationsPage() {
     const [integrations, setIntegrations] = useState<Integration[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [success, setSuccess] = useState<string | null>(null);
     const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
@@ -44,6 +52,8 @@ function IntegrationsPage() {
         try {
             const data = await invoke<Integration[]>('get_integrations');
             setIntegrations(data);
+            const geminiStatus = await invoke<ApiKeyStatus>('get_api_key_status', { provider: 'gemini' });
+            setGeminiKeyConfigured(geminiStatus.is_configured);
 
             // Pre-fill Google credentials if they exist
             const g = data.find(i => i.name === 'google');
@@ -68,9 +78,74 @@ function IntegrationsPage() {
     }
 
     // Google Auth State
+    const [geminiApiKey, setGeminiApiKey] = useState('');
+    const [geminiKeyConfigured, setGeminiKeyConfigured] = useState(false);
+    const [geminiCopied, setGeminiCopied] = useState(false);
     const [googleClientId, setGoogleClientId] = useState('');
     const [googleClientSecret, setGoogleClientSecret] = useState('');
     const [isAuthenticating, setIsAuthenticating] = useState(false);
+    const [copiedPath, setCopiedPath] = useState<string | null>(null);
+
+    async function saveGeminiApiKey() {
+        if (!geminiApiKey.trim()) return;
+        setError(null);
+        try {
+            await invoke('update_api_key', { request: { provider: 'gemini', api_key: geminiApiKey } });
+            setGeminiApiKey('');
+            setGeminiKeyConfigured(true);
+            setSuccess('Gemini API key saved');
+        } catch (err) {
+            setError(`Failed to save Gemini API key: ${err}`);
+        }
+    }
+
+    function copyTextFallback(value: string) {
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.setAttribute('readonly', 'true');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (!copied) {
+            throw new Error('Clipboard copy failed');
+        }
+    }
+
+    async function copyGeminiApiKey() {
+        try {
+            const key = geminiApiKey.trim()
+                ? geminiApiKey
+                : await invoke<string>('get_api_key', { provider: 'gemini' });
+            try {
+                await navigator.clipboard.writeText(key);
+            } catch {
+                copyTextFallback(key);
+            }
+            setGeminiCopied(true);
+            window.setTimeout(() => setGeminiCopied(false), 1200);
+        } catch (err) {
+            setError(`Failed to copy Gemini API key: ${err}`);
+        }
+    }
+
+    async function copyText(value: string | null | undefined, label: string) {
+        if (!value) return;
+        try {
+            try {
+                await navigator.clipboard.writeText(value);
+            } catch {
+                copyTextFallback(value);
+            }
+            setCopiedPath(label);
+            window.setTimeout(() => setCopiedPath(null), 1200);
+        } catch (err) {
+            setError(`Failed to copy path: ${err}`);
+        }
+    }
 
     async function handleGoogleAuth() {
         if (!googleClientId.trim() || !googleClientSecret.trim()) {
@@ -167,41 +242,135 @@ function IntegrationsPage() {
         }
     }
 
+    function getObsidianConfig(): Record<string, any> {
+        if (!obsidian?.config) return {};
+        try {
+            return JSON.parse(obsidian.config);
+        } catch {
+            return {};
+        }
+    }
+
+    async function updateObsidianConfig(nextConfig: Record<string, any>) {
+        if (!obsidian) return;
+        await invoke('update_integration', {
+            integration: {
+                ...obsidian,
+                enabled: true,
+                config: JSON.stringify(nextConfig),
+                status: 'connected'
+            }
+        });
+        await loadIntegrations();
+    }
+
     const google = getIntegration('google');
     const obsidian = getIntegration('obsidian');
     const vaultPath = getVaultPath();
+    const obsidianConfig = getObsidianConfig();
 
     return (
-        <div className="animate-fade-in pb-12">
-            <h2 className="mb-6 text-xl font-semibold tracking-tight">Integrations</h2>
+        <div className="admin-page animate-fade-in">
+            <div className="admin-page-header">
+                <h2>Integrations</h2>
+            </div>
 
             {error && (
-                <div className="mb-4 flex items-center gap-1.5 rounded-full bg-[#fce8e6] px-3 py-1 text-xs font-medium text-error">
+                <div className="mb-4 flex max-w-full items-center gap-1.5 rounded-full bg-[#fce8e6] px-3 py-1 text-xs font-medium text-error">
                     <AlertCircle size={12} />
-                    {error}
+                    <span className="min-w-0 break-words">{error}</span>
+                </div>
+            )}
+            {success && (
+                <div className="mb-4 flex max-w-full items-center gap-1.5 rounded-full bg-background-tertiary px-3 py-1 text-xs font-medium text-success">
+                    <Check size={12} />
+                    <span className="min-w-0 break-words">{success}</span>
                 </div>
             )}
 
+            <div className="settings-card integration-shell">
+                <div
+                    onClick={() => toggleExpand('gemini')}
+                    className="integration-header"
+                >
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <div className="integration-icon-box">
+                            <Sparkles size={20} />
+                        </div>
+                        <div className="min-w-0">
+                            <div className="integration-title">Gemini</div>
+                            <div className="integration-subtitle">
+                                Power Lumen's chat, memory, and tool reasoning.
+                            </div>
+                        </div>
+                    </div>
+                    <div className="integration-actions">
+                        {geminiKeyConfigured && (
+                            <div className="integration-status-badge">
+                                <Check size={12} /> Active
+                            </div>
+                        )}
+                        {expandedMap['gemini'] ? <ChevronUp size={16} className="text-muted" /> : <ChevronDown size={16} className="text-muted" />}
+                    </div>
+                </div>
+
+                {expandedMap['gemini'] && (
+                    <div className="integration-panel">
+                        <div className="config-section">
+                            <div>
+                                <label className="input-label mb-1 block">API Key</label>
+                                <input
+                                    type="password"
+                                    className="input font-mono"
+                                    value={geminiApiKey}
+                                    onChange={(e) => setGeminiApiKey(e.target.value)}
+                                    placeholder={geminiKeyConfigured ? 'Existing key configured' : 'Paste Gemini API key'}
+                                />
+                            </div>
+                            <div className="integration-form-row">
+                                <a
+                                    href="https://aistudio.google.com/apikey"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="integration-link"
+                                >
+                                    Get API key
+                                </a>
+                                <div className="integration-button-row">
+                                    <Button size="sm" variant="secondary" onClick={copyGeminiApiKey} disabled={!geminiApiKey.trim() && !geminiKeyConfigured}>
+                                        {geminiCopied ? <Check size={13} /> : <Copy size={13} />}
+                                        {geminiCopied ? 'Copied' : 'Copy Key'}
+                                    </Button>
+                                    <Button size="sm" onClick={saveGeminiApiKey} disabled={!geminiApiKey.trim()}>
+                                        Save Key
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+
             {/* Google Services */}
-            <div className="settings-card mb-4 overflow-hidden p-0">
+            <div className="settings-card integration-shell">
                 <div
                     onClick={() => toggleExpand('google')}
-                    className="flex cursor-pointer items-center justify-between gap-3 p-4"
+                    className="integration-header"
                 >
-                    <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-background-tertiary">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <div className="integration-icon-box">
                             <GoogleIcon />
                         </div>
-                        <div>
-                            <div className="text-[0.9rem] font-medium">Google Workspace</div>
-                            <div className="text-xs text-foreground-secondary">
+                        <div className="min-w-0">
+                            <div className="integration-title">Google Workspace</div>
+                            <div className="integration-subtitle">
                                 Connect Gmail and Calendar for context awareness.
                             </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="integration-actions">
                         {google?.enabled && (
-                            <div className="flex items-center gap-1 text-[0.7rem] font-medium text-success">
+                            <div className="integration-status-badge">
                                 <Check size={12} /> Active
                             </div>
                         )}
@@ -218,11 +387,11 @@ function IntegrationsPage() {
                 </div>
 
                 {expandedMap['google'] && (
-                    <div className="border-t border-border-light bg-background-secondary p-4">
+                    <div className="integration-panel">
                         {!google?.enabled ? (
                             <div className="config-section">
-                                <div className="mb-2 text-[0.8rem] font-semibold">API Configuration</div>
-                                <p className="mb-3 text-xs text-foreground-secondary">
+                                <div className="config-title">API Configuration</div>
+                                <p className="config-copy">
                                     Lumen uses local OAuth authentication. You need to provide your own Google Cloud Project credentials.
                                 </p>
                                 <details className="setup-details">
@@ -258,20 +427,23 @@ function IntegrationsPage() {
                                             placeholder="Client Secret"
                                         />
                                     </div>
-                                    <div className="mt-2 flex justify-end">
-                                        <button
-                                            className="btn btn-primary btn-sm text-[0.8rem]"
+                                    <div className="integration-form-row justify-end">
+                                        <Button
+                                            size="sm"
                                             onClick={handleGoogleAuth}
                                             disabled={isAuthenticating}
                                         >
                                             {isAuthenticating ? 'Authenticating...' : 'Connect Account'}
-                                        </button>
+                                        </Button>
                                     </div>
                                 </div>
                             </div>
                         ) : (
-                            <div className="text-[0.8rem] text-foreground-secondary">
-                                Connected as user. <span className="cursor-pointer underline" onClick={() => toggleGoogle(false)}>Disconnect</span>
+                            <div className="connected-row">
+                                <span>Google Workspace is connected.</span>
+                                <Button size="sm" variant="secondary" onClick={() => toggleGoogle(false)}>
+                                    Disconnect
+                                </Button>
                             </div>
                         )}
                     </div>
@@ -279,25 +451,25 @@ function IntegrationsPage() {
             </div>
 
             {/* Obsidian */}
-            <div className="settings-card mb-4 overflow-hidden p-0">
+            <div className="settings-card integration-shell">
                 <div
                     onClick={() => toggleExpand('obsidian')}
-                    className="flex cursor-pointer items-center justify-between gap-3 p-4"
+                    className="integration-header"
                 >
-                    <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-background-tertiary">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <div className="integration-icon-box">
                             <ObsidianIcon />
                         </div>
-                        <div>
-                            <div className="text-[0.9rem] font-medium">Obsidian</div>
-                            <div className="text-xs text-foreground-secondary">
+                        <div className="min-w-0">
+                            <div className="integration-title">Obsidian</div>
+                            <div className="integration-subtitle">
                                 Index your local vault for knowledge retrieval.
                             </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="integration-actions">
                         {obsidian?.enabled && (
-                            <div className="flex items-center gap-1 text-[0.7rem] font-medium text-success">
+                            <div className="integration-status-badge">
                                 <Check size={12} /> Active
                             </div>
                         )}
@@ -314,28 +486,41 @@ function IntegrationsPage() {
                 </div>
 
                 {expandedMap['obsidian'] && obsidian?.enabled && (
-                    <div className="border-t border-border-light bg-background-secondary p-4">
+                    <div className="integration-panel">
                         <div className="config-section">
-                            <div className="mb-2 text-[0.8rem] font-semibold">Vault Settings</div>
-                            <div className="mb-3 flex items-center justify-between rounded-sm border border-border bg-background p-2 text-xs">
-                                <span className="text-foreground-secondary">{vaultPath}</span>
-                                <button className="cursor-pointer border-none bg-transparent text-xs text-accent" onClick={selectObsidianVault}>Change</button>
+                            <div className="config-title">Vault Settings</div>
+                            <div className="path-control">
+                                <span className="path-value" title={vaultPath || ''}>{vaultPath}</span>
+                                <Button size="sm" variant="secondary" onClick={() => copyText(vaultPath, 'vault')}>
+                                    {copiedPath === 'vault' ? <Check size={13} /> : <Copy size={13} />}
+                                    {copiedPath === 'vault' ? 'Copied' : 'Copy'}
+                                </Button>
+                                <Button size="sm" variant="secondary" onClick={selectObsidianVault}>Change</Button>
                             </div>
 
                             <div className="grid gap-3">
                                 <div>
                                     <label className="input-label mb-1 block">Daily Notes Folder</label>
-                                    <div className="flex gap-2">
+                                    <div className="path-input-row">
                                         <input
                                             type="text"
                                             readOnly
-                                            className="input flex-1 p-1.5 text-[0.8rem]"
+                                            className="input flex-1"
                                             value={(() => {
                                                 try { return JSON.parse(obsidian.config || '{}').daily_notes_path || '' } catch { return '' }
                                             })()}
                                             placeholder="Root"
                                         />
-                                        <button className="btn btn-sm text-xs" onClick={async () => {
+                                        <Button
+                                            size="icon"
+                                            variant="secondary"
+                                            onClick={() => copyText(obsidianConfig.daily_notes_path || '', 'daily')}
+                                            disabled={!obsidianConfig.daily_notes_path}
+                                            title="Copy path"
+                                        >
+                                            {copiedPath === 'daily' ? <Check size={14} /> : <Copy size={14} />}
+                                        </Button>
+                                        <Button size="icon" variant="secondary" onClick={async () => {
                                             try {
                                                 const selected = await open({ directory: true, multiple: false, title: 'Select Daily Notes Folder', defaultPath: vaultPath || undefined });
                                                 if (selected && typeof selected === 'string') {
@@ -343,20 +528,51 @@ function IntegrationsPage() {
                                                     if (vaultPath && selected.startsWith(vaultPath)) {
                                                         relativePath = selected.replace(vaultPath, '').replace(/^\//, '');
                                                     }
-                                                    const config = JSON.parse(obsidian.config || '{}');
-                                                    await invoke('update_integration', {
-                                                        integration: {
-                                                            ...obsidian,
-                                                            config: JSON.stringify({ ...config, daily_notes_path: relativePath })
-                                                        }
-                                                    });
-                                                    loadIntegrations();
+                                                    await updateObsidianConfig({ ...obsidianConfig, daily_notes_path: relativePath });
                                                 }
                                             } catch (err) { setError(`Failed to select folder: ${err}`); }
                                         }}>
                                             <FolderOpen size={14} />
-                                        </button>
+                                        </Button>
                                     </div>
+                                </div>
+                                <div>
+                                    <label className="input-label mb-1 block">Lumen Directory</label>
+                                    <div className="path-input-row">
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className="input flex-1"
+                                            value={obsidianConfig.lumen_dir || ''}
+                                            placeholder="Optional folder Lumen can fully control"
+                                        />
+                                        <Button
+                                            size="icon"
+                                            variant="secondary"
+                                            onClick={() => copyText(obsidianConfig.lumen_dir || '', 'lumen')}
+                                            disabled={!obsidianConfig.lumen_dir}
+                                            title="Copy path"
+                                        >
+                                            {copiedPath === 'lumen' ? <Check size={14} /> : <Copy size={14} />}
+                                        </Button>
+                                        <Button size="icon" variant="secondary" onClick={async () => {
+                                            try {
+                                                const selected = await open({ directory: true, multiple: false, title: 'Select Lumen Directory', defaultPath: vaultPath || undefined });
+                                                if (selected && typeof selected === 'string') {
+                                                    let relativePath = selected;
+                                                    if (vaultPath && selected.startsWith(vaultPath)) {
+                                                        relativePath = selected.replace(vaultPath, '').replace(/^\//, '');
+                                                    }
+                                                    await updateObsidianConfig({ ...obsidianConfig, lumen_dir: relativePath });
+                                                }
+                                            } catch (err) { setError(`Failed to select Lumen directory: ${err}`); }
+                                        }}>
+                                            <FolderOpen size={14} />
+                                        </Button>
+                                    </div>
+                                    <p className="mt-1 text-xs text-foreground-tertiary">
+                                        Lumen can freely create, edit, and organize files inside this folder.
+                                    </p>
                                 </div>
                             </div>
                         </div>

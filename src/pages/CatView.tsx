@@ -177,26 +177,25 @@ function CatView() {
     const isEmpty = messages.length === 0 && !isLoading;
 
     return (
-        <div className="relative flex flex-1 min-h-0 w-full flex-col">
-            {/* Message stream */}
+        <div className="cat-chat">
             <div
                 ref={scrollRef}
                 onScroll={handleScroll}
-                className="chat-messages flex-1 min-h-0 overflow-y-auto"
+                className="cat-chat-scroll"
             >
-                <div className="mx-auto flex w-full max-w-3xl flex-col gap-1 px-1">
+                <div className="cat-chat-stream">
                     {isEmpty && (
-                        <div className="flex flex-col items-center justify-center gap-2 py-20 text-center text-foreground-secondary">
-                            <img src="/logo.png" alt="Lumen" className="mb-2 h-14 w-14 opacity-90" />
-                            <p className="text-lg font-semibold text-foreground">Hi! I'm Lumen. 🐈</p>
-                            <p className="text-sm">Ask me anything — this is the full-size chat.</p>
-                            <div className="mt-5 grid w-full max-w-md grid-cols-2 gap-2">
+                        <div className="cat-empty-state">
+                            <img src="/logo.png" alt="Lumen" className="cat-empty-logo" />
+                            <p className="cat-empty-title">Hi! I'm Lumen.</p>
+                            <p className="cat-empty-subtitle">Ask me anything.</p>
+                            <div className="cat-quick-actions">
                                 {QUICK_ACTIONS.map((action, i) => (
                                     <button
                                         key={i}
                                         onClick={() => sendMessage(action)}
                                         disabled={isLoading}
-                                        className="rounded-lg border border-border-light bg-background-secondary px-3 py-2.5 text-left text-xs text-foreground-secondary transition-colors hover:border-accent hover:bg-accent-light hover:text-accent disabled:opacity-50"
+                                        className="cat-quick-action"
                                     >
                                         {action}
                                     </button>
@@ -209,8 +208,8 @@ function CatView() {
                         <MessageBubble
                             key={message.id || index}
                             message={message}
-                            assistantWidth="max-w-[64ch]"
-                            userWidth="max-w-[80%]"
+                            assistantMaxWidth="72%"
+                            userMaxWidth="46%"
                         />
                     ))}
 
@@ -219,53 +218,48 @@ function CatView() {
                     )}
 
                     {error && (
-                        <div className="my-2 rounded-md border border-border-light bg-background-secondary px-3 py-2 text-xs text-error">
+                        <div className="cat-chat-error">
                             {error}
                         </div>
                     )}
 
-                    <div className="h-2" />
                     <div ref={messagesEndRef} />
                 </div>
             </div>
 
-            {/* Jump-to-bottom pill */}
             {showScrollDown && (
                 <button
                     onClick={() => scrollToBottom()}
                     title="Jump to latest"
-                    className="absolute bottom-24 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-foreground-secondary shadow-md transition-transform hover:-translate-x-1/2 hover:scale-105"
+                    className="cat-scroll-latest"
                 >
                     <ArrowDown size={13} />
                     Latest
                 </button>
             )}
 
-            {/* Composer */}
-            <div className="shrink-0 pt-3">
-                <div className="mx-auto w-full max-w-3xl">
-                    <div className="chat-input-container">
-                        <textarea
-                            ref={inputRef}
-                            className="chat-input"
-                            placeholder="Ask anything…"
-                            value={inputValue}
-                            onChange={(e) => setInputValue(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            rows={1}
-                            disabled={isLoading}
-                        />
-                        <button
-                            className={`chat-send-btn${isLoading ? ' is-stop' : ''}`}
-                            onClick={isLoading
-                                ? () => { invoke('cancel_chat').catch(err => console.error('cancel_chat failed:', err)); }
-                                : () => sendMessage(inputValue)}
-                            disabled={!isLoading && !inputValue.trim()}
-                            title={isLoading ? 'Stop generating' : 'Send'}
-                        >
-                            {isLoading ? <Square size={14} fill="currentColor" /> : <Send size={16} />}
-                        </button>
-                    </div>
+            <div className="cat-composer">
+                <div className="chat-input-container">
+                    <textarea
+                        ref={inputRef}
+                        className="chat-input"
+                        placeholder="Ask anything..."
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        rows={1}
+                        disabled={isLoading}
+                    />
+                    <button
+                        className={`chat-send-btn${isLoading ? ' is-stop' : ''}`}
+                        onClick={isLoading
+                            ? () => { invoke('cancel_chat').catch(err => console.error('cancel_chat failed:', err)); }
+                            : () => sendMessage(inputValue)}
+                        disabled={!isLoading && !inputValue.trim()}
+                        title={isLoading ? 'Stop generating' : 'Send'}
+                    >
+                        {isLoading ? <Square size={13} fill="currentColor" /> : <Send size={15} />}
+                    </button>
                 </div>
             </div>
         </div>

@@ -1,11 +1,27 @@
 //INFO: Overlay Window - Chat panel
 //NOTE: Clean minimal chat interface
 
-import { useState, useEffect, useRef } from 'react';
-import { Send, Square, X, Loader2, Crosshair, CalendarDays, LayoutDashboard, MessageSquare, Maximize2, Minimize2 } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
-import CalendarView from '../components/CalendarView';
-import { MessageBubble, ThinkingBubble, type ChatMessage, type SendMessageResponse } from '../components/ChatKit';
+import { useState, useEffect, useRef } from "react";
+import {
+    Send,
+    Square,
+    X,
+    Loader2,
+    Crosshair,
+    CalendarDays,
+    LayoutDashboard,
+    MessageSquare,
+    Maximize2,
+    Minimize2,
+} from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import CalendarView from "../components/CalendarView";
+import {
+    MessageBubble,
+    ThinkingBubble,
+    type ChatMessage,
+    type SendMessageResponse,
+} from "../components/ChatKit";
 
 //INFO: Quick action prompts shown on empty chat
 const QUICK_ACTIONS = [
@@ -15,10 +31,9 @@ const QUICK_ACTIONS = [
     "Open my daily note",
 ];
 
-
 function OverlayWindow() {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
-    const [inputValue, setInputValue] = useState('');
+    const [inputValue, setInputValue] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isThinking, setIsThinking] = useState(false);
     // Humanized labels for the tools currently running (e.g. "📅 Checking your calendar").
@@ -26,8 +41,10 @@ function OverlayWindow() {
     const [isCapturing, setIsCapturing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
-    const [, setCurrentView] = useState<'chat' | 'calendar'>('chat');
-    const [transitionView, setTransitionView] = useState<'chat' | 'calendar'>('chat');
+    const [, setCurrentView] = useState<"chat" | "calendar">("chat");
+    const [transitionView, setTransitionView] = useState<"chat" | "calendar">(
+        "chat",
+    );
     const [isCalendarExpanded, setIsCalendarExpanded] = useState(false);
 
     // Content size toggle
@@ -37,13 +54,13 @@ function OverlayWindow() {
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
     //INFO: Orchestrate smooth view switching
-    const switchView = async (newView: 'chat' | 'calendar') => {
+    const switchView = async (newView: "chat" | "calendar") => {
         if (newView === transitionView) return;
         setTransitionView(newView);
         setCurrentView(newView);
-        if (newView === 'chat') {
+        if (newView === "chat") {
             setTimeout(() => scrollToBottom(true), 300);
-        } else if (newView === 'calendar') {
+        } else if (newView === "calendar") {
             setIsCalendarExpanded(true);
         }
     };
@@ -55,8 +72,8 @@ function OverlayWindow() {
 
     //INFO: Set transparent background for overlay window
     useEffect(() => {
-        document.body.classList.add('overlay-window');
-        document.documentElement.classList.add('overlay-window');
+        document.body.classList.add("overlay-window");
+        document.documentElement.classList.add("overlay-window");
 
         //INFO: Focus and resize input when window is mounted
         requestAnimationFrame(() => {
@@ -67,8 +84,8 @@ function OverlayWindow() {
         loadChatHistory();
 
         return () => {
-            document.body.classList.remove('overlay-window');
-            document.documentElement.classList.remove('overlay-window');
+            document.body.classList.remove("overlay-window");
+            document.documentElement.classList.remove("overlay-window");
         };
     }, []);
 
@@ -77,8 +94,8 @@ function OverlayWindow() {
         // but go instant for view switches/mounts
         const performScroll = () => {
             messagesEndRef.current?.scrollIntoView({
-                behavior: instant ? 'instant' : 'smooth',
-                block: 'end'
+                behavior: instant ? "instant" : "smooth",
+                block: "end",
             });
         };
 
@@ -99,54 +116,67 @@ function OverlayWindow() {
 
         async function setup() {
             // @ts-ignore
-            const { listen } = await import('@tauri-apps/api/event');
+            const { listen } = await import("@tauri-apps/api/event");
 
             // Real-time text from the AI (replaces streaming bubble content)
-            unlistenTurn = await listen<string>('assistant-reply-turn', (event) => {
-                setMessages(prev => {
-                    const last = prev[prev.length - 1];
-                    if (last && last.id === -1) {
-                        // Replace the streaming bubble content (non-streaming sends full text)
-                        const updated = [...prev];
-                        updated[updated.length - 1] = {
-                            ...last,
-                            content: event.payload
-                        };
-                        return updated;
-                    } else {
-                        // Create a new streaming bubble
-                        const newPart: ChatMessage = {
-                            id: -1,
-                            role: 'assistant',
-                            content: event.payload,
-                            created_at: new Date().toISOString()
-                        };
-                        return [...prev, newPart];
-                    }
-                });
-            });
+            unlistenTurn = await listen<string>(
+                "assistant-reply-turn",
+                (event) => {
+                    setMessages((prev) => {
+                        const last = prev[prev.length - 1];
+                        if (last && last.id === -1) {
+                            // Replace the streaming bubble content (non-streaming sends full text)
+                            const updated = [...prev];
+                            updated[updated.length - 1] = {
+                                ...last,
+                                content: event.payload,
+                            };
+                            return updated;
+                        } else {
+                            // Create a new streaming bubble
+                            const newPart: ChatMessage = {
+                                id: -1,
+                                role: "assistant",
+                                content: event.payload,
+                                created_at: new Date().toISOString(),
+                            };
+                            return [...prev, newPart];
+                        }
+                    });
+                },
+            );
 
             // Clear streaming bubbles (e.g., during tool execution rounds)
-            unlistenClear = await listen('assistant-reply-clear', () => {
-                setMessages(prev => prev.filter(m => m.id !== -1));
+            unlistenClear = await listen("assistant-reply-clear", () => {
+                setMessages((prev) => prev.filter((m) => m.id !== -1));
             });
 
             // Permanent proactive messages (from Agent)
-            unlistenMsg = await listen<ChatMessage>('assistant-message', (event) => {
-                setMessages(prev => [...prev.filter(m => m.id !== event.payload.id), event.payload]);
-            });
+            unlistenMsg = await listen<ChatMessage>(
+                "assistant-message",
+                (event) => {
+                    setMessages((prev) => [
+                        ...prev.filter((m) => m.id !== event.payload.id),
+                        event.payload,
+                    ]);
+                },
+            );
 
             // Tool execution state tracking — payload is the list of friendly
             // labels for the tools running this round.
-            unlistenToolStart = await listen<string[]>('tool-execution-start', (event) => {
-                setIsThinking(true);
-                setToolStatus(Array.isArray(event.payload) ? event.payload : []);
-            });
-            unlistenToolEnd = await listen('tool-execution-end', () => {
+            unlistenToolStart = await listen<string[]>(
+                "tool-execution-start",
+                (event) => {
+                    setIsThinking(true);
+                    setToolStatus(
+                        Array.isArray(event.payload) ? event.payload : [],
+                    );
+                },
+            );
+            unlistenToolEnd = await listen("tool-execution-end", () => {
                 setIsThinking(false);
                 setToolStatus([]);
             });
-
         }
 
         setup();
@@ -166,8 +196,8 @@ function OverlayWindow() {
 
         async function setupListener() {
             // @ts-ignore
-            const { listen } = await import('@tauri-apps/api/event');
-            unlisten = await listen('tauri://focus', () => {
+            const { listen } = await import("@tauri-apps/api/event");
+            unlisten = await listen("tauri://focus", () => {
                 inputRef.current?.focus();
                 adjustInputHeight();
                 // When window "comes up", ensure we are at the bottom
@@ -196,16 +226,17 @@ function OverlayWindow() {
             } else {
                 const lastMessage = messages[messages.length - 1];
                 // Smooth scroll for new messages (id is null for temp user msg, or -1 for turns)
-                scrollToBottom(lastMessage?.id === null || lastMessage?.id === -1);
+                scrollToBottom(
+                    lastMessage?.id === null || lastMessage?.id === -1,
+                );
             }
         }
     }, [messages]);
 
-
     //INFO: Auto-resize textarea logic
     const adjustInputHeight = () => {
         if (inputRef.current) {
-            inputRef.current.style.height = 'auto';
+            inputRef.current.style.height = "auto";
             const newHeight = Math.min(inputRef.current.scrollHeight, 100);
             inputRef.current.style.height = `${newHeight}px`;
         }
@@ -217,12 +248,15 @@ function OverlayWindow() {
 
     async function loadChatHistory() {
         try {
-            const history = await invoke<ChatMessage[]>('get_chat_history', { sessionId: null, limit: 50 });
+            const history = await invoke<ChatMessage[]>("get_chat_history", {
+                sessionId: null,
+                limit: 50,
+            });
             setMessages(history);
             scrollToBottom(true);
         } catch (err) {
-            console.error('Failed to load chat history:', err);
-            setError('Failed to load chat history. Try reopening the overlay.');
+            console.error("Failed to load chat history:", err);
+            setError("Failed to load chat history. Try reopening the overlay.");
         }
     }
 
@@ -231,10 +265,10 @@ function OverlayWindow() {
         let unlisten: (() => void) | null = null;
         async function setupSnipListener() {
             // @ts-ignore
-            const { listen } = await import('@tauri-apps/api/event');
-            unlisten = await listen('snipped-image', (event: any) => {
+            const { listen } = await import("@tauri-apps/api/event");
+            unlisten = await listen("snipped-image", (event: any) => {
                 setCapturedImage(event.payload);
-                switchView('chat');
+                switchView("chat");
             });
         }
         setupSnipListener();
@@ -246,9 +280,9 @@ function OverlayWindow() {
     async function handleCaptureScreen() {
         setIsCapturing(true);
         try {
-            await invoke('start_snipping');
+            await invoke("start_snipping");
         } catch (err) {
-            console.error('Failed to start snipping:', err);
+            console.error("Failed to start snipping:", err);
         } finally {
             setIsCapturing(false);
         }
@@ -259,7 +293,7 @@ function OverlayWindow() {
 
         const userMessage = inputValue.trim();
         const base64Image = capturedImage;
-        setInputValue('');
+        setInputValue("");
         setCapturedImage(null);
         setError(null);
         setIsLoading(true);
@@ -267,39 +301,46 @@ function OverlayWindow() {
         //INFO: Add temporary user message
         const tempMessage: ChatMessage = {
             id: null,
-            role: 'user',
+            role: "user",
             content: userMessage,
             created_at: new Date().toISOString(),
-            image_data: base64Image || undefined
+            image_data: base64Image || undefined,
         };
-        setMessages(prev => [...prev, tempMessage]);
+        setMessages((prev) => [...prev, tempMessage]);
 
-        if (transitionView !== 'chat') {
-            switchView('chat');
+        if (transitionView !== "chat") {
+            switchView("chat");
         }
 
         try {
-            const response = await invoke<SendMessageResponse>('send_chat_message', {
-                request: {
-                    message: userMessage,
-                    session_id: null,
-                    base64_image: base64Image
-                }
-            });
+            const response = await invoke<SendMessageResponse>(
+                "send_chat_message",
+                {
+                    request: {
+                        message: userMessage,
+                        session_id: null,
+                        base64_image: base64Image,
+                    },
+                },
+            );
 
-            setMessages(prev => {
+            setMessages((prev) => {
                 // Filter out the temp user message (id: null)
                 // and any streamed turns (id: -1) from this interaction
-                const filtered = prev.filter(m => m.id !== null && m.id !== -1);
+                const filtered = prev.filter(
+                    (m) => m.id !== null && m.id !== -1,
+                );
                 return [
                     ...filtered,
                     response.user_message,
-                    response.assistant_message
+                    response.assistant_message,
                 ];
             });
         } catch (err) {
             setError(String(err));
-            setMessages(prev => prev.filter(m => m.id !== null && m.id !== -1));
+            setMessages((prev) =>
+                prev.filter((m) => m.id !== null && m.id !== -1),
+            );
         } finally {
             setIsLoading(false);
             setIsThinking(false);
@@ -312,48 +353,55 @@ function OverlayWindow() {
         if (isLoading) return;
         setInputValue(action);
         // Use a microtask to let state settle before sending
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
         // We bypass the state-based send and directly invoke with the known value
         const userMessage = action;
         const base64Image = capturedImage;
-        setInputValue('');
+        setInputValue("");
         setCapturedImage(null);
         setError(null);
         setIsLoading(true);
 
         const tempMessage: ChatMessage = {
             id: null,
-            role: 'user',
+            role: "user",
             content: userMessage,
             created_at: new Date().toISOString(),
-            image_data: base64Image || undefined
+            image_data: base64Image || undefined,
         };
-        setMessages(prev => [...prev, tempMessage]);
+        setMessages((prev) => [...prev, tempMessage]);
 
-        if (transitionView !== 'chat') {
-            switchView('chat');
+        if (transitionView !== "chat") {
+            switchView("chat");
         }
 
         try {
-            const response = await invoke<SendMessageResponse>('send_chat_message', {
-                request: {
-                    message: userMessage,
-                    session_id: null,
-                    base64_image: base64Image
-                }
-            });
+            const response = await invoke<SendMessageResponse>(
+                "send_chat_message",
+                {
+                    request: {
+                        message: userMessage,
+                        session_id: null,
+                        base64_image: base64Image,
+                    },
+                },
+            );
 
-            setMessages(prev => {
-                const filtered = prev.filter(m => m.id !== null && m.id !== -1);
+            setMessages((prev) => {
+                const filtered = prev.filter(
+                    (m) => m.id !== null && m.id !== -1,
+                );
                 return [
                     ...filtered,
                     response.user_message,
-                    response.assistant_message
+                    response.assistant_message,
                 ];
             });
         } catch (err) {
             setError(String(err));
-            setMessages(prev => prev.filter(m => m.id !== null && m.id !== -1));
+            setMessages((prev) =>
+                prev.filter((m) => m.id !== null && m.id !== -1),
+            );
         } finally {
             setIsLoading(false);
             setIsThinking(false);
@@ -362,67 +410,98 @@ function OverlayWindow() {
     }
 
     function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-        if (event.key === 'Enter' && !event.shiftKey) {
+        if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             handleSendMessage();
         }
-        if (event.key === 'Escape') {
+        if (event.key === "Escape") {
             hideOverlay();
         }
     }
 
     async function hideOverlay() {
         try {
-            await invoke('hide_overlay');
+            await invoke("hide_overlay");
         } catch (err) {
-            console.error('Failed to hide overlay:', err);
+            console.error("Failed to hide overlay:", err);
         }
     }
-
 
     return (
         <div className="overlay-container">
             <div className="overlay-panel">
-
                 {/* Messages / Calendar */}
-                <div className={`overlay-content${transitionView === 'calendar' && isCalendarExpanded ? ' expanded' : ''}${contentLarge && transitionView === 'chat' ? ' large' : ''}`}>
-
+                <div
+                    className={`overlay-content${transitionView === "calendar" && isCalendarExpanded ? " expanded" : ""}${contentLarge && transitionView === "chat" ? " large" : ""}`}
+                >
                     {/* ── Header row (inside the card) ── */}
                     <div className="overlay-chat-header">
                         {/* Right: resize */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
+                        <div
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                marginLeft: "auto",
+                            }}
+                        >
                             <button
-                                onClick={() => setContentLarge(v => !v)}
+                                onClick={() => setContentLarge((v) => !v)}
                                 className="overlay-header-icon-btn"
-                                title={contentLarge ? 'Shrink' : 'Expand'}
+                                title={contentLarge ? "Shrink" : "Expand"}
                             >
-                                {contentLarge ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                                {contentLarge ? (
+                                    <Minimize2 size={13} />
+                                ) : (
+                                    <Maximize2 size={13} />
+                                )}
                             </button>
                         </div>
                     </div>
 
                     <div className="view-transition-wrapper">
                         {/* Chat View — always rendered */}
-                        <div className={`view-pane ${transitionView === 'chat' ? 'active' : ''} chat-messages`}>
+                        <div
+                            className={`view-pane ${transitionView === "chat" ? "active" : ""} chat-messages`}
+                        >
                             {messages.length === 0 && !isLoading && (
                                 <div className="welcome-message">
-                                    <img src="/logo.png" alt="Lumen Logo" style={{ width: '48px', height: '48px', marginBottom: 'var(--spacing-3)', opacity: 0.8 }} />
+                                    <img
+                                        src="/logo.png"
+                                        alt="Lumen Logo"
+                                        style={{
+                                            width: "48px",
+                                            height: "48px",
+                                            marginBottom: "var(--spacing-3)",
+                                            opacity: 0.8,
+                                        }}
+                                    />
                                     <p>Hi! I'm Lumen.</p>
-                                    <p style={{ fontSize: 'var(--font-size-sm)' }}>Ask me anything.</p>
+                                    <p
+                                        style={{
+                                            fontSize: "var(--font-size-sm)",
+                                        }}
+                                    >
+                                        Ask me anything.
+                                    </p>
                                     {/* Quick action chips */}
-                                    <div style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: '1fr 1fr',
-                                        gap: '8px',
-                                        marginTop: '16px',
-                                        width: '100%',
-                                        maxWidth: '320px'
-                                    }}>
+                                    <div
+                                        style={{
+                                            display: "grid",
+                                            gridTemplateColumns: "1fr 1fr",
+                                            gap: "8px",
+                                            marginTop: "16px",
+                                            width: "100%",
+                                            maxWidth: "320px",
+                                        }}
+                                    >
                                         {QUICK_ACTIONS.map((action, i) => (
                                             <button
                                                 key={i}
                                                 className="quick-action-chip"
-                                                onClick={() => handleQuickAction(action)}
+                                                onClick={() =>
+                                                    handleQuickAction(action)
+                                                }
                                             >
                                                 {action}
                                             </button>
@@ -432,28 +511,41 @@ function OverlayWindow() {
                             )}
 
                             {messages.map((message, index) => (
-                                <MessageBubble key={message.id || index} message={message} />
+                                <MessageBubble
+                                    key={message.id || index}
+                                    message={message}
+                                    userMaxWidth="75%"
+                                    assistantMaxWidth="90%"
+                                    showStreamCursor={false}
+                                />
                             ))}
 
-                            {isLoading && !messages.some(m => m.id === -1) && (
-                                <ThinkingBubble isThinking={isThinking} toolStatus={toolStatus} />
-                            )}
+                            {isLoading &&
+                                !messages.some((m) => m.id === -1) && (
+                                    <ThinkingBubble
+                                        isThinking={isThinking}
+                                        toolStatus={toolStatus}
+                                    />
+                                )}
 
-                            {error && <div className="error-message">{error}</div>}
+                            {error && (
+                                <div className="error-message">{error}</div>
+                            )}
 
                             <div className="chat-spacer" />
                             <div ref={messagesEndRef} />
                         </div>
 
                         {/* Calendar View */}
-                        <div className={`view-pane ${transitionView === 'calendar' ? 'active' : ''} calendar-container`}>
+                        <div
+                            className={`view-pane ${transitionView === "calendar" ? "active" : ""} calendar-container`}
+                        >
                             <CalendarView
                                 isExpanded={isCalendarExpanded}
                                 onToggleExpand={handleCalendarExpansionToggle}
                                 transitionView={transitionView}
                             />
                         </div>
-
                     </div>
                 </div>
 
@@ -461,20 +553,30 @@ function OverlayWindow() {
                 <div className="floating-action-bar">
                     {/* 1. Camera */}
                     <button
-                        className={`action-button camera-btn ${isCapturing ? 'loading' : ''}`}
+                        className={`action-button camera-btn ${isCapturing ? "loading" : ""}`}
                         onClick={handleCaptureScreen}
                         disabled={isLoading || isCapturing}
                         title="Capture screen"
                     >
-                        {isCapturing ? <Loader2 size={18} className="loading-spinner" /> : <Crosshair size={18} />}
+                        {isCapturing ? (
+                            <Loader2 size={18} className="loading-spinner" />
+                        ) : (
+                            <Crosshair size={18} />
+                        )}
                     </button>
 
                     {/* 2. Calendar toggle */}
                     <button
-                        className={`action-button ${transitionView === 'calendar' ? 'active' : ''} calendar-btn`}
-                        onClick={() => switchView(transitionView === 'calendar' ? 'chat' : 'calendar')}
+                        className={`action-button ${transitionView === "calendar" ? "active" : ""} calendar-btn`}
+                        onClick={() =>
+                            switchView(
+                                transitionView === "calendar"
+                                    ? "chat"
+                                    : "calendar",
+                            )
+                        }
                     >
-                        {transitionView === 'calendar' ? (
+                        {transitionView === "calendar" ? (
                             <>
                                 <MessageSquare size={16} />
                                 <span>Chat</span>
@@ -490,7 +592,7 @@ function OverlayWindow() {
                     {/* 4. Home */}
                     <button
                         className="action-button home-btn"
-                        onClick={() => invoke('show_main_window')}
+                        onClick={() => invoke("show_main_window")}
                         title="Go to Home"
                     >
                         <LayoutDashboard size={18} />
@@ -500,35 +602,38 @@ function OverlayWindow() {
                 {/* Input Area (Persistent) */}
                 <div className="overlay-footer">
                     {capturedImage && (
-                        <div className="image-preview-container" style={{
-                            marginBottom: 'var(--spacing-3)',
-                            position: 'relative',
-                            width: 'fit-content'
-                        }}>
+                        <div
+                            className="image-preview-container"
+                            style={{
+                                marginBottom: "var(--spacing-3)",
+                                position: "relative",
+                                width: "fit-content",
+                            }}
+                        >
                             <img
                                 src={`data:image/png;base64,${capturedImage}`}
                                 alt="Captured"
                                 style={{
-                                    maxWidth: '100%',
-                                    maxHeight: '120px',
-                                    borderRadius: 'var(--radius-md)',
-                                    border: '1px solid var(--color-border)',
-                                    objectFit: 'contain'
+                                    maxWidth: "100%",
+                                    maxHeight: "120px",
+                                    borderRadius: "var(--radius-md)",
+                                    border: "1px solid var(--color-border)",
+                                    objectFit: "contain",
                                 }}
                             />
                             <button
                                 className="btn btn-icon"
                                 onClick={() => setCapturedImage(null)}
                                 style={{
-                                    position: 'absolute',
-                                    top: '-8px',
-                                    right: '-8px',
-                                    width: '24px',
-                                    height: '24px',
-                                    background: 'var(--color-error)',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '50%'
+                                    position: "absolute",
+                                    top: "-8px",
+                                    right: "-8px",
+                                    width: "24px",
+                                    height: "24px",
+                                    background: "var(--color-error)",
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: "50%",
                                 }}
                             >
                                 <X size={12} />
@@ -548,14 +653,31 @@ function OverlayWindow() {
                             disabled={isLoading}
                         />
                         <button
-                            className={`chat-send-btn${isLoading ? ' is-stop' : ''}`}
-                            onClick={isLoading
-                                ? () => { invoke('cancel_chat').catch(err => console.error('cancel_chat failed:', err)); }
-                                : handleSendMessage}
-                            disabled={!isLoading && !inputValue.trim() && !capturedImage}
-                            title={isLoading ? 'Stop generating' : 'Send'}
+                            className={`chat-send-btn${isLoading ? " is-stop" : ""}`}
+                            onClick={
+                                isLoading
+                                    ? () => {
+                                          invoke("cancel_chat").catch((err) =>
+                                              console.error(
+                                                  "cancel_chat failed:",
+                                                  err,
+                                              ),
+                                          );
+                                      }
+                                    : handleSendMessage
+                            }
+                            disabled={
+                                !isLoading &&
+                                !inputValue.trim() &&
+                                !capturedImage
+                            }
+                            title={isLoading ? "Stop generating" : "Send"}
                         >
-                            {isLoading ? <Square size={14} fill="currentColor" /> : <Send size={16} />}
+                            {isLoading ? (
+                                <Square size={14} fill="currentColor" />
+                            ) : (
+                                <Send size={16} />
+                            )}
                         </button>
                     </div>
                 </div>

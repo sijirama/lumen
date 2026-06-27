@@ -3,7 +3,7 @@
 //      settings and integrations. No dashboard / digest page anymore.
 
 import { useState } from 'react';
-import { Settings, Plug, Brain, Cat } from 'lucide-react';
+import { MessageCircle, SlidersHorizontal, Cable, Sparkles } from 'lucide-react';
 import SettingsPage from '../pages/Settings';
 import IntegrationsPage from '../pages/Integrations';
 import MemoryPage from '../pages/Memory';
@@ -50,28 +50,28 @@ function MainWindow({ userName: _userName }: MainWindowProps) {
                             className={`nav-link ${activePage === 'cat' ? 'active' : ''}`}
                             onClick={() => setActivePage('cat')}
                         >
-                            <Cat size={14} style={{ marginRight: '4px' }} />
+                            <MessageCircle size={13} />
                             Chat
                         </button>
                         <button
                             className={`nav-link ${activePage === 'settings' ? 'active' : ''}`}
                             onClick={() => setActivePage('settings')}
                         >
-                            <Settings size={14} style={{ marginRight: '4px' }} />
+                            <SlidersHorizontal size={13} />
                             Settings
                         </button>
                         <button
                             className={`nav-link ${activePage === 'integrations' ? 'active' : ''}`}
                             onClick={() => setActivePage('integrations')}
                         >
-                            <Plug size={14} style={{ marginRight: '4px' }} />
+                            <Cable size={13} />
                             Integrations
                         </button>
                         <button
                             className={`nav-link ${activePage === 'memory' ? 'active' : ''}`}
                             onClick={() => setActivePage('memory')}
                         >
-                            <Brain size={14} style={{ marginRight: '4px' }} />
+                            <Sparkles size={13} />
                             Memory
                         </button>
                     </nav>

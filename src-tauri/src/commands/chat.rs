@@ -109,10 +109,10 @@ fn tool_status_label(name: &str) -> String {
         "create_calendar_event" => "📅 Adding to your calendar",
         "delete_calendar_event" => "📅 Updating your calendar",
         "get_google_calendar_events" => "📅 Checking your calendar",
-        "search_notes" | "search_filesystem" | "list_files" => "🔍 Searching your files",
+        "search_notes" | "search_filesystem" | "list_files" | "search_lumen_dir" | "list_lumen_dir" => "🔍 Searching your files",
         "get_obsidian_vault_info" => "🗂️ Reading your vault",
-        "grep_file" | "read_file" | "read_file_lines" | "get_file_metadata" => "📄 Reading your files",
-        "write_file" | "edit_file_line" | "insert_at_line" | "delete_file_line" => "✏️ Editing your files",
+        "grep_file" | "read_file" | "read_file_lines" | "get_file_metadata" | "read_lumen_file" | "get_lumen_metadata" => "📄 Reading your files",
+        "write_file" | "edit_file_line" | "insert_at_line" | "delete_file_line" | "write_lumen_file" | "append_lumen_file" | "edit_lumen_file_line" | "create_lumen_dir" | "move_lumen_path" | "delete_lumen_path" => "✏️ Editing your files",
         other => return format!("⚙️ Running {}", other.replace('_', " ")),
     };
     label.to_string()
@@ -300,49 +300,8 @@ pub async fn send_chat_message(
     //      The previous auto-embed-on-every-turn added a full embedding API
     //      round-trip to every chat turn — removed for latency and cost.
 
-    //INFO: Dynamic CONFIRMATION RULE — built from the per-tool approval
-    //      settings the user toggled in Settings. If they've turned approval
-    //      OFF for create_calendar_event, it doesn't appear in this list and
-    //      Lumen runs it without asking. If everything is OFF, the whole
-    //      rule is skipped.
-    {
-        // (tool_name, default_when_unset, prompt_phrase)
-        let approval_tools: &[(&str, bool, &str)] = &[
-            ("send_email",             true,  "send_email → show recipient, subject, and the full body, then ask 'send it?'"),
-            ("delete_calendar_event",  true,  "delete_calendar_event → name the event and time, then ask 'delete it?'"),
-            ("write_file",             true,  "write_file → show the path and the content (or a clear summary if huge), then ask 'write it?'"),
-            ("create_calendar_event",  false, "create_calendar_event → show summary/time/location, then ask 'create it?'"),
-            ("edit_file_line",         true,  "edit_file_line → show the path, line number, and new content, then ask 'edit it?'"),
-            ("insert_at_line",         true,  "insert_at_line → show the path, line number, and content to insert, then ask 'insert it?'"),
-            ("delete_file_line",       true,  "delete_file_line → show the path and line number, then ask 'delete it?'"),
-        ];
-
-        let active_lines: Vec<&str> = {
-            let connection = database.connection.lock();
-            approval_tools
-                .iter()
-                .filter(|(name, default, _)| {
-                    let key = format!("approval_{}", name);
-                    match crate::database::queries::get_setting(&connection, &key) {
-                        Ok(Some(val)) => val == "true",
-                        _ => *default,
-                    }
-                })
-                .map(|(_, _, phrase)| *phrase)
-                .collect()
-        };
-
-        if !active_lines.is_empty() {
-            system_instruction.push_str("\n\n⚠️ CONFIRMATION RULE (destructive / outbound actions):\n");
-            system_instruction.push_str("Before invoking any of these tools, you MUST summarise what you're about to do in chat and wait for an explicit 'yes', 'go', 'do it', or similar. Only then call the tool.\n");
-            for line in &active_lines {
-                system_instruction.push_str(&format!("- {}\n", line));
-            }
-            system_instruction.push_str("Tools NOT in this list — including read-only tools (get_*, list_*, search_*, take_screenshot, retrieve_past_memories) — DO NOT need confirmation, just run them.\n");
-            system_instruction.push_str("If the user already said 'go send X to Y' with all the details, you have your confirmation — execute. Don't bug them twice.\n");
-            system_instruction.push_str("⚡ ONCE CONFIRMED, EXECUTE — DO NOT NARRATE: When the user says 'yes', 'go', 'do it', 'yes yes' etc, your VERY NEXT response MUST contain the function_call. Do NOT first send a 'Consider it done!' or 'On it!' message — that's a lie because the tool hasn't run yet. The confirmation phase is OVER. Send the function_call now.");
-        }
-    }
+    system_instruction.push_str("\n\n⚠️ NATURAL CONFIRMATION RULE:\n");
+    system_instruction.push_str("For destructive, irreversible, or outbound actions (sending email, deleting calendar events, deleting files/folders, overwriting important files, or moving user files), ask naturally in chat before calling the tool unless the user's latest message already clearly confirms the exact action. Keep the confirmation conversational and specific; do not expose internal approval settings or tool-policy language.");
 
     if let Some(config) = &obsidian_config {
         system_instruction.push_str("\n\n--- OBSIDIAN CONFIGURATION ---");
@@ -362,6 +321,15 @@ pub async fn send_chat_message(
                 "\nDaily Notes date format (Moment.js syntax): {}",
                 format
             ));
+        }
+        if let Some(lumen_dir) = config.get("lumen_dir").and_then(|v| v.as_str()) {
+            if !lumen_dir.is_empty() {
+                system_instruction.push_str(&format!(
+                    "\nLumen directory (relative to vault, fully writable workspace): {}",
+                    lumen_dir
+                ));
+                system_instruction.push_str("\nUse the scoped Lumen workspace tools for this folder whenever possible: list_lumen_dir, read_lumen_file, write_lumen_file, append_lumen_file, edit_lumen_file_line, create_lumen_dir, move_lumen_path, delete_lumen_path, get_lumen_metadata, and search_lumen_dir. Their paths are relative to the Lumen directory and cannot escape it.");
+            }
         }
         system_instruction.push_str("\n------------------------------");
     }
@@ -1386,11 +1354,21 @@ fn build_chat_context(database: &State<Database>) -> Result<Option<String>, Stri
                 if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&config) {
                     if let Some(vault_path) = config_json.get("vault_path").and_then(|v| v.as_str()) {
                         let daily_notes_folder = config_json.get("daily_notes_path").and_then(|v| v.as_str()).unwrap_or("");
+                        let lumen_dir = config_json.get("lumen_dir").and_then(|v| v.as_str()).unwrap_or("");
                         let date_format_raw = config_json.get("daily_notes_format").and_then(|v| v.as_str()).unwrap_or("YYYY-MM-DD");
 
                         let chrono_format = date_format_raw.replace("YYYY", "%Y").replace("MM", "%m").replace("DD", "%d");
                         let daily_note_name = format!("{}.md", today.format(&chrono_format));
                         let daily_note_path = std::path::Path::new(vault_path).join(daily_notes_folder).join(&daily_note_name);
+
+                        if !lumen_dir.is_empty() {
+                            let lumen_path = std::path::Path::new(vault_path).join(lumen_dir);
+                            context_parts.push(format!(
+                                "Lumen directory: {} (relative: {}). Treat this as Lumen's fully writable Obsidian workspace for app-owned files, scratch notes, drafts, and storage.",
+                                lumen_path.to_string_lossy(),
+                                lumen_dir
+                            ));
+                        }
 
                         if daily_note_path.exists() {
                             if let Ok(content) = std::fs::read_to_string(&daily_note_path) {

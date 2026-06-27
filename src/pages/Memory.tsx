@@ -4,7 +4,8 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { AlertCircle, Trash2, Brain, Plus, Pencil, Check, X } from 'lucide-react';
+import { AlertCircle, Trash2, Brain, Plus, Pencil, Check, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import Button from '../components/ui/Button';
 
 interface MemoryRow {
     id: string;
@@ -17,6 +18,7 @@ interface MemoryRow {
 
 const TYPE_FILTERS = ['all', 'observation', 'preference', 'entity', 'reflection', 'daily_summary'] as const;
 type TypeFilter = typeof TYPE_FILTERS[number];
+const PAGE_SIZE = 7;
 
 function MemoryPage() {
     const [memories, setMemories] = useState<MemoryRow[]>([]);
@@ -27,6 +29,7 @@ function MemoryPage() {
     const [adding, setAdding] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editText, setEditText] = useState('');
+    const [page, setPage] = useState(1);
 
     useEffect(() => {
         loadMemories();
@@ -51,16 +54,6 @@ function MemoryPage() {
             setMemories(prev => prev.filter(m => m.id !== id));
         } catch (err) {
             setError(`Failed to delete memory: ${err}`);
-        }
-    }
-
-    async function forgetEverything() {
-        if (!confirm('Forget everything Lumen has learned about you? This wipes all memories and cannot be undone.')) return;
-        try {
-            await invoke('clear_all_memories');
-            setMemories([]);
-        } catch (err) {
-            setError(`Failed to clear memories: ${err}`);
         }
     }
 
@@ -92,54 +85,50 @@ function MemoryPage() {
     }
 
     const shown = filter === 'all' ? memories : memories.filter(m => m.memory_type === filter);
+    const pageCount = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+    const currentPage = Math.min(page, pageCount);
+    const pageStart = (currentPage - 1) * PAGE_SIZE;
+    const pagedMemories = shown.slice(pageStart, pageStart + PAGE_SIZE);
 
     return (
-        <div className="animate-fade-in pb-12">
-            <div className="mb-6 flex items-center justify-between">
-                <h2 className="m-0 text-xl font-semibold tracking-tight">Memory</h2>
-                <button
-                    className="btn btn-sm flex items-center gap-1 text-xs text-error"
-                    onClick={forgetEverything}
-                    disabled={memories.length === 0}
-                >
-                    <Trash2 size={13} />
-                    Forget everything
-                </button>
+        <div className="admin-page animate-fade-in">
+            <div className="admin-page-header">
+                <h2>Memory</h2>
             </div>
 
-            <p className="mb-4 text-[0.8rem] text-foreground-secondary">
+            <p className="admin-page-copy">
                 What Lumen has learned about you across conversations. All local — nothing is uploaded.
             </p>
 
             {/* Teach Lumen something directly */}
-            <div className="mb-4 flex gap-2">
+            <div className="admin-inline-form">
                 <input
                     type="text"
-                    className="input flex-1 px-2.5 py-2 text-[0.82rem]"
+                    className="input"
                     value={newMemory}
                     onChange={(e) => setNewMemory(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') addMemory(); }}
                     placeholder="Teach Lumen a fact — e.g. “I’m allergic to peanuts”"
                 />
-                <button
-                    className="btn btn-primary btn-sm flex items-center gap-1 text-[0.78rem]"
+                <Button
+                    size="sm"
                     onClick={addMemory}
                     disabled={adding || !newMemory.trim()}
                 >
                     <Plus size={14} />
                     {adding ? 'Saving…' : 'Remember'}
-                </button>
+                </Button>
             </div>
 
             {error && (
-                <div className="mb-4 flex items-center gap-1.5 rounded-full bg-[#fce8e6] px-3 py-1 text-xs font-medium text-error">
+                <div className="mb-4 flex max-w-full items-center gap-1.5 rounded-full bg-[#fce8e6] px-3 py-1 text-xs font-medium text-error">
                     <AlertCircle size={12} />
-                    {error}
+                    <span className="min-w-0 break-words">{error}</span>
                 </div>
             )}
 
             {/* Type filter chips */}
-            <div className="mb-4 flex flex-wrap gap-1.5">
+            <div className="admin-pill-row">
                 {TYPE_FILTERS.map(t => {
                     const count = t === 'all' ? memories.length : memories.filter(m => m.memory_type === t).length;
                     if (t !== 'all' && count === 0) return null;
@@ -147,8 +136,8 @@ function MemoryPage() {
                     return (
                         <button
                             key={t}
-                            onClick={() => setFilter(t)}
-                            className={`cursor-pointer rounded-full border px-2.5 py-[3px] text-[0.72rem] font-semibold capitalize transition-colors ${active ? 'border-accent bg-accent-light text-accent' : 'border-border bg-transparent text-foreground-secondary hover:border-accent'}`}
+                            onClick={() => { setFilter(t); setPage(1); }}
+                            className={`admin-pill ${active ? 'active' : ''}`}
                         >
                             {t.replace('_', ' ')} {count > 0 && <span className="opacity-60">· {count}</span>}
                         </button>
@@ -164,10 +153,11 @@ function MemoryPage() {
                     <p className="text-[0.85rem]">Nothing yet — Lumen learns as you chat.</p>
                 </div>
             ) : (
-                <div className="flex flex-col gap-2">
-                    {shown.map(m => (
-                        <div key={m.id} className="flex items-start gap-2.5 rounded-md border border-border-light bg-background-secondary px-3 py-2.5">
-                            <span className="mt-px whitespace-nowrap rounded-sm bg-accent-light px-1.5 py-0.5 text-[0.58rem] font-bold uppercase tracking-[0.04em] text-accent">
+                <>
+                <div className="memory-list">
+                    {pagedMemories.map(m => (
+                        <div key={m.id} className="memory-row">
+                            <span className="memory-type-pill">
                                 {m.memory_type.replace('_', ' ')}
                             </span>
                             {editingId === m.id ? (
@@ -177,42 +167,59 @@ function MemoryPage() {
                                         onChange={(e) => setEditText(e.target.value)}
                                         autoFocus
                                         rows={2}
-                                        className="flex-1 resize-y rounded-sm border border-accent px-1.5 py-1 font-[inherit] text-[0.82rem] leading-[1.4]"
+                                        className="memory-edit-input"
                                     />
-                                    <button onClick={() => saveEdit(m.id)} title="Save" className="mt-px flex cursor-pointer border-none bg-transparent px-0.5 text-success">
+                                    <button onClick={() => saveEdit(m.id)} title="Save" className="icon-button text-success">
                                         <Check size={15} />
                                     </button>
-                                    <button onClick={() => setEditingId(null)} title="Cancel" className="mt-px flex cursor-pointer border-none bg-transparent px-0.5 text-muted hover:text-foreground">
+                                    <button onClick={() => setEditingId(null)} title="Cancel" className="icon-button text-muted hover:text-foreground">
                                         <X size={15} />
                                     </button>
                                 </>
                             ) : (
                                 <>
-                                    <span className="flex-1 text-[0.82rem] leading-[1.4] text-foreground">
+                                    <span className="memory-content">
                                         {m.content}
                                     </span>
-                                    <span title="Importance" className="mt-0.5 whitespace-nowrap text-[0.68rem] text-foreground-tertiary">
-                                        ★ {m.importance.toFixed(0)}
-                                    </span>
-                                    <button
-                                        onClick={() => { setEditingId(m.id); setEditText(m.content); }}
-                                        title="Edit"
-                                        className="mt-px flex cursor-pointer border-none bg-transparent px-0.5 text-muted transition-colors hover:text-foreground"
-                                    >
-                                        <Pencil size={13} />
-                                    </button>
-                                    <button
-                                        onClick={() => deleteMemory(m.id)}
-                                        title="Forget this"
-                                        className="mt-px flex cursor-pointer border-none bg-transparent px-0.5 text-muted transition-colors hover:text-error"
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
+                                    <div className="memory-actions">
+                                        <span title="Importance" className="memory-score">
+                                            ★ {m.importance.toFixed(0)}
+                                        </span>
+                                        <button
+                                            onClick={() => { setEditingId(m.id); setEditText(m.content); }}
+                                            title="Edit"
+                                            className="icon-button text-muted hover:text-foreground"
+                                        >
+                                            <Pencil size={13} />
+                                        </button>
+                                        <button
+                                            onClick={() => deleteMemory(m.id)}
+                                            title="Forget this"
+                                            className="icon-button text-muted hover:text-error"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
                                 </>
                             )}
                         </div>
                     ))}
                 </div>
+                {shown.length > PAGE_SIZE && (
+                    <div className="pagination-row">
+                        <span>{pageStart + 1}-{Math.min(pageStart + PAGE_SIZE, shown.length)} of {shown.length}</span>
+                        <div className="pagination-actions">
+                            <button className="icon-button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>
+                                <ChevronLeft size={15} />
+                            </button>
+                            <span>{currentPage} / {pageCount}</span>
+                            <button className="icon-button" onClick={() => setPage(p => Math.min(pageCount, p + 1))} disabled={currentPage === pageCount}>
+                                <ChevronRight size={15} />
+                            </button>
+                        </div>
+                    </div>
+                )}
+                </>
             )}
         </div>
     );

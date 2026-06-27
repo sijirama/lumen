@@ -5,6 +5,7 @@ use crate::gemini::client::{GeminiFunctionDeclaration, GeminiTool};
 use anyhow::Result;
 use serde_json::json;
 use std::fs;
+use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 use tauri::Manager;
 use walkdir::WalkDir;
@@ -84,6 +85,16 @@ fn registry() -> &'static [ToolDef] {
         ToolDef { name: "write_file",             category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_write_file },
         ToolDef { name: "list_files",             category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_list_files },
         ToolDef { name: "get_obsidian_vault_info",category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_get_obsidian_vault_info },
+        ToolDef { name: "list_lumen_dir",         category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_list_lumen_dir },
+        ToolDef { name: "read_lumen_file",        category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_read_lumen_file },
+        ToolDef { name: "write_lumen_file",       category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_write_lumen_file },
+        ToolDef { name: "append_lumen_file",      category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_append_lumen_file },
+        ToolDef { name: "edit_lumen_file_line",   category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_edit_lumen_file_line },
+        ToolDef { name: "create_lumen_dir",       category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_create_lumen_dir },
+        ToolDef { name: "move_lumen_path",        category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_move_lumen_path },
+        ToolDef { name: "delete_lumen_path",      category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_delete_lumen_path },
+        ToolDef { name: "get_lumen_metadata",     category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_get_lumen_metadata },
+        ToolDef { name: "search_lumen_dir",       category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_search_lumen_dir },
         ToolDef { name: "grep_file",              category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_grep_file },
         ToolDef { name: "edit_file_line",         category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_edit_file_line },
         ToolDef { name: "insert_at_line",         category: ToolCategory::Filesystem, mode: ToolMode::Sync,  build: decl_insert_at_line },
@@ -194,6 +205,153 @@ fn decl_get_obsidian_vault_info() -> GeminiFunctionDeclaration {
         name: "get_obsidian_vault_info".into(),
         description: "Gets information about the configured Obsidian vault, including its root path.".into(),
         parameters: None,
+    }
+}
+
+fn decl_list_lumen_dir() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "list_lumen_dir".into(),
+        description: "Lists files inside the configured Lumen directory in the user's Obsidian vault. Paths are relative to that Lumen directory.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Optional subdirectory relative to the configured Lumen directory.", "default": "" }
+            }
+        })),
+    }
+}
+
+fn decl_read_lumen_file() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "read_lumen_file".into(),
+        description: "Reads a text file from the configured Lumen directory. The path must be relative to that directory.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "File path relative to the configured Lumen directory." }
+            },
+            "required": ["path"]
+        })),
+    }
+}
+
+fn decl_write_lumen_file() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "write_lumen_file".into(),
+        description: "Writes a text file inside the configured Lumen directory. Creates parent folders as needed. The path must be relative to that directory.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "File path relative to the configured Lumen directory." },
+                "content": { "type": "string", "description": "Text content to write." }
+            },
+            "required": ["path", "content"]
+        })),
+    }
+}
+
+fn decl_append_lumen_file() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "append_lumen_file".into(),
+        description: "Appends text to a file inside the configured Lumen directory. Creates parent folders and the file if needed.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "File path relative to the configured Lumen directory." },
+                "content": { "type": "string", "description": "Text content to append." }
+            },
+            "required": ["path", "content"]
+        })),
+    }
+}
+
+fn decl_edit_lumen_file_line() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "edit_lumen_file_line".into(),
+        description: "Replaces one line in a text file inside the configured Lumen directory. Read the file first when line numbers may be stale.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "File path relative to the configured Lumen directory." },
+                "line_number": { "type": "integer", "description": "1-based line number to replace." },
+                "new_content": { "type": "string", "description": "Replacement text for that line." }
+            },
+            "required": ["path", "line_number", "new_content"]
+        })),
+    }
+}
+
+fn decl_create_lumen_dir() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "create_lumen_dir".into(),
+        description: "Creates a folder inside the configured Lumen directory. The path must be relative to that directory.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Directory path relative to the configured Lumen directory." }
+            },
+            "required": ["path"]
+        })),
+    }
+}
+
+fn decl_move_lumen_path() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "move_lumen_path".into(),
+        description: "Moves or renames a file/folder inside the configured Lumen directory. Both paths must be relative to that directory.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "from_path": { "type": "string", "description": "Existing relative file or folder path." },
+                "to_path": { "type": "string", "description": "Destination relative file or folder path." }
+            },
+            "required": ["from_path", "to_path"]
+        })),
+    }
+}
+
+fn decl_delete_lumen_path() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "delete_lumen_path".into(),
+        description: "Deletes a file or folder inside the configured Lumen directory. Recursive deletion is controlled by the recursive flag.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Relative file or folder path to delete." },
+                "recursive": { "type": "boolean", "description": "Set true to delete a non-empty folder.", "default": false }
+            },
+            "required": ["path"]
+        })),
+    }
+}
+
+fn decl_get_lumen_metadata() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "get_lumen_metadata".into(),
+        description: "Gets metadata for a file or folder inside the configured Lumen directory.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Relative file or folder path." }
+            },
+            "required": ["path"]
+        })),
+    }
+}
+
+fn decl_search_lumen_dir() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "search_lumen_dir".into(),
+        description: "Searches text files inside the configured Lumen directory and returns matching file paths, line numbers, and snippets.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Text to search for." },
+                "path": { "type": "string", "description": "Optional relative subdirectory to search.", "default": "" },
+                "limit": { "type": "integer", "description": "Maximum matches to return.", "default": 25 }
+            },
+            "required": ["query"]
+        })),
     }
 }
 
@@ -602,6 +760,40 @@ fn validate_email(value: &str, field: &str) -> Result<(), serde_json::Value> {
     Ok(())
 }
 
+fn configured_lumen_root(obsidian_config: Option<&serde_json::Value>) -> Result<PathBuf, String> {
+    let config = obsidian_config.ok_or_else(|| "Obsidian vault not configured.".to_string())?;
+    let vault_path = config
+        .get("vault_path")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| "Obsidian vault path is not configured.".to_string())?;
+    let lumen_dir = config
+        .get("lumen_dir")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| "Lumen directory is not configured in the Obsidian integration.".to_string())?;
+
+    Ok(Path::new(vault_path).join(lumen_dir))
+}
+
+fn resolve_lumen_path(obsidian_config: Option<&serde_json::Value>, relative_path: &str) -> Result<PathBuf, String> {
+    let root = configured_lumen_root(obsidian_config)?;
+    let relative = Path::new(relative_path);
+
+    if relative.is_absolute() {
+        return Err("Path must be relative to the configured Lumen directory.".to_string());
+    }
+
+    if relative
+        .components()
+        .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
+    {
+        return Err("Path cannot escape the configured Lumen directory.".to_string());
+    }
+
+    Ok(root.join(relative))
+}
+
 // =============================================================================
 // Sync executor
 // =============================================================================
@@ -664,10 +856,254 @@ pub fn execute_tool_sync(
                     "vault_path": config.get("vault_path"),
                     "daily_notes_folder": config.get("daily_notes_path").and_then(|v| v.as_str()).unwrap_or(""),
                     "daily_notes_format": config.get("daily_notes_format").and_then(|v| v.as_str()).unwrap_or("YYYY-MM-DD"),
+                    "lumen_dir": config.get("lumen_dir").and_then(|v| v.as_str()).unwrap_or(""),
                     "status": "configured"
                 })
             } else {
                 json!({ "error": "Obsidian vault not configured in settings." })
+            }
+        }
+        "list_lumen_dir" => {
+            let relative_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            match resolve_lumen_path(obsidian_config, relative_path) {
+                Ok(path) => match fs::read_dir(&path) {
+                    Ok(entries) => {
+                        let files: Vec<String> = entries
+                            .filter_map(|e| e.ok())
+                            .map(|e| {
+                                let name = e.file_name().to_string_lossy().into_owned();
+                                if e.path().is_dir() { format!("{}/", name) } else { name }
+                            })
+                            .collect();
+                        json!({
+                            "entries": files,
+                            "relative_path": relative_path,
+                            "absolute_path": path.to_string_lossy()
+                        })
+                    }
+                    Err(e) => json!({ "error": format!("Failed to list Lumen directory: {}", e) }),
+                },
+                Err(e) => json!({ "error": e }),
+            }
+        }
+        "read_lumen_file" => {
+            let relative_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            match resolve_lumen_path(obsidian_config, relative_path) {
+                Ok(path) => {
+                    if let Ok(meta) = fs::metadata(&path) {
+                        if meta.len() > 500_000 {
+                            json!({ "error": "File is too large to read (limit: 500KB)." })
+                        } else {
+                            match fs::read_to_string(&path) {
+                                Ok(content) => json!({ "content": content, "path": relative_path }),
+                                Err(e) => json!({ "error": format!("Failed to read Lumen file: {}", e) }),
+                            }
+                        }
+                    } else {
+                        match fs::read_to_string(&path) {
+                            Ok(content) => json!({ "content": content, "path": relative_path }),
+                            Err(e) => json!({ "error": format!("Failed to read Lumen file: {}", e) }),
+                        }
+                    }
+                }
+                Err(e) => json!({ "error": e }),
+            }
+        }
+        "write_lumen_file" => {
+            let relative_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            match resolve_lumen_path(obsidian_config, relative_path) {
+                Ok(path) => {
+                    if let Some(parent) = path.parent() {
+                        if let Err(e) = fs::create_dir_all(parent) {
+                            return ToolResult::ok(json!({ "error": format!("Failed to create parent directory: {}", e) }));
+                        }
+                    }
+                    match fs::write(&path, content) {
+                        Ok(_) => json!({
+                            "status": "success",
+                            "path": relative_path,
+                            "absolute_path": path.to_string_lossy()
+                        }),
+                        Err(e) => json!({ "error": format!("Failed to write Lumen file: {}", e) }),
+                    }
+                }
+                Err(e) => json!({ "error": e }),
+            }
+        }
+        "append_lumen_file" => {
+            let relative_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            match resolve_lumen_path(obsidian_config, relative_path) {
+                Ok(path) => {
+                    if let Some(parent) = path.parent() {
+                        if let Err(e) = fs::create_dir_all(parent) {
+                            return ToolResult::ok(json!({ "error": format!("Failed to create parent directory: {}", e) }));
+                        }
+                    }
+                    match fs::OpenOptions::new().create(true).append(true).open(&path) {
+                        Ok(mut file) => {
+                            use std::io::Write;
+                            match file.write_all(content.as_bytes()) {
+                                Ok(_) => json!({ "status": "success", "path": relative_path }),
+                                Err(e) => json!({ "error": format!("Failed to append Lumen file: {}", e) }),
+                            }
+                        }
+                        Err(e) => json!({ "error": format!("Failed to open Lumen file for append: {}", e) }),
+                    }
+                }
+                Err(e) => json!({ "error": e }),
+            }
+        }
+        "edit_lumen_file_line" => {
+            let relative_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let line_number = args.get("line_number").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let new_content = args.get("new_content").and_then(|v| v.as_str()).unwrap_or("");
+            if line_number == 0 {
+                json!({ "error": "Line number must be >= 1" })
+            } else {
+                match resolve_lumen_path(obsidian_config, relative_path) {
+                    Ok(path) => match fs::read_to_string(&path) {
+                        Ok(content) => {
+                            let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                            if line_number > lines.len() {
+                                json!({ "error": format!("File only has {} lines", lines.len()) })
+                            } else {
+                                lines[line_number - 1] = new_content.to_string();
+                                match fs::write(&path, lines.join("\n")) {
+                                    Ok(_) => json!({ "status": "success", "path": relative_path, "message": format!("Line {} updated", line_number) }),
+                                    Err(e) => json!({ "error": format!("Failed to write Lumen file: {}", e) }),
+                                }
+                            }
+                        }
+                        Err(e) => json!({ "error": format!("Failed to read Lumen file: {}", e) }),
+                    },
+                    Err(e) => json!({ "error": e }),
+                }
+            }
+        }
+        "create_lumen_dir" => {
+            let relative_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            match resolve_lumen_path(obsidian_config, relative_path) {
+                Ok(path) => match fs::create_dir_all(&path) {
+                    Ok(_) => json!({ "status": "success", "path": relative_path, "absolute_path": path.to_string_lossy() }),
+                    Err(e) => json!({ "error": format!("Failed to create Lumen directory: {}", e) }),
+                },
+                Err(e) => json!({ "error": e }),
+            }
+        }
+        "move_lumen_path" => {
+            let from_path = args.get("from_path").and_then(|v| v.as_str()).unwrap_or("");
+            let to_path = args.get("to_path").and_then(|v| v.as_str()).unwrap_or("");
+            match (
+                resolve_lumen_path(obsidian_config, from_path),
+                resolve_lumen_path(obsidian_config, to_path),
+            ) {
+                (Ok(from), Ok(to)) => {
+                    if let Some(parent) = to.parent() {
+                        if let Err(e) = fs::create_dir_all(parent) {
+                            return ToolResult::ok(json!({ "error": format!("Failed to create destination parent directory: {}", e) }));
+                        }
+                    }
+                    match fs::rename(&from, &to) {
+                        Ok(_) => json!({ "status": "success", "from_path": from_path, "to_path": to_path }),
+                        Err(e) => json!({ "error": format!("Failed to move Lumen path: {}", e) }),
+                    }
+                }
+                (Err(e), _) | (_, Err(e)) => json!({ "error": e }),
+            }
+        }
+        "delete_lumen_path" => {
+            let relative_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let recursive = args.get("recursive").and_then(|v| v.as_bool()).unwrap_or(false);
+            match resolve_lumen_path(obsidian_config, relative_path) {
+                Ok(path) => match fs::metadata(&path) {
+                    Ok(meta) if meta.is_dir() && recursive => match fs::remove_dir_all(&path) {
+                        Ok(_) => json!({ "status": "success", "path": relative_path }),
+                        Err(e) => json!({ "error": format!("Failed to delete Lumen directory: {}", e) }),
+                    },
+                    Ok(meta) if meta.is_dir() => match fs::remove_dir(&path) {
+                        Ok(_) => json!({ "status": "success", "path": relative_path }),
+                        Err(e) => json!({ "error": format!("Failed to delete Lumen directory. Use recursive=true for non-empty folders: {}", e) }),
+                    },
+                    Ok(_) => match fs::remove_file(&path) {
+                        Ok(_) => json!({ "status": "success", "path": relative_path }),
+                        Err(e) => json!({ "error": format!("Failed to delete Lumen file: {}", e) }),
+                    },
+                    Err(e) => json!({ "error": format!("Failed to inspect Lumen path: {}", e) }),
+                },
+                Err(e) => json!({ "error": e }),
+            }
+        }
+        "get_lumen_metadata" => {
+            let relative_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            match resolve_lumen_path(obsidian_config, relative_path) {
+                Ok(path) => match fs::metadata(&path) {
+                    Ok(meta) => {
+                        use std::time::SystemTime;
+                        let format_time = |t: std::io::Result<SystemTime>| {
+                            t.ok()
+                                .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+                                .map(|d| d.as_secs())
+                        };
+                        json!({
+                            "path": relative_path,
+                            "absolute_path": path.to_string_lossy(),
+                            "size_bytes": meta.len(),
+                            "is_dir": meta.is_dir(),
+                            "modified": format_time(meta.modified()),
+                            "created": format_time(meta.created()),
+                        })
+                    }
+                    Err(e) => json!({ "error": format!("Failed to get Lumen metadata: {}", e) }),
+                },
+                Err(e) => json!({ "error": e }),
+            }
+        }
+        "search_lumen_dir" => {
+            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let relative_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(25).clamp(1, 100) as usize;
+            if query.is_empty() {
+                json!({ "error": "Field 'query' is required." })
+            } else {
+                match resolve_lumen_path(obsidian_config, relative_path) {
+                    Ok(root) => {
+                        let base = configured_lumen_root(obsidian_config).ok();
+                        let mut matches = Vec::new();
+                        for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
+                            if matches.len() >= limit {
+                                break;
+                            }
+                            if !entry.file_type().is_file() || is_hidden_path(entry.path()) {
+                                continue;
+                            }
+                            let Ok(content) = fs::read_to_string(entry.path()) else {
+                                continue;
+                            };
+                            for (line_index, line) in content.lines().enumerate() {
+                                if line.to_lowercase().contains(&query) {
+                                    let path = base
+                                        .as_ref()
+                                        .and_then(|b| entry.path().strip_prefix(b).ok())
+                                        .unwrap_or(entry.path())
+                                        .to_string_lossy()
+                                        .to_string();
+                                    matches.push(json!({
+                                        "path": path,
+                                        "line": line_index + 1,
+                                        "snippet": line.trim()
+                                    }));
+                                    if matches.len() >= limit {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        json!({ "matches": matches, "query": query })
+                    }
+                    Err(e) => json!({ "error": e }),
+                }
             }
         }
         "grep_file" => {
