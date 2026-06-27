@@ -71,6 +71,7 @@ fn registry() -> &'static [ToolDef] {
         ToolDef { name: "search_memories",       category: ToolCategory::Core, mode: ToolMode::Async, build: decl_search_memories },
         ToolDef { name: "edit_memory",           category: ToolCategory::Core, mode: ToolMode::Async, build: decl_edit_memory },
         ToolDef { name: "forget_memory",         category: ToolCategory::Core, mode: ToolMode::Async, build: decl_forget_memory },
+        ToolDef { name: "compress_memories",     category: ToolCategory::Core, mode: ToolMode::Async, build: decl_compress_memories },
         ToolDef { name: "view_runtime_logs",     category: ToolCategory::Core, mode: ToolMode::Sync,  build: decl_view_runtime_logs },
 
         // --- Google (gated by `google_enabled`) ---
@@ -192,8 +193,10 @@ fn decl_search_notes() -> GeminiFunctionDeclaration {
         parameters: Some(json!({
             "type": "object",
             "properties": {
-                "path":  { "type": "string", "description": "The absolute path to the directory (usually the vault root)." },
-                "query": { "type": "string", "description": "The keyword to search for." }
+                "path":  { "type": "string",  "description": "The absolute path to the directory (usually the vault root)." },
+                "query": { "type": "string",  "description": "The keyword to search for." },
+                "limit": { "type": "integer", "description": "Max results to return (default 10)." },
+                "modified_after": { "type": "string", "description": "Only search files modified after this ISO date." }
             },
             "required": ["path", "query"]
         })),
@@ -348,7 +351,9 @@ fn decl_search_lumen_dir() -> GeminiFunctionDeclaration {
             "properties": {
                 "query": { "type": "string", "description": "Text to search for." },
                 "path": { "type": "string", "description": "Optional relative subdirectory to search.", "default": "" },
-                "limit": { "type": "integer", "description": "Maximum matches to return.", "default": 25 }
+                "limit": { "type": "integer", "description": "Maximum matches to return.", "default": 25 },
+                "file_extension": { "type": "string", "description": "Filter by file extension (e.g. 'md', 'txt')." },
+                "modified_after": { "type": "string", "description": "Only search files modified after this ISO date." }
             },
             "required": ["query"]
         })),
@@ -539,8 +544,11 @@ fn decl_search_clipboard() -> GeminiFunctionDeclaration {
         parameters: Some(json!({
             "type": "object",
             "properties": {
-                "query": { "type": "string",  "description": "The keyword to search for in clipboard history. Leave empty to get the most recent items." },
-                "limit": { "type": "integer", "minimum": 1, "maximum": 50, "description": "Maximum number of items to return (default 5)." }
+                "query":        { "type": "string",  "description": "The keyword to search for in clipboard history." },
+                "after":        { "type": "string",  "description": "Only items copied after this ISO date." },
+                "before":       { "type": "string",  "description": "Only items copied before this ISO date." },
+                "content_type": { "type": "string",  "enum": ["text", "image"], "description": "Filter by content type." },
+                "limit":        { "type": "integer", "minimum": 1, "maximum": 50, "description": "Maximum number of items to return (default 5)." }
             }
         })),
     }
@@ -567,8 +575,11 @@ fn decl_search_filesystem() -> GeminiFunctionDeclaration {
         parameters: Some(json!({
             "type": "object",
             "properties": {
-                "path":  { "type": "string", "description": "Directory to search in." },
-                "query": { "type": "string", "description": "The filename or extension to search for (e.g. 'resume.pdf' or '.js')." }
+                "path":  { "type": "string",  "description": "Directory to search in." },
+                "query": { "type": "string",  "description": "The filename or extension to search for (e.g. 'resume.pdf' or '.js')." },
+                "limit": { "type": "integer", "description": "Max results to return (default 20)." },
+                "max_depth": { "type": "integer", "description": "Recursion depth (default 5)." },
+                "file_extension": { "type": "string", "description": "Filter by extension." }
             },
             "required": ["path", "query"]
         })),
@@ -584,7 +595,10 @@ fn decl_search_vault() -> GeminiFunctionDeclaration {
             "properties": {
                 "query": { "type": "string", "description": "Keywords or phrase to search for. Multiple words are matched independently and ranked by how many hit." },
                 "path":  { "type": "string", "description": "Optional. A subfolder (absolute path) to scope the search to. Omit to search the entire vault." },
-                "max_results": { "type": "integer", "description": "Optional. Max number of ranked matches to return (default 12)." }
+                "max_results": { "type": "integer", "description": "Optional. Max number of ranked matches to return (default 12)." },
+                "file_extension": { "type": "string", "description": "Filter by file extension (e.g. 'md', 'txt')." },
+                "modified_after": { "type": "string", "description": "Only search files modified after this ISO date." },
+                "modified_before": { "type": "string", "description": "Only search files modified before this ISO date." }
             },
             "required": ["query"]
         })),
@@ -643,9 +657,14 @@ fn decl_retrieve_past_memories() -> GeminiFunctionDeclaration {
         parameters: Some(json!({
             "type": "object",
             "properties": {
-                "query": { "type": "string", "description": "What to search for. Phrase as the topic, person, or preference you want to recall (e.g. 'previous discussions about project Atlas', 'user's coffee preference')." }
-            },
-            "required": ["query"]
+                "query": { "type": "string", "description": "Semantic search query (embeds and does vector KNN). Optional if keyword is provided." },
+                "keyword": { "type": "string", "description": "Exact text search in memory content (case-insensitive). Faster than query—no embedding needed." },
+                "type": { "type": "string", "enum": ["observation", "reflection", "entity", "preference", "daily_summary"], "description": "Filter to a specific memory type." },
+                "after": { "type": "string", "description": "Only memories created after this ISO date (e.g. '2026-06-01')." },
+                "before": { "type": "string", "description": "Only memories created before this ISO date." },
+                "min_importance": { "type": "number", "description": "Minimum importance score (1-10)." },
+                "limit": { "type": "integer", "description": "Max results to return (default 15)." }
+            }
         })),
     }
 }
@@ -673,9 +692,14 @@ fn decl_search_memories() -> GeminiFunctionDeclaration {
         parameters: Some(json!({
             "type": "object",
             "properties": {
-                "query": { "type": "string", "description": "What to look for — a topic, person, or preference (e.g. 'where the user works', 'coffee preference')." }
-            },
-            "required": ["query"]
+                "query": { "type": "string", "description": "Semantic search query (embeds and does vector KNN). Optional if keyword is provided." },
+                "keyword": { "type": "string", "description": "Exact text search in memory content (case-insensitive). Faster than query—no embedding needed." },
+                "type": { "type": "string", "enum": ["observation", "reflection", "entity", "preference", "daily_summary"], "description": "Filter to a specific memory type." },
+                "after": { "type": "string", "description": "Only memories created after this ISO date (e.g. '2026-06-01')." },
+                "before": { "type": "string", "description": "Only memories created before this ISO date." },
+                "min_importance": { "type": "number", "description": "Minimum importance score (1-10)." },
+                "limit": { "type": "integer", "description": "Max results to return (default 15)." }
+            }
         })),
     }
 }
@@ -705,6 +729,25 @@ fn decl_forget_memory() -> GeminiFunctionDeclaration {
                 "id": { "type": "string", "description": "The id of the memory to delete (from search_memories)." }
             },
             "required": ["id"]
+        })),
+    }
+}
+
+fn decl_compress_memories() -> GeminiFunctionDeclaration {
+    GeminiFunctionDeclaration {
+        name: "compress_memories".into(),
+        description: "Compresses multiple fragmented memories into a single dense memory. Use this to clean up your database when you have many overlapping or outdated facts. Pass the list of old memory IDs to delete, and the new compressed summary fact.".into(),
+        parameters: Some(json!({
+            "type": "object",
+            "properties": {
+                "ids_to_delete": { 
+                    "type": "array", 
+                    "items": { "type": "string" },
+                    "description": "The IDs of the scattered memories getting merged (get these from search_memories first)."
+                },
+                "new_content": { "type": "string", "description": "The single compressed summary containing the facts from those old memories." }
+            },
+            "required": ["ids_to_delete", "new_content"]
         })),
     }
 }
@@ -1064,6 +1107,9 @@ pub fn execute_tool_sync(
             let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
             let relative_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(25).clamp(1, 100) as usize;
+            let extension = args.get("file_extension").and_then(|v| v.as_str()).map(|s| s.to_lowercase());
+            let modified_after = args.get("modified_after").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|dt| dt.timestamp());
+
             if query.is_empty() {
                 json!({ "error": "Field 'query' is required." })
             } else {
@@ -1078,6 +1124,22 @@ pub fn execute_tool_sync(
                             if !entry.file_type().is_file() || is_hidden_path(entry.path()) {
                                 continue;
                             }
+                            if let Some(ref ext) = extension {
+                                if entry.path().extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()) != Some(ext.clone()) {
+                                    continue;
+                                }
+                            }
+                            if let Some(min_time) = modified_after {
+                                let mtime = fs::metadata(entry.path()).ok()
+                                    .and_then(|m| m.modified().ok())
+                                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                    .map(|d| d.as_secs())
+                                    .unwrap_or(0);
+                                if (mtime as i64) < min_time {
+                                    continue;
+                                }
+                            }
+
                             let Ok(content) = fs::read_to_string(entry.path()) else {
                                 continue;
                             };
@@ -1214,7 +1276,11 @@ pub fn execute_tool_sync(
         "search_clipboard" => {
             let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
             let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as u32;
-            match crate::database::queries::search_clipboard_history(db_connection, query, limit) {
+            let after = args.get("after").and_then(|v| v.as_str());
+            let before = args.get("before").and_then(|v| v.as_str());
+            let context_type = args.get("content_type").and_then(|v| v.as_str());
+
+            match crate::database::queries::search_clipboard_history_filtered(db_connection, query, after, before, context_type, limit) {
                 Ok(items) => json!({ "items": items }),
                 Err(e) => json!({ "error": format!("Failed to search clipboard: {}", e) }),
             }
@@ -1292,6 +1358,19 @@ fn vault_root_from_db(database: &crate::database::Database) -> Option<String> {
 fn is_hidden_path(path: &std::path::Path) -> bool {
     path.components()
         .any(|c| c.as_os_str().to_str().map(|s| s.starts_with('.')).unwrap_or(false))
+}
+
+//INFO: Helper to build a MemorySearchFilter from JSON tool arguments
+fn filter_from_args(args: &serde_json::Value) -> crate::memory::core::MemorySearchFilter {
+    use crate::memory::core::{MemorySearchFilter, MemoryType};
+    MemorySearchFilter {
+        memory_type: args.get("type").and_then(|v| v.as_str()).and_then(MemoryType::from_str),
+        keyword: args.get("keyword").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        after: args.get("after").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|dt| dt.with_timezone(&chrono::Utc)),
+        before: args.get("before").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|dt| dt.with_timezone(&chrono::Utc)),
+        min_importance: args.get("min_importance").and_then(|v| v.as_f64()),
+        limit: args.get("limit").and_then(|v| v.as_u64()).map(|n| n as usize),
+    }
 }
 
 pub async fn execute_tool_async(
@@ -1389,8 +1468,10 @@ pub async fn execute_tool_async(
         }
         "retrieve_past_memories" => {
             let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
-            if query.is_empty() {
-                return ToolResult::ok(json!({ "error": "Field 'query' is required." }));
+            let filter = filter_from_args(args);
+            
+            if query.is_empty() && filter.keyword.is_none() && filter.memory_type.is_none() {
+                return ToolResult::ok(json!({ "error": "At least one search parameter (query, keyword, or type) is required." }));
             }
 
             let api_key = {
@@ -1403,30 +1484,34 @@ pub async fn execute_tool_async(
                     _ => return ToolResult::ok(json!({ "error": "Gemini API key not found. Please add it in settings." })),
                 }
             };
-            let memory_client = crate::gemini::client::GeminiClient::new(api_key);
 
-            crate::applog!("DEBUG: 🧠 Tool 'retrieve_past_memories' invoked for: '{}'", query);
+            crate::applog!("DEBUG: 🧠 Tool 'retrieve_past_memories' invoked (query present: {})", !query.is_empty());
 
-            let value = match memory_client.generate_embedding(query).await {
-                Ok(embedding) => {
-                    let connection = database.connection.lock();
-                    match crate::memory::core::retrieve_memories(&connection, &embedding, 50) {
-                        Ok(memories) if !memories.is_empty() => {
-                            crate::applog!("DEBUG: 🧠 Retrieved {} memories for query.", memories.len());
-                            let memory_context = crate::memory::core::format_memories_for_prompt(&memories);
-                            for m in &memories {
-                                let _ = crate::memory::core::update_memory_access(&connection, &m.id);
-                            }
-                            json!({ "memories_found": memory_context })
-                        }
-                        Ok(_) => json!({ "message": "No relevant past memories found." }),
-                        Err(e) => json!({ "error": format!("Failed to retrieve memories: {}", e) }),
+            let embedding = if !query.is_empty() {
+                let memory_client = crate::gemini::client::GeminiClient::new(api_key);
+                match memory_client.generate_embedding(query).await {
+                    Ok(emb) => Some(emb),
+                    Err(e) => {
+                        crate::applog!("DEBUG: 🧠 Embedding Generation Failed! Error: {:#?}", e);
+                        return ToolResult::ok(json!({ "error": format!("Failed to generate embedding: {}", e) }));
                     }
                 }
-                Err(e) => {
-                    crate::applog!("DEBUG: 🧠 Embedding Generation Failed! Error: {:#?}", e);
-                    json!({ "error": format!("Failed to generate embedding for memory search: {}", e) })
+            } else {
+                None
+            };
+
+            let connection = database.connection.lock();
+            let value = match crate::memory::core::search_memories_filtered(&connection, embedding.as_deref(), filter) {
+                Ok(memories) if !memories.is_empty() => {
+                    crate::applog!("DEBUG: 🧠 Retrieved {} memories.", memories.len());
+                    let memory_context = crate::memory::core::format_memories_for_prompt(&memories);
+                    for m in &memories {
+                        let _ = crate::memory::core::update_memory_access(&connection, &m.id);
+                    }
+                    json!({ "memories_found": memory_context })
                 }
+                Ok(_) => json!({ "message": "No relevant past memories found." }),
+                Err(e) => json!({ "error": format!("Failed to retrieve memories: {}", e) }),
             };
             ToolResult::ok(value)
         }
@@ -1474,9 +1559,12 @@ pub async fn execute_tool_async(
         }
         "search_memories" => {
             let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-            if query.is_empty() {
-                return ToolResult::ok(json!({ "error": "Field 'query' is required." }));
+            let filter = filter_from_args(args);
+
+            if query.is_empty() && filter.keyword.is_none() && filter.memory_type.is_none() && filter.after.is_none() && filter.before.is_none() {
+                return ToolResult::ok(json!({ "error": "At least one search parameter (query, keyword, type, or date) is required." }));
             }
+
             let api_key = {
                 let connection = database.connection.lock();
                 match crate::database::queries::get_api_token(&connection, "gemini") {
@@ -1487,25 +1575,33 @@ pub async fn execute_tool_async(
                     _ => return ToolResult::ok(json!({ "error": "Gemini API key not found." })),
                 }
             };
-            let client = crate::gemini::client::GeminiClient::new(api_key);
-            let value = match client.generate_embedding(&query).await {
-                Ok(embedding) => {
-                    let connection = database.connection.lock();
-                    match crate::memory::core::retrieve_memories(&connection, &embedding, 15) {
-                        Ok(memories) if !memories.is_empty() => {
-                            let items: Vec<serde_json::Value> = memories.iter().map(|m| json!({
-                                "id": m.id,
-                                "type": m.memory_type.as_str(),
-                                "importance": m.importance,
-                                "content": m.content,
-                            })).collect();
-                            json!({ "memories": items, "hint": "Pass an id to edit_memory or forget_memory to curate." })
-                        }
-                        Ok(_) => json!({ "message": "No matching memories found." }),
-                        Err(e) => json!({ "error": format!("Failed to search memories: {}", e) }),
+
+            let embedding = if !query.is_empty() {
+                let client = crate::gemini::client::GeminiClient::new(api_key);
+                match client.generate_embedding(&query).await {
+                    Ok(emb) => Some(emb),
+                    Err(e) => {
+                        return ToolResult::ok(json!({ "error": format!("Failed to embed query: {}", e) }));
                     }
                 }
-                Err(e) => json!({ "error": format!("Failed to embed query: {}", e) }),
+            } else {
+                None
+            };
+
+            let connection = database.connection.lock();
+            let value = match crate::memory::core::search_memories_filtered(&connection, embedding.as_deref(), filter) {
+                Ok(memories) if !memories.is_empty() => {
+                    let items: Vec<serde_json::Value> = memories.iter().map(|m| json!({
+                        "id": m.id,
+                        "type": m.memory_type.as_str(),
+                        "importance": m.importance,
+                        "content": m.content,
+                        "created_at": m.created_at.to_rfc3339(),
+                    })).collect();
+                    json!({ "memories": items, "hint": "Pass an id to edit_memory or forget_memory to curate." })
+                }
+                Ok(_) => json!({ "message": "No matching memories found." }),
+                Err(e) => json!({ "error": format!("Failed to search memories: {}", e) }),
             };
             ToolResult::ok(value)
         }
@@ -1549,6 +1645,58 @@ pub async fn execute_tool_async(
             };
             ToolResult::ok(value)
         }
+        "compress_memories" => {
+            let ids_to_delete: Vec<String> = args
+                .get("ids_to_delete")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                .unwrap_or_default();
+            let new_content = args.get("new_content").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+
+            if ids_to_delete.is_empty() {
+                return ToolResult::ok(json!({ "error": "Field 'ids_to_delete' must be a non-empty array of IDs. Run search_memories first to get IDs." }));
+            }
+            if new_content.is_empty() {
+                return ToolResult::ok(json!({ "error": "Field 'new_content' is required." }));
+            }
+
+            let api_key = {
+                let connection = database.connection.lock();
+                match crate::database::queries::get_api_token(&connection, "gemini") {
+                    Ok(Some(enc)) => match crate::crypto::decrypt_token(&enc) {
+                        Ok(k) => k,
+                        Err(_) => return ToolResult::ok(json!({ "error": "Failed to decrypt Gemini API key." })),
+                    },
+                    _ => return ToolResult::ok(json!({ "error": "Gemini API key not found." })),
+                }
+            };
+
+            let client = crate::gemini::client::GeminiClient::new(api_key);
+            let mut memory = crate::memory::extractor::create_memory(
+                crate::memory::core::MemoryType::Reflection,
+                new_content.clone(),
+                8.0
+            );
+            
+            match client.generate_embedding(&new_content).await {
+                Ok(emb) => memory.embedding = Some(emb),
+                Err(e) => crate::applog!("DEBUG: 🧠 compress_memories embed failed: {}", e),
+            }
+
+            let connection = database.connection.lock();
+            let mut deleted_count = 0;
+            for id in &ids_to_delete {
+                if let Ok(true) = crate::memory::core::delete_memory(&connection, id) {
+                    deleted_count += 1;
+                }
+            }
+            
+            let value = match crate::memory::core::store_memory(&connection, &memory) {
+                Ok(_) => json!({ "status": "compressed", "deleted_old_memories": deleted_count, "saved_new_memory": new_content }),
+                Err(e) => json!({ "error": format!("Failed to save compressed memory: {}", e) }),
+            };
+            ToolResult::ok(value)
+        }
         "set_reminder" => {
             let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("Reminder");
             let due_at = args.get("due_at").and_then(|v| v.as_str()).unwrap_or("");
@@ -1573,6 +1721,9 @@ pub async fn execute_tool_async(
         "search_notes" => {
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
             let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+            let modified_after = args.get("modified_after").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|dt| dt.timestamp());
+
             if path.is_empty() || query.is_empty() {
                 return ToolResult::ok(json!({ "error": "Path and query are required for searching." }));
             }
@@ -1583,13 +1734,24 @@ pub async fn execute_tool_async(
                     if entry.file_type().is_file()
                         && entry.path().extension().is_some_and(|ext| ext == "md")
                     {
+                        if let Some(min_time) = modified_after {
+                            let mtime = fs::metadata(entry.path()).ok()
+                                .and_then(|m| m.modified().ok())
+                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0);
+                            if (mtime as i64) < min_time {
+                                continue;
+                            }
+                        }
+
                         if let Ok(content) = fs::read_to_string(entry.path()) {
                             if content.to_lowercase().contains(&query) {
                                 results.push(entry.path().to_string_lossy().into_owned());
                             }
                         }
                     }
-                    if results.len() >= 10 { break; }
+                    if results.len() >= limit { break; }
                 }
                 json!({ "matches": results })
             })
@@ -1600,21 +1762,30 @@ pub async fn execute_tool_async(
         "search_filesystem" => {
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
             let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+            let max_depth = args.get("max_depth").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
+            let extension = args.get("file_extension").and_then(|v| v.as_str()).map(|s| s.to_lowercase());
+
             if path.is_empty() || query.is_empty() {
                 return ToolResult::ok(json!({ "error": "Path and query required." }));
             }
             let value = tokio::task::spawn_blocking(move || {
                 let mut results = Vec::new();
                 for entry in WalkDir::new(&path)
-                    .max_depth(5)
+                    .max_depth(max_depth)
                     .into_iter()
                     .filter_map(|e| e.ok())
                 {
+                    if let Some(ref ext) = extension {
+                        if entry.path().extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()) != Some(ext.clone()) {
+                            continue;
+                        }
+                    }
                     let name = entry.file_name().to_string_lossy().to_lowercase();
                     if name.contains(&query) {
                         results.push(entry.path().to_string_lossy().into_owned());
                     }
-                    if results.len() >= 20 { break; }
+                    if results.len() >= limit { break; }
                 }
                 json!({ "matches": results })
             })
@@ -1634,6 +1805,9 @@ pub async fn execute_tool_async(
                 _ => return ToolResult::ok(json!({ "error": "No vault path found. Enable Obsidian in settings or pass an explicit 'path'." })),
             };
             let max_results = args.get("max_results").and_then(|v| v.as_u64()).unwrap_or(12) as usize;
+            let extension = args.get("file_extension").and_then(|v| v.as_str()).map(|s| s.to_lowercase());
+            let modified_after = args.get("modified_after").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|dt| dt.timestamp());
+            let modified_before = args.get("modified_before").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|dt| dt.timestamp());
 
             let value = tokio::task::spawn_blocking(move || {
                 let terms: Vec<String> = query.to_lowercase().split_whitespace().map(|s| s.to_string()).collect();
@@ -1643,9 +1817,35 @@ pub async fn execute_tool_async(
                 for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
                     if !entry.file_type().is_file() { continue; }
                     let p = entry.path();
-                    if p.extension().and_then(|e| e.to_str()) != Some("md") { continue; }
+                    
+                    if let Some(ref ext) = extension {
+                        if p.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()) != Some(ext.clone()) {
+                            continue;
+                        }
+                    } else if p.extension().and_then(|e| e.to_str()) != Some("md") { 
+                        continue; 
+                    }
+
                     if is_hidden_path(p) { continue; }
-                    if let Ok(meta) = fs::metadata(p) { if meta.len() > 1_000_000 { continue; } }
+                    
+                    if let Ok(meta) = fs::metadata(p) { 
+                        if meta.len() > 1_000_000 { continue; } 
+                        if let Some(min_time) = modified_after {
+                            let mtime = meta.modified().ok()
+                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0);
+                            if (mtime as i64) < min_time { continue; }
+                        }
+                        if let Some(max_time) = modified_before {
+                            let mtime = meta.modified().ok()
+                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0);
+                            if (mtime as i64) > max_time { continue; }
+                        }
+                    }
+
                     let content = match fs::read_to_string(p) { Ok(c) => c, Err(_) => continue };
                     files_scanned += 1;
                     let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();

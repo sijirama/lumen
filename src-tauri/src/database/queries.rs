@@ -571,24 +571,45 @@ pub fn get_recent_clipboard_items(
     Ok(results)
 }
 
-// INFO: Searches the clipboard history for a specific query
-pub fn search_clipboard_history(
+// INFO: Searches the clipboard history with optional filters
+pub fn search_clipboard_history_filtered(
     connection: &Connection,
     query: &str,
+    after: Option<&str>,
+    before: Option<&str>,
+    content_type: Option<&str>,
     limit: u32,
 ) -> Result<Vec<serde_json::Value>> {
-    let mut stmt = connection.prepare(
-        "SELECT content, created_at FROM clipboard_history 
-         WHERE content LIKE ?1 
-         ORDER BY created_at DESC 
-         LIMIT ?2",
-    )?;
+    let mut sql = "SELECT content, created_at, type FROM clipboard_history WHERE content LIKE ?1".to_string();
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(format!("%{}%", query))];
+    let mut param_idx = 2;
 
-    let pattern = format!("%{}%", query);
-    let rows = stmt.query_map(params![pattern, limit], |row| {
+    if let Some(a) = after {
+        sql.push_str(&format!(" AND created_at >= ?{}", param_idx));
+        params.push(Box::new(a.to_string()));
+        param_idx += 1;
+    }
+    if let Some(b) = before {
+        sql.push_str(&format!(" AND created_at <= ?{}", param_idx));
+        params.push(Box::new(b.to_string()));
+        param_idx += 1;
+    }
+    if let Some(ct) = content_type {
+        sql.push_str(&format!(" AND type = ?{}", param_idx));
+        params.push(Box::new(ct.to_string()));
+        param_idx += 1;
+    }
+
+    sql.push_str(" ORDER BY created_at DESC LIMIT ?");
+    sql.push_str(&param_idx.to_string());
+    params.push(Box::new(limit));
+
+    let mut stmt = connection.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
         Ok(serde_json::json!({
             "content": row.get::<_, String>(0)?,
-            "timestamp": row.get::<_, String>(1)?
+            "timestamp": row.get::<_, String>(1)?,
+            "type": row.get::<_, String>(2)?
         }))
     })?;
 
@@ -597,6 +618,14 @@ pub fn search_clipboard_history(
         results.push(row?);
     }
     Ok(results)
+}
+
+pub fn search_clipboard_history(
+    connection: &Connection,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<serde_json::Value>> {
+    search_clipboard_history_filtered(connection, query, None, None, None, limit)
 }
 
 // ============================================================================

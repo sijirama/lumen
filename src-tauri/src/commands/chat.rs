@@ -592,7 +592,13 @@ pub async fn send_chat_message(
 
         for part in &non_text_parts {
             if let Some(call) = &part.function_call {
-                crate::applog!("DEBUG: 🛠️ Tool Call -> {} (args: {})", call.name, call.args);
+                let args_str = call.args.to_string();
+                let args_display = if args_str.len() > 300 {
+                    format!("{}... (truncated {} bytes)", &args_str[..300], args_str.len() - 300)
+                } else {
+                    args_str
+                };
+                crate::applog!("DEBUG: 🛠️ Tool Call -> {} (args: {})", call.name, args_display);
 
                 // Vision gate: refuse take_screenshot when the message never
                 // referenced the screen. We feed a refusal back (has_function_calls
@@ -714,7 +720,13 @@ pub async fn send_chat_message(
             // Pass 3: process results, collect inline attachments, build function_responses
             let mut attachments: Vec<crate::gemini::tools::ToolAttachment> = Vec::new();
             for (name, args, res, duration_ms, started_at) in async_results.into_iter().chain(sync_results.into_iter()) {
-                crate::applog!("DEBUG: ✅ Tool '{}' Result: {}", name, res.response);
+                let res_str = res.response.to_string();
+                let res_display = if res_str.len() > 600 {
+                    format!("{}... (truncated {} bytes)", &res_str[..600], res_str.len() - 600)
+                } else {
+                    res_str
+                };
+                crate::applog!("DEBUG: ✅ Tool '{}' Result: {}", name, res_display);
 
                 if name == "create_calendar_event" || name == "delete_calendar_event" {
                     if res.response.get("status").and_then(|s| s.as_str()) == Some("success") || res.response.get("events").is_some() {
@@ -1180,16 +1192,6 @@ pub async fn clear_chat_history(
 ) -> Result<(), String> {
     use crate::database::queries::{clear_chat_messages, get_chat_messages};
 
-    // Grab recent messages for summary before clearing
-    let (messages_for_summary, api_key_opt, session_id_for_summary) = {
-        let conn = database.connection.lock();
-        let msgs = get_chat_messages(&conn, session_id.as_deref(), 30).unwrap_or_default();
-        let key = crate::database::queries::get_api_token(&conn, "gemini")
-            .ok()
-            .flatten()
-            .and_then(|enc| crate::crypto::decrypt_token(&enc).ok());
-        (msgs, key, session_id.clone())
-    };
 
     // Clear the messages
     {
@@ -1202,54 +1204,6 @@ pub async fn clear_chat_history(
             .map_err(|e| format!("Failed to clear session messages: {}", e))?;
         } else {
             clear_chat_messages(&conn).map_err(|e| format!("Failed to clear chat history: {}", e))?;
-        }
-    }
-
-    // Background: generate summary and store as memory
-    if !messages_for_summary.is_empty() {
-        if let Some(api_key) = api_key_opt {
-            let db_clone = database.inner().clone();
-            tokio::spawn(async move {
-                let transcript: Vec<String> = messages_for_summary
-                    .iter()
-                    .map(|m| format!("{}: {}", if m.role == "user" { "User" } else { "Lumen" }, m.content))
-                    .collect();
-                let prompt = format!(
-                    "Summarize this conversation in 2-3 sentences, capturing the key topics, decisions, and outcomes:\n\n{}",
-                    transcript.join("\n")
-                );
-                let client = crate::gemini::GeminiClient::new(api_key.clone());
-                if let Ok(resp) = client.send_chat(
-                    vec![crate::gemini::client::GeminiContent {
-                        role: Some("user".to_string()),
-                        parts: vec![crate::gemini::client::GeminiPart::text(prompt)],
-                    }],
-                    Some("You are a concise summarizer. Return only the summary text, no preamble."),
-                    None,
-                    None,
-                ).await {
-                    let summary = resp.parts.iter().filter(|p| p.thought.is_none()).filter_map(|p| p.text.as_ref()).cloned().collect::<Vec<_>>().join("");
-                    if !summary.is_empty() {
-                        // Store as a memory
-                        let mut memory = crate::memory::extractor::create_memory(
-                            crate::memory::core::MemoryType::Observation,
-                            format!("Conversation summary: {}", summary),
-                            6.0,
-                        );
-                        if let Ok(emb) = client.generate_embedding(&memory.content).await {
-                            memory.embedding = Some(emb);
-                        }
-                        let conn = db_clone.connection.lock();
-                        let _ = crate::memory::core::store_memory(&conn, &memory);
-
-                        // Also store in session record if we have a session_id
-                        if let Some(ref sid) = session_id_for_summary {
-                            let _ = crate::database::queries::update_session_summary(&conn, sid, &summary);
-                        }
-                        crate::applog!("DEBUG: 🧠 Session summary stored as memory.");
-                    }
-                }
-            });
         }
     }
 

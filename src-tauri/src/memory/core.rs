@@ -18,8 +18,6 @@ pub enum MemoryType {
     Entity,
     #[serde(rename = "preference")]
     Preference,
-    #[serde(rename = "daily_summary")]
-    DailySummary,
 }
 
 impl MemoryType {
@@ -29,7 +27,6 @@ impl MemoryType {
             MemoryType::Reflection => "reflection",
             MemoryType::Entity => "entity",
             MemoryType::Preference => "preference",
-            MemoryType::DailySummary => "daily_summary",
         }
     }
 
@@ -39,7 +36,6 @@ impl MemoryType {
             "reflection" => Some(MemoryType::Reflection),
             "entity" => Some(MemoryType::Entity),
             "preference" => Some(MemoryType::Preference),
-            "daily_summary" => Some(MemoryType::DailySummary),
             _ => None,
         }
     }
@@ -60,6 +56,17 @@ pub struct MemoryItem {
     pub embedding: Option<Vec<f32>>,
     #[serde(default)]
     pub score: f64,
+}
+
+//INFO: Advanced filtering options for memory searches
+#[derive(Debug, Default)]
+pub struct MemorySearchFilter {
+    pub memory_type: Option<MemoryType>,
+    pub keyword: Option<String>,
+    pub after: Option<DateTime<Utc>>,
+    pub before: Option<DateTime<Utc>>,
+    pub min_importance: Option<f64>,
+    pub limit: Option<usize>,
 }
 
 //INFO: Store a new memory with its embedding into the database
@@ -293,6 +300,159 @@ pub fn retrieve_memories(
 
     candidates.sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap_or(std::cmp::Ordering::Equal));
     Ok(candidates.into_iter().take(top_k).map(|(m, _)| m).collect())
+}
+
+//INFO: Enhanced search that supports filters (type, time range, keyword) and 
+//      optionally semantic embedding search.
+pub fn search_memories_filtered(
+    conn: &Connection,
+    query_embedding: Option<&[f32]>,
+    filter: MemorySearchFilter,
+) -> Result<Vec<MemoryItem>> {
+    let limit = filter.limit.unwrap_or(15);
+    
+    // Case 1: Semantic search with filters
+    if let Some(embedding) = query_embedding {
+        // We over-fetch candidates and then post-filter them in Rust for simplicity,
+        // as sqlite-vec 0.1.x doesn't support complex WHERE clauses easily with MATCH.
+        // Actually, we can join with memories and filter there.
+        let knn = (limit * 5).max(100) as i64;
+        
+        let mut sql = "SELECT m.id, m.type, m.content, m.importance, m.created_at, m.last_accessed, m.access_count, e.distance 
+                       FROM memory_embeddings e 
+                       JOIN memories m ON m.id = e.id 
+                       WHERE e.embedding MATCH ?1 AND k = ?2".to_string();
+        
+        let mut params = vec![rusqlite::types::Value::from(embedding.as_bytes().to_vec()), rusqlite::types::Value::from(knn)];
+        let mut param_idx = 3;
+
+        if let Some(ref mt) = filter.memory_type {
+            sql.push_str(&format!(" AND m.type = ?{}", param_idx));
+            params.push(rusqlite::types::Value::from(mt.as_str().to_string()));
+            param_idx += 1;
+        }
+        if let Some(ref kw) = filter.keyword {
+            sql.push_str(&format!(" AND m.content LIKE ?{}", param_idx));
+            params.push(rusqlite::types::Value::from(format!("%{}%", kw)));
+            param_idx += 1;
+        }
+        if let Some(ref after) = filter.after {
+            sql.push_str(&format!(" AND m.created_at >= ?{}", param_idx));
+            params.push(rusqlite::types::Value::from(after.to_rfc3339()));
+            param_idx += 1;
+        }
+        if let Some(ref before) = filter.before {
+            sql.push_str(&format!(" AND m.created_at <= ?{}", param_idx));
+            params.push(rusqlite::types::Value::from(before.to_rfc3339()));
+            param_idx += 1;
+        }
+        if let Some(min_imp) = filter.min_importance {
+            sql.push_str(&format!(" AND m.importance >= ?{}", param_idx));
+            params.push(rusqlite::types::Value::from(min_imp));
+        }
+
+        sql.push_str(" ORDER BY e.distance");
+
+        let mut stmt = conn.prepare(&sql).context("Failed to prepare filtered KNN query")?;
+        let mut candidates: Vec<(MemoryItem, f64)> = stmt.query_map(rusqlite::params_from_iter(params), |row| {
+            let distance: f64 = row.get(7)?;
+            Ok((
+                MemoryItem {
+                    id: row.get(0)?,
+                    memory_type: MemoryType::from_str(&row.get::<_, String>(1)?).unwrap_or(MemoryType::Observation),
+                    content: row.get(2)?,
+                    importance: row.get(3)?,
+                    created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
+                    last_accessed: DateTime::parse_from_rfc3339(&row.get::<_, String>(5)?).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
+                    access_count: row.get(6)?,
+                    embedding: None,
+                    score: 0.0,
+                },
+                distance,
+            ))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+        if candidates.is_empty() { return Ok(vec![]); }
+
+        // Re-rank using the same formula
+        let now = Utc::now();
+        let recencies: Vec<f64> = candidates.iter().map(|(m, _)| {
+            let hours = (now - m.last_accessed).num_minutes() as f64 / 60.0;
+            0.995_f64.powf(hours.max(0.0))
+        }).collect();
+        let importances: Vec<f64> = candidates.iter().map(|(m, _)| m.importance).collect();
+        let relevances: Vec<f64> = candidates.iter().map(|(_, d)| 1.0 / (1.0 + d.max(0.0))).collect();
+
+        let (min_rec, max_rec) = min_max(&recencies);
+        let (min_imp, max_imp) = min_max(&importances);
+        let (min_rel, max_rel) = min_max(&relevances);
+
+        for (i, (m, _)) in candidates.iter_mut().enumerate() {
+            m.score = normalize(recencies[i], min_rec, max_rec)
+                + normalize(importances[i], min_imp, max_imp)
+                + normalize(relevances[i], min_rel, max_rel);
+        }
+
+        candidates.sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(candidates.into_iter().take(limit).map(|(m, _)| m).collect())
+
+    } else {
+        // Case 2: Pure SQL filter search (no semantic embedding)
+        let mut sql = "SELECT id, type, content, importance, created_at, last_accessed, access_count 
+                       FROM memories WHERE 1=1".to_string();
+        let mut params = Vec::new();
+        let mut param_idx = 1;
+
+        if let Some(ref mt) = filter.memory_type {
+            sql.push_str(&format!(" AND type = ?{}", param_idx));
+            params.push(rusqlite::types::Value::from(mt.as_str().to_string()));
+            param_idx += 1;
+        }
+        if let Some(ref kw) = filter.keyword {
+            sql.push_str(&format!(" AND content LIKE ?{}", param_idx));
+            params.push(rusqlite::types::Value::from(format!("%{}%", kw)));
+            param_idx += 1;
+        }
+        if let Some(ref after) = filter.after {
+            sql.push_str(&format!(" AND created_at >= ?{}", param_idx));
+            params.push(rusqlite::types::Value::from(after.to_rfc3339()));
+            param_idx += 1;
+        }
+        if let Some(ref before) = filter.before {
+            sql.push_str(&format!(" AND created_at <= ?{}", param_idx));
+            params.push(rusqlite::types::Value::from(before.to_rfc3339()));
+            param_idx += 1;
+        }
+        if let Some(min_imp) = filter.min_importance {
+            sql.push_str(&format!(" AND importance >= ?{}", param_idx));
+            params.push(rusqlite::types::Value::from(min_imp));
+            param_idx += 1;
+        }
+
+        sql.push_str(" ORDER BY created_at DESC LIMIT ?");
+        params.push(rusqlite::types::Value::from(limit as i64));
+
+        let mut stmt = conn.prepare(&sql).context("Failed to prepare memory filter query")?;
+        let memories = stmt.query_map(rusqlite::params_from_iter(params), |row| {
+            Ok(MemoryItem {
+                id: row.get(0)?,
+                memory_type: MemoryType::from_str(&row.get::<_, String>(1)?).unwrap_or(MemoryType::Observation),
+                content: row.get(2)?,
+                importance: row.get(3)?,
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
+                last_accessed: DateTime::parse_from_rfc3339(&row.get::<_, String>(5)?).map(|dt| dt.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now()),
+                access_count: row.get(6)?,
+                embedding: None,
+                score: 0.0,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+        Ok(memories)
+    }
 }
 
 fn normalize(val: f64, min: f64, max: f64) -> f64 {
